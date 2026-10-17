@@ -1,0 +1,37 @@
+{
+  "name": "central_pattaya",
+  "source": "data/osm/raw/central_pattaya_2026-10-18.json",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+
+  "slice_bbox_s_w_n_e": [12.921, 100.862, 12.953, 100.893],
+  "crs": "EPSG:32647",
+
+  "meters_per_stud": 0.28,
+  "compression": 0.5,
+
+  "road_classes": {
+    "trunk":          {"tier": "express",   "lanes": 6, "keep": true},
+    "trunk_link":     {"tier": "express",   "lanes": 2, "keep": true},
+    "primary":        {"tier": "main",      "lanes": 4, "keep": true},
+    "primary_link":   {"tier": "main",      "lanes": 2, "keep": true},
+    "secondary":      {"tier": "main",      "lanes": 4, "keep": true},
+    "secondary_link": {"tier": "main",      "lanes": 2, "keep": true},
+    "tertiary":       {"tier": "main",      "lanes": 2, "keep": true},
+    "tertiary_link":  {"tier": "main",      "lanes": 2, "keep": true},
+    "residential":    {"tier": "soi",       "lanes": 2, "keep": true},
+    "unclassified":   {"tier": "soi",       "lanes": 2, "keep": true},
+    "living_street":  {"tier": "soi",       "lanes": 1, "keep": true}
+  },
+  "coastal_road_names_en": ["Pattaya Sai Nueng Road", "Beach Road"],
+
+  "lane_width_studs": 13,
+  "min_lane_width_studs": 11,
+  "sidewalk_studs": {"express": 0, "main": 10, "soi": 6},
+
+  "min_soi_length_m": 60,
+  "drop_dead_end_sois_shorter_m": 120,
+
+  "smoothing": {"chaikin_iterations": 3, "resample_studs": 6},
+
+  "chunk_size_studs": 512
+}

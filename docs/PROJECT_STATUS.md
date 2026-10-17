@@ -1,0 +1,19 @@
+# Project status — Pattaya Racing World
+
+Last update: 2026-10-18. Statuses are only "done" when tested; see "How tested".
+
+| Phase | Status | Deliverables | How tested | Known limits |
+|---|---|---|---|---|
+| 0 Audit | done | Python 3.12 venv + Git installed (owner approved), repo initialised, first checkpoint | tools run, `git log` | Game code lives in the Studio place only; copies of new Luau sources are in `roblox/src/` |
+| 1 GIS retrieval | done | `data/osm/queries/central_pattaya.overpassql`, raw `data/osm/raw/central_pattaya_2026-10-18.json` (15,217 elements, OSM base 2026-10-17T22:33Z), normalised `data/osm/normalized/central_pattaya.json` | element counts printed; road names checked (Pattaya Sai 1/2, Nuea/Klang/Tai, Thappraya, Pra Tamnak, Sukhumvit) | No elevation data yet; only the central bbox downloaded |
+| 2 Road graph | done (slice) | `build/central_pattaya/graph_source.json` | connected-component check: 1 component kept (49 disconnected edges dropped, 141 short dead-end sois pruned) | Bridges/tunnels/layers not modelled (tunnels skipped) |
+| 3 Gameplay transform | done (first pass) | `build/central_pattaya/graph_game.json`, `compare.png` | visual source vs gameplay comparison | 1:2 compression is the starting experiment; no overlap check between widened parallel roads yet |
+| 4 Roblox roads | in progress | `tools/mapgen/export_roblox.py`, `roblox/src/ServerStorage/PattayaBuilder.luau`, Studio `workspace.PattayaWorld` (72 chunks, 7,545 road parts, 463 junction discs), terrain ground/sea/sand | builder ran in Studio without errors | NOT yet driven on, NOT yet looked at (Studio viewport capture returned blank); no spawn point in Pattaya yet |
+| 5 Buildings + coast | not started | | | |
+| 6 First playable zone | not started | | | |
+| 7–11 | not started | | | |
+
+## Existing systems kept (not replaced)
+- Car pipeline (concepts → Hunyuan3D → GLB) and 6 cars in `ServerStorage.CarBodies`.
+- `RaceMap` test city at X≈6000, `RaceCarServer`, `CarController` (raycast arcade chassis).
+- Template content in the place is untouched.
