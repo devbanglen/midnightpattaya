@@ -7,7 +7,7 @@ local Builder = {}
 
 Builder.ORIGIN = Vector3.new(20000, 0, 0) -- world position of gameplay (0, 0): clear of the template and RaceMap
 local ROAD_TOP = 1.0
-local ROAD_THICK = 1.0
+local ROAD_THICK = 4.0 -- reaches below the terrain surface (y = -2) so road edges don't float
 local CURB = 0.6
 local MARK_THICK = 0.05
 
@@ -171,7 +171,11 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 		end
 	end
 	if e.sidewalk > 0 then
-		local sw = trim(pts, ra + e.sidewalk, rb + e.sidewalk)
+		-- at a junction disc the sidewalk stops where the crossing road's edge is (disc radius + this sidewalk);
+		-- at a plain joint (no disc) it runs to the end so it meets the next edge's sidewalk
+		local sa = if ra > 0 then ra + e.sidewalk else 0
+		local sb = if rb > 0 then rb + e.sidewalk else 0
+		local sw = trim(pts, sa, sb)
 		if sw then
 			for _, side in {-1, 1} do
 				stripe(road, "Sidewalk", offset(sw, side * (e.width + e.sidewalk) / 2), e.sidewalk, ROAD_TOP + CURB, ROAD_THICK + CURB, COLORS.sidewalk, true)
@@ -185,9 +189,19 @@ local function buildTerrain(man: any)
 	local terrain = workspace.Terrain
 	local o = Builder.ORIGIN
 	local f = man.frame
-	-- ground slab under the whole slice (top at y = 0, roads sit 1 stud above), then the sea carved in
-	local size = Vector3.new(f.maxX - f.minX, 16, f.maxZ - f.minZ)
-	local centre = o + Vector3.new((f.minX + f.maxX) / 2, -8, (f.minZ + f.maxZ) / 2)
+	-- Measured: a voxel slab filled up to the grid line y = Y renders/collides at Y + 2, and filling the same block a
+	-- second time does not overwrite existing voxels. So: clear the frame's top layers first, fill ground up to
+	-- y = -4 (surface at -2, under the roads), then carve sea and beach with ReplaceMaterial on grid-aligned regions.
+	local function replace(x0: number, x1: number, z0: number, z1: number, y0: number, y1: number, from: Enum.Material, to: Enum.Material)
+		local region = Region3.new(o + Vector3.new(x0, y0, z0), o + Vector3.new(x1, y1, z1)):ExpandToGrid(4)
+		terrain:ReplaceMaterial(region, 4, from, to)
+	end
+	for _, m in {Enum.Material.Ground, Enum.Material.Sand, Enum.Material.Water} do
+		replace(f.minX, f.maxX, f.minZ, f.maxZ, -16, 8, m, Enum.Material.Air)
+		task.wait()
+	end
+	local size = Vector3.new(f.maxX - f.minX, 12, f.maxZ - f.minZ)
+	local centre = o + Vector3.new((f.minX + f.maxX) / 2, -10, (f.minZ + f.maxZ) / 2)
 	terrain:FillBlock(CFrame.new(centre), size, Enum.Material.Ground)
 	task.wait()
 	local cell = man.seaCell
@@ -195,11 +209,9 @@ local function buildTerrain(man: any)
 		local r = row.runs
 		for k = 1, #r, 2 do
 			local x0, x1 = r[k], r[k + 1]
-			local c = o + Vector3.new((x0 + x1) / 2, -8, row.z + cell / 2)
-			terrain:FillBlock(CFrame.new(c), Vector3.new(x1 - x0, 16, cell), Enum.Material.Water)
-			-- a sand step along the waterline so the beach reads from the road
-			local beach = o + Vector3.new(x1 + 24, -1, row.z + cell / 2)
-			terrain:FillBlock(CFrame.new(beach), Vector3.new(48, 2, cell), Enum.Material.Sand)
+			replace(x0, x1, row.z, row.z + cell, -16, -4, Enum.Material.Ground, Enum.Material.Water)
+			-- a sand strip along the waterline so the beach reads from the road
+			replace(x1, x1 + 48, row.z, row.z + cell, -8, -4, Enum.Material.Ground, Enum.Material.Sand)
 		end
 		if i % 40 == 0 then
 			task.wait()
