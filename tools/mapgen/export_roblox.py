@@ -87,10 +87,10 @@ def main(cfg_path):
     # stage 6 layout: props go to chunks (flat x, z[, dx, dz]); race, spawn and landmarks go to the manifest
     lpath = os.path.join(ROOT, 'build', cfg['name'], 'layout.json')
     layout = json.load(open(lpath, encoding='utf-8')) if os.path.exists(lpath) else None
-    pchunks = defaultdict(lambda: {'palms': [], 'lights': []})
+    pchunks = defaultdict(lambda: {'palms': [], 'lights': [], 'signs': []})
     if layout:
-        for kind in ('palms', 'lights'):
-            for p in layout[kind]:
+        for kind in ('palms', 'lights', 'signs'):
+            for p in layout.get(kind, []):
                 cid = (int(math.floor(p['x'] / C)), int(math.floor(p['z'] / C)))
                 pchunks[cid][kind].append(p)
                 chunks.setdefault(cid, [])
@@ -103,6 +103,8 @@ def main(cfg_path):
                                              f'{palettes.index(b["palette"]) + 1},{b["id"]}' for b in bchunks.get((cx, cz), [])) + '},',
                  '  palms = {' + ','.join(f'{p["x"]:.1f},{p["z"]:.1f}' for p in pchunks[(cx, cz)]['palms']) + '},',
                  '  lights = {' + ','.join(f'{p["x"]:.1f},{p["z"]:.1f},{p["dx"]:.2f},{p["dz"]:.2f}' for p in pchunks[(cx, cz)]['lights']) + '},',
+                 '  signs = {' + ','.join(f'{p["x"]:.1f},{p["z"]:.1f},{p["nx"]:.2f},{p["nz"]:.2f},{p["w"]},{p["h"]},{p["y"]},{p["color"]}'
+                                        for p in pchunks[(cx, cz)]['signs']) + '},',
                  '  edges = {']
         for e, q in items:
             flat = ','.join(f'{x:.2f},{z:.2f}' for x, z in q)
@@ -179,6 +181,7 @@ return {{
   levelStuds = {level_studs:.3f},
   palettes = {{ {', '.join(f'"{p}"' for p in palettes)} }},
   facades = {{ tower = "{facades['tower']}", office = "{facades['office']}", shophouse = "{facades['shophouse']}" }},
+  facadesNight = {{ tower = "{facades['tower_night']}", office = "{facades['office_night']}", shophouse = "{facades['shophouse_night']}" }},
   frame = {{ minX = {minx:.0f}, maxX = {maxx:.0f}, minZ = {minz:.0f}, maxZ = {maxz:.0f} }},
   seaCell = {SEA_CELL},
   sea = {{

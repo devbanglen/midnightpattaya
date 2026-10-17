@@ -147,6 +147,42 @@ def main(cfg_path):
                         palms.append(item)
             s += step
 
+    # --- neon shop signs in the nightlife district (around a POI), on the building face that looks at the road ----
+    signs = []
+    sc = L.get('signs')
+    if sc:
+        from pyproj import Transformer as _T
+        _tf = _T.from_crs('EPSG:4326', cfg['crs'], always_xy=True)
+        _poi = next(p for p in json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'),
+                                             encoding='utf-8'))['pois'] if p['id'] == sc['centre_osm_id'])
+        _x, _y = _tf.transform(_poi['lon'], _poi['lat'])
+        _k = cfg['compression'] / cfg['meters_per_stud']
+        centre = Point((_x - g['origin_utm'][0]) * _k, -(_y - g['origin_utm'][1]) * _k)
+        road_lines = [LineString(e['pts']) for e in edges]
+        ltree = STRtree(road_lines)
+        rng = np.random.default_rng(7)
+        for b in json.load(open(bpath, encoding='utf-8'))['buildings']:
+            if b['palette'] not in ('shophouse', 'commercial', 'hotel') or len(signs) >= sc['max']:
+                continue
+            c = Point(b['x'], b['z'])
+            if c.distance(centre) > sc['radius_studs'] or rng.random() > sc['probability']:
+                continue
+            near = road_lines[ltree.nearest(c)]
+            rp = near.interpolate(near.project(c))
+            to_road = np.array([rp.x - c.x, rp.y - c.y])
+            if np.linalg.norm(to_road) > max(b['w'], b['d']) / 2 + 40:
+                continue
+            yaw = math.radians(b['yaw'])
+            ax_w = np.array([math.cos(yaw), math.sin(yaw)])           # local +X (width)
+            ax_d = np.array([-math.sin(yaw), math.cos(yaw)])          # local +Z (depth)
+            faces = [(ax_w, b['w'], b['d']), (-ax_w, b['w'], b['d']), (ax_d, b['d'], b['w']), (-ax_d, b['d'], b['w'])]
+            n, half, span = max(faces, key=lambda f: f[0] @ to_road)   # face normal most aligned with the road
+            pos = np.array([b['x'], b['z']]) + n * (half / 2 + 0.6)
+            h_sign = min(6.0, b['h'] * 0.25)
+            signs.append({'x': round(pos[0], 2), 'z': round(pos[1], 2), 'nx': round(n[0], 3), 'nz': round(n[1], 3),
+                          'w': round(min(span * 0.7, 26), 1), 'h': round(h_sign, 1),
+                          'y': round(min(b['h'] - h_sign, 12 + rng.random() * 6), 1), 'color': int(rng.integers(1, 6))})
+
     # --- landmarks (proxies) ------------------------------------------------------------------------------------
     landmarks = []
     src = json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'), encoding='utf-8'))
@@ -194,12 +230,12 @@ def main(cfg_path):
                     'route_edges': route_edges, 'checkpoints': checkpoints, 'grid': grid,
                     'legs': [l['names'][0] for l in legs]},
            'spawn': {'x': round(spawn[0], 2), 'z': round(spawn[1], 2)},
-           'palms': palms, 'lights': lights, 'landmarks': landmarks}
+           'palms': palms, 'lights': lights, 'signs': signs, 'landmarks': landmarks}
     out_dir = os.path.join(ROOT, 'build', cfg['name'])
     json.dump(out, open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     print(f"race '{L['race_name']}': {total:,.0f} studs per lap ({total * cfg['meters_per_stud']:,.0f} m in-game), "
           f"{len(route_edges)} edges, {len(checkpoints)} checkpoints, {len(grid)} grid slots")
-    print(f'props: {len(palms)} palms, {len(lights)} street lights; landmarks: {[l["id"] for l in landmarks]}')
+    print(f'props: {len(palms)} palms, {len(lights)} street lights, {len(signs)} neon signs; landmarks: {[l["id"] for l in landmarks]}')
 
     # check image
     allp = np.array([p for e in edges for p in e['pts']])

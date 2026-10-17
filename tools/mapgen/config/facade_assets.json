@@ -2,5 +2,8 @@
   "_note": "Roblox image asset ids of art/textures/facade_*.png (uploaded 2026-10-18 via Studio MCP upload_image)",
   "tower": "rbxassetid://121225263729601",
   "office": "rbxassetid://118294227912168",
-  "shophouse": "rbxassetid://140721245282057"
+  "shophouse": "rbxassetid://140721245282057",
+  "tower_night": "rbxassetid://80161075855884",
+  "office_night": "rbxassetid://107376065435168",
+  "shophouse_night": "rbxassetid://72102306735221"
 }

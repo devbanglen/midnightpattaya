@@ -49,6 +49,7 @@
     "grid_slots": 6,
     "palm_spacing_studs": 34,
     "light_spacing_studs": 70,
+    "signs": {"centre_osm_id": 1207751537, "radius_studs": 900, "probability": 0.75, "max": 450},
     "landmarks": [
       {"id": "walking_street_gate", "kind": "gate", "label": "WALKING STREET", "at": "poi", "osm_id": 1207751537}
     ]

@@ -228,6 +228,7 @@ local function buildBuildings(chunk: Instance, rows: {number}, man: any)
 				t.StudsPerTileV = level
 				t.StudsPerTileU = if facade == "shophouse" then level * 1.3 else level * 1.1
 				t.OffsetStudsV = (h % level) -- full floors line up with the top
+				t:SetAttribute("Facade", facade) -- PattayaNightLights swaps to the lit night tile after dark
 				t.Parent = body
 			end
 		end
@@ -247,8 +248,11 @@ local PALM_LEAF = Color3.fromRGB(58, 140, 60)
 local POLE = Color3.fromRGB(70, 72, 78)
 local LAMP = Color3.fromRGB(255, 236, 190)
 
-local function buildProps(chunk: Instance, palms: {number}, lights: {number})
-	if #palms == 0 and #lights == 0 then
+local SIGN_COLORS = {Color3.fromRGB(255, 50, 170), Color3.fromRGB(0, 220, 255), Color3.fromRGB(255, 200, 40),
+	Color3.fromRGB(140, 90, 255), Color3.fromRGB(80, 255, 120)}
+
+local function buildProps(chunk: Instance, palms: {number}, lights: {number}, signs: {number})
+	if #palms == 0 and #lights == 0 and #signs == 0 then
 		return
 	end
 	local folder = Instance.new("Model")
@@ -273,8 +277,28 @@ local function buildProps(chunk: Instance, palms: {number}, lights: {number})
 		local arm = newPart(folder, "LightArm", Vector3.new(0.4, 0.4, 7), base * CFrame.new(0, 19.8, -3.5), POLE, false)
 		arm.CanQuery = false
 		local lamp = newPart(folder, "Lamp", Vector3.new(1.6, 0.5, 2.6), base * CFrame.new(0, 19.4, -6.6), LAMP, false)
-		lamp.Material = Enum.Material.Neon
+		lamp.Material = Enum.Material.SmoothPlastic -- PattayaNightLights makes it Neon and lights it after dark
 		lamp.CanQuery = false
+		if (i - 1) / 4 % 2 == 0 then -- a real light on every second lamp keeps the light count down
+			local light = Instance.new("SpotLight")
+			light.Face = Enum.NormalId.Bottom
+			light.Angle = 110
+			light.Range = 38
+			light.Brightness = 2.2
+			light.Color = Color3.fromRGB(255, 220, 170)
+			light.Shadows = false
+			light.Enabled = false
+			light.Parent = lamp
+		end
+	end
+	for i = 1, #signs, 8 do
+		local x, z, nx, nz, w, h, y, ci = signs[i], signs[i + 1], signs[i + 2], signs[i + 3], signs[i + 4], signs[i + 5], signs[i + 6], signs[i + 7]
+		local cf = CFrame.lookAt(Vector3.new(x, ROAD_TOP - 1 + y + h / 2, z), Vector3.new(x + nx, ROAD_TOP - 1 + y + h / 2, z + nz))
+		local sign = newPart(folder, "NeonSign", Vector3.new(w, h, 0.6), cf, SIGN_COLORS[ci], false)
+		sign.Material = Enum.Material.Neon
+		sign.CanQuery = false
+		local frame = newPart(folder, "SignFrame", Vector3.new(w + 0.8, h + 0.8, 0.4), cf * CFrame.new(0, 0, 0.35), Color3.fromRGB(25, 25, 30), false)
+		frame.CanQuery = false
 	end
 	folder.Parent = chunk
 end
@@ -381,7 +405,8 @@ local function buildRace(world: Instance, man: any)
 	spawn.Size = Vector3.new(12, 1, 12)
 	spawn.CFrame = CFrame.new(man.spawn.x, ROAD_TOP + 0.5, man.spawn.z)
 	spawn.Color = Color3.fromRGB(0, 170, 255)
-	spawn.Material = Enum.Material.Neon
+	spawn.Material = Enum.Material.SmoothPlastic -- Neon bloomed over the whole screen at night
+	spawn.Transparency = 0.3
 	spawn.Duration = 0
 	spawn.CanQuery = false -- cars drive over it on their suspension rays
 	spawn.Parent = folder
@@ -440,6 +465,8 @@ function Builder.Build(opts: {terrain: boolean?}?)
 	world:SetAttribute("Attribution", man.attribution)
 	world:SetAttribute("OsmBase", man.osmBase)
 	world:SetAttribute("Compression", man.compression)
+	for kind, id in man.facades do world:SetAttribute("Facade_" .. kind, id) end
+	for kind, id in man.facadesNight do world:SetAttribute("FacadeNight_" .. kind, id) end
 	world.Parent = workspace
 
 	local junctionR: {[number]: number} = {}
@@ -468,7 +495,7 @@ function Builder.Build(opts: {terrain: boolean?}?)
 			buildEdge(chunk, e :: Edge, junctionR)
 		end
 		buildBuildings(chunk, chunkData.buildings or {}, man)
-		buildProps(chunk, chunkData.palms or {}, chunkData.lights or {})
+		buildProps(chunk, chunkData.palms or {}, chunkData.lights or {}, chunkData.signs or {})
 		chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
 		for _, d in chunk:GetDescendants() do
 			if d:IsA("BasePart") then count += 1 end
