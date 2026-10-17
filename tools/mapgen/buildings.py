@@ -133,13 +133,17 @@ def main(cfg_path):
             area_m2 = rect.area / k / k
             cat = 'hotel' if front and area_m2 > 400 else 'commercial' if area_m2 > 900 else 'shophouse' if area_m2 > 60 else 'house'
         levels = None
-        try:
+        try:                                           # height first ("15", "15 m", "15m")...
             if b.get('height'):
-                levels = max(1, round(float(str(b['height']).split()[0]) / bc['level_height_m']))
-            elif b.get('levels'):
-                levels = max(1, round(float(str(b['levels']).split(';')[0])))
+                levels = max(1, round(float(str(b['height']).replace('m', ' ').split()[0]) / bc['level_height_m']))
         except ValueError:
             pass
+        if levels is None:                             # ...then building:levels, parsed on its own
+            try:
+                if b.get('levels'):
+                    levels = max(1, round(float(str(b['levels']).split(';')[0])))
+            except ValueError:
+                pass
         source = 'osm'
         if levels is None:
             lo, hi = CATEGORIES[cat][0]
@@ -154,7 +158,9 @@ def main(cfg_path):
         stats['kept'] += 1
 
     out_dir = os.path.join(ROOT, 'build', cfg['name'])
-    json.dump({'attribution': g['attribution'], 'level_studs': level_studs, 'buildings': boxes},
+    import hashlib
+    ghash = hashlib.sha1(open(os.path.join(ROOT, 'build', cfg['name'], 'graph_game.json'), 'rb').read()).hexdigest()
+    json.dump({'attribution': g['attribution'], 'graph_sha1': ghash, 'level_studs': level_studs, 'buildings': boxes},
               open(os.path.join(out_dir, 'buildings_game.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     print(', '.join(f'{a} {b}' for a, b in stats.most_common()))
     print('categories: ' + ', '.join(f'{a} {b}' for a, b in Counter(x['cat'] for x in boxes).most_common()))

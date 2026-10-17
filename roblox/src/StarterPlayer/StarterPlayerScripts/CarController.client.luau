@@ -24,12 +24,20 @@ local CONFIG = {
 	driftGrip = 1.4,
 	driftTurnBoost = 1.4,
 	airUpright = 3,         -- pitch/roll damping while airborne
+	-- nitro gauge (RayCity SP style): drains while boosting, refills slowly, faster while drifting; race and sprint
+	-- checkpoints add a chunk (NitroBonus remote)
+	nitroMax = 100,
+	nitroDrain = 28,        -- per second while boosting
+	nitroRegen = 4,         -- per second, always
+	nitroDriftRegen = 14,   -- extra per second while drifting above 40 studs/s
 }
 
 local state = {
 	nitro = false,
 	drift = false,
 	spin = 0,
+	fuel = 100,
+	boosting = false,
 }
 
 local params = RaycastParams.new()
@@ -51,6 +59,29 @@ speedLabel.TextColor3 = Color3.new(1, 1, 1)
 speedLabel.TextStrokeTransparency = 0.4
 speedLabel.TextXAlignment = Enum.TextXAlignment.Right
 speedLabel.Parent = gui
+local nitroBack = Instance.new("Frame")
+nitroBack.AnchorPoint = Vector2.new(1, 1)
+nitroBack.Position = UDim2.new(1, -24, 1, -96)
+nitroBack.Size = UDim2.fromOffset(220, 12)
+nitroBack.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+nitroBack.BackgroundTransparency = 0.3
+nitroBack.Parent = gui
+Instance.new("UICorner", nitroBack).CornerRadius = UDim.new(0, 6)
+local nitroFill = Instance.new("Frame")
+nitroFill.Size = UDim2.fromScale(1, 1)
+nitroFill.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
+nitroFill.Parent = nitroBack
+Instance.new("UICorner", nitroFill).CornerRadius = UDim.new(0, 6)
+local nitroLabel = Instance.new("TextLabel")
+nitroLabel.AnchorPoint = Vector2.new(1, 1)
+nitroLabel.Position = UDim2.new(1, -250, 1, -92)
+nitroLabel.Size = UDim2.fromOffset(50, 20)
+nitroLabel.BackgroundTransparency = 1
+nitroLabel.Font = Enum.Font.GothamBlack
+nitroLabel.TextSize = 16
+nitroLabel.TextColor3 = Color3.fromRGB(0, 200, 255)
+nitroLabel.Text = "NOS"
+nitroLabel.Parent = gui
 local hint = Instance.new("TextLabel")
 hint.AnchorPoint = Vector2.new(0, 1)
 hint.Position = UDim2.new(0, 16, 1, -16)
@@ -154,13 +185,14 @@ local function step(dt)
 
 	if grounded >= 2 then
 		local impulse = Vector3.zero
-		local top = state.nitro and CONFIG.nitroSpeed or CONFIG.maxSpeed
+		state.boosting = state.nitro and state.fuel > 0 and throttle > 0
+		local top = state.boosting and CONFIG.nitroSpeed or CONFIG.maxSpeed
 		local accel = 0
 		if throttle > 0 then
 			if fs < -2 then
 				accel = CONFIG.brake
 			elseif fs < top then
-				accel = (state.nitro and CONFIG.nitroAccel or CONFIG.accel) * throttle
+				accel = (state.boosting and CONFIG.nitroAccel or CONFIG.accel) * throttle
 			end
 		elseif throttle < 0 then
 			if fs > 2 then
@@ -193,7 +225,20 @@ local function step(dt)
 		chassis.AssemblyAngularVelocity = yawPart + (av - yawPart) * (1 - math.min(1, CONFIG.airUpright * dt))
 	end
 
-	speedLabel.Text = string.format("%d km/h%s", math.floor(math.abs(fs) * 1.0 + 0.5), state.nitro and " NOS" or "")
+	-- nitro gauge
+	if state.boosting then
+		state.fuel -= CONFIG.nitroDrain * dt
+	else
+		local regen = CONFIG.nitroRegen
+		if state.drift and math.abs(fs) > 40 and grounded >= 2 then
+			regen += CONFIG.nitroDriftRegen
+		end
+		state.fuel += regen * dt
+	end
+	state.fuel = math.clamp(state.fuel, 0, CONFIG.nitroMax)
+	nitroFill.Size = UDim2.fromScale(state.fuel / CONFIG.nitroMax, 1)
+	nitroFill.BackgroundColor3 = if state.boosting then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(0, 200, 255)
+	speedLabel.Text = string.format("%d km/h%s", math.floor(math.abs(fs) * 1.0 + 0.5), state.boosting and " NOS" or "")
 end
 
 -- Enter / exit ------------------------------------------------------------------
@@ -234,6 +279,17 @@ end
 
 if player.Character then watchCharacter(player.Character) end
 player.CharacterAdded:Connect(watchCharacter)
+
+-- checkpoint bonuses from PattayaRaceServer / PattayaSprintServer
+task.spawn(function()
+	local remotes = game:GetService("ReplicatedStorage"):WaitForChild("PattayaRemotes", 60)
+	local bonus = remotes and remotes:WaitForChild("NitroBonus", 60)
+	if bonus then
+		bonus.OnClientEvent:Connect(function(amount)
+			state.fuel = math.min(CONFIG.nitroMax, state.fuel + amount)
+		end)
+	end
+end)
 
 RunService.Heartbeat:Connect(function(dt)
 	if current and current.chassis.Parent then

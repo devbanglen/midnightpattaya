@@ -6,7 +6,7 @@ Writes build/<name>/layout.json and layout_check.png. Everything is derived from
 ids), so it follows the data when the config changes.
 """
 import heapq, json, math, os, sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon
 from shapely import affinity
@@ -80,17 +80,35 @@ def main(cfg_path):
     line = LineString(route_pts)
     total = line.length
     n_cp = max(4, int(total // L['checkpoint_spacing_studs']))
-    checkpoints = []
+    # gates must not sit on a junction: a gate is judged by crossing its plane, and a car turning in from the crossing
+    # road can already be past that plane (found in test: gate 1 on the Klang/Beach junction never counted a lap)
+    jpts = [Point(g['nodes'][str(n)]) for n, d in Counter([e['a'] for e in edges] + [e['b'] for e in edges]).items() if d >= 3]
+    jtree = STRtree(jpts)
+    clear = L.get('gate_junction_clearance_studs', 35)
+    gate_s = []
     for j in range(n_cp):
         s = j * total / n_cp
+        for _ in range(20):
+            p = line.interpolate(s)
+            if jpts[jtree.nearest(p)].distance(p) >= clear:
+                break
+            s = (s + 10) % total
+        gate_s.append(s)
+    checkpoints = []
+    for j, s in enumerate(gate_s):
         p = line.interpolate(s); q = line.interpolate(min(s + 4, total))
         checkpoints.append({'x': round(p.x, 2), 'z': round(p.y, 2), 'dx': round(q.x - p.x, 3), 'dz': round(q.y - p.y, 3)})
-    # width at each checkpoint = width of the nearest route edge
+    # width at each checkpoint = width of the route edge that contains its arc-length position (at a junction the
+    # nearest edge may be the crossing road)
     widths = {e['id']: e['width'] for e in edges}
-    route_lines = [(LineString(e['pts']), widths[e['id']]) for e in edges if e['id'] in set(route_edges)]
-    for c in checkpoints:
-        pt = Point(c['x'], c['z'])
-        c['w'] = round(min(route_lines, key=lambda t: t[0].distance(pt))[1] + 6, 1)
+    plen_by = {e['id']: plen(e['pts']) for e in edges}
+    bounds, acc = [], 0.0
+    for eid in route_edges:
+        bounds.append((acc, acc + plen_by[eid], widths[eid])); acc += plen_by[eid]
+    for j, c in enumerate(checkpoints):
+        s = gate_s[j] + 1.0                              # just past the gate, inside the edge it leads into
+        w = next((w for a, b, w in bounds if a <= s < b), bounds[-1][2])
+        c['w'] = round(w + 6, 1)
 
     # start grid: just after checkpoint 0, two columns, cars facing along the route
     s0 = checkpoints[0]
@@ -129,7 +147,8 @@ def main(cfg_path):
             step, kind = L['light_spacing_studs'], 'light'
         else:
             continue
-        off = e['width'] / 2 + max(e['sidewalk'], 4) / 2
+        # sidewalk centre; roads without sidewalks get the pole just outside their own clearance buffer
+        off = e['width'] / 2 + (e['sidewalk'] / 2 if e['sidewalk'] >= 4 else 4)
         s = step / 2
         while s < ln.length - step / 3:
             p = ln.interpolate(s); q = ln.interpolate(min(s + 2, ln.length))
@@ -153,8 +172,12 @@ def main(cfg_path):
     if sc:
         from pyproj import Transformer as _T
         _tf = _T.from_crs('EPSG:4326', cfg['crs'], always_xy=True)
-        _poi = next(p for p in json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'),
-                                             encoding='utf-8'))['pois'] if p['id'] == sc['centre_osm_id'])
+        _poi = next((p for p in json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'),
+                                              encoding='utf-8'))['pois'] if p['id'] == sc['centre_osm_id']), None)
+        if _poi is None:
+            print(f"signs: centre OSM node {sc['centre_osm_id']} not in the data, no signs")
+            sc = None
+    if sc:
         _x, _y = _tf.transform(_poi['lon'], _poi['lat'])
         _k = cfg['compression'] / cfg['meters_per_stud']
         centre = Point((_x - g['origin_utm'][0]) * _k, -(_y - g['origin_utm'][1]) * _k)
@@ -201,8 +224,9 @@ def main(cfg_path):
             e = min(edges, key=lambda e: LineString(e['pts']).distance(pt))
             ln = LineString(e['pts'])
             s = ln.project(pt)
-            p = ln.interpolate(s); q = ln.interpolate(min(s + 3, ln.length))
-            d = np.array([q.x - p.x, q.y - p.y]); d /= np.linalg.norm(d)
+            p = ln.interpolate(s)
+            a_, b_ = ln.interpolate(max(s - 3, 0)), ln.interpolate(min(s + 3, ln.length))   # tangent works at the ends too
+            d = np.array([b_.x - a_.x, b_.y - a_.y]); d /= np.linalg.norm(d)
             landmarks.append({'id': lm['id'], 'kind': lm['kind'], 'label': lm['label'], 'x': round(p.x, 2), 'z': round(p.y, 2),
                               'dx': round(d[0], 3), 'dz': round(d[1], 3), 'span': round(e['width'] + 2 * e['sidewalk'] + 4, 1),
                               'source': f"OSM node {lm['osm_id']} ({poi['name']}) snapped to way {e['way']}",
@@ -225,8 +249,12 @@ def main(cfg_path):
                               'source': f"OSM way {e['way']} ({e['name_en'] or e['name']})"})
 
     # route centreline for GPS / minimap / test autopilot: resampled every 20 studs
-    path = [[round(line.interpolate(s).x, 1), round(line.interpolate(s).y, 1)] for s in np.arange(0, total, 20.0)]
-    out = {'race': {'id': L['race_id'], 'name': L['race_name'], 'laps': L['laps'], 'length_studs': round(total), 'path': path,
+    # starts at gate 1 so path[1] is the start/finish line
+    path = [[round(line.interpolate(s % total).x, 1), round(line.interpolate(s % total).y, 1)]
+            for s in np.arange(gate_s[0], gate_s[0] + total, 20.0)]
+    import hashlib
+    ghash = hashlib.sha1(open(os.path.join(ROOT, 'build', cfg['name'], 'graph_game.json'), 'rb').read()).hexdigest()
+    out = {'graph_sha1': ghash, 'race': {'id': L['race_id'], 'name': L['race_name'], 'laps': L['laps'], 'length_studs': round(total), 'path': path,
                     'route_edges': route_edges, 'checkpoints': checkpoints, 'grid': grid,
                     'legs': [l['names'][0] for l in legs]},
            'spawn': {'x': round(spawn[0], 2), 'z': round(spawn[1], 2)},

@@ -3,9 +3,13 @@
 Run from the repo root (Windows):
 ```
 .venv\Scripts\python tools\mapgen\osm_normalize.py tools\mapgen\config\central_pattaya.json
-.venv\Scripts\python tools\mapgen\road_graph.py    tools\mapgen\config\central_pattaya.json
-.venv\Scripts\python tools\mapgen\export_roblox.py tools\mapgen\config\central_pattaya.json
+.venv\Scripts\python tools\mapgen\road_graph.py      tools\mapgen\config\central_pattaya.json
+.venv\Scripts\python tools\mapgen\buildings.py       tools\mapgen\config\central_pattaya.json
+.venv\Scripts\python tools\mapgen\gameplay_layout.py tools\mapgen\config\central_pattaya.json
+.venv\Scripts\python tools\mapgen\export_roblox.py   tools\mapgen\config\central_pattaya.json
 ```
+`buildings_game.json` and `layout.json` record the SHA-1 of the `graph_game.json` they were made from;
+`export_roblox.py` refuses to run on stale ones. (`tools/mapgen/facades.py` only when facade art changes.)
 
 ## Download
 `data/osm/queries/central_pattaya.overpassql` (bbox 12.912,100.855,12.960,100.910 with margin) fetched with

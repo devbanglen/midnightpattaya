@@ -25,7 +25,9 @@ def main(cfg_path):
             base = {'id': e['id'], 'nodes': e.get('nodes', []), 'coords': coords}
             if 'highway' in t:
                 out['roads'].append({**base, 'class': t['highway'], 'name': t.get('name'), 'name_en': t.get('name:en'),
-                                     'oneway': t.get('oneway') in ('yes', '1', 'true'), 'lanes': t.get('lanes'),
+                                     # -1 = one-way against the drawing direction; roundabouts are implied one-way
+                                     'oneway': t.get('oneway') in ('yes', '1', 'true', '-1') or t.get('junction') == 'roundabout',
+                                     'lanes': t.get('lanes'),
                                      'junction': t.get('junction'), 'bridge': t.get('bridge') == 'yes',
                                      'tunnel': t.get('tunnel') == 'yes', 'layer': t.get('layer')})
             elif t.get('natural') == 'coastline':
