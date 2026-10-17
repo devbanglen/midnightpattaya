@@ -11,7 +11,11 @@ Then: `require(game.ServerStorage.PattayaBuilder).Build()` rebuilds `workspace.P
 ## Coexistence
 - Pattaya world origin (20000, 0, 0); RaceMap test city at (6000, 100, 0); template content near the origin.
 - The template overrides Asphalt/Concrete materials in MaterialService; generated parts use SmoothPlastic.
-- The template's old SpawnLocation is disabled; RaceMap has `RaceSpawn`. Pattaya has no spawn yet (Phase 6).
+- Spawns: the template's SpawnLocation and RaceMap's `RaceSpawn` are disabled (re-enable to undo);
+  players start at `PattayaWorld.Race.PattayaSpawn`.
+- `Workspace.StreamingEnabled` is on (template setting). Race gates/grid are Persistent models.
+- Saving: the Studio MCP has no save command and cannot send Ctrl+S to Studio; the owner saves, or turns on
+  Collaboration (Team Create) for automatic cloud saves.
 
 ## Vehicles
 `RaceCarServer` (server) spawns cars on `RaceMap.StartGrid`; `CarController` (client) drives with raycast suspension.

@@ -1,0 +1,225 @@
+"""Stage 6 - gameplay layer on top of the graph: the first loop race, the spawn/start grid, street props, landmarks.
+
+  .venv\\Scripts\\python tools\\mapgen\\gameplay_layout.py tools\\mapgen\\config\\central_pattaya.json
+
+Writes build/<name>/layout.json and layout_check.png. Everything is derived from graph_game.json (road names + OSM
+ids), so it follows the data when the config changes.
+"""
+import heapq, json, math, os, sys
+from collections import defaultdict
+import numpy as np
+from shapely.geometry import LineString, Point, Polygon
+from shapely import affinity
+from shapely.strtree import STRtree
+from PIL import Image, ImageDraw
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+
+
+def plen(p):
+    p = np.asarray(p)
+    return float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum())
+
+
+def main(cfg_path):
+    cfg = json.load(open(cfg_path, encoding='utf-8'))
+    L = cfg['layout']
+    g = json.load(open(os.path.join(ROOT, 'build', cfg['name'], 'graph_game.json'), encoding='utf-8'))
+    edges = g['edges']
+    adj = defaultdict(list)
+    for i, e in enumerate(edges):
+        adj[e['a']].append((i, e['b']))
+        adj[e['b']].append((i, e['a']))
+
+    def named(e, names):
+        return (e['name_en'] or '') in names or (e['name'] or '') in names
+
+    def nodes_of(names):
+        return {n for e in edges if named(e, names) for n in (e['a'], e['b'])}
+
+    def shortest(src, dst, prefer):
+        """Dijkstra; edges on the preferred road(s) cost their length, others 25x (allowed for tiny gaps)."""
+        dist, prev, pq = {src: 0.0}, {}, [(0.0, src)]
+        while pq:
+            d, n = heapq.heappop(pq)
+            if n == dst:
+                break
+            if d > dist[n]:
+                continue
+            for i, m in adj[n]:
+                e = edges[i]
+                c = plen(e['pts']) * (1 if named(e, prefer) else 25)
+                if d + c < dist.get(m, 1e18):
+                    dist[m] = d + c; prev[m] = (n, i); heapq.heappush(pq, (d + c, m))
+        path, n = [], dst
+        while n != src:
+            p, i = prev[n]
+            path.append((i, n)); n = p
+        return list(reversed(path))
+
+    # --- loop race: corners = junctions of consecutive legs ----------------------------------------------------
+    legs = L['race_legs']                                   # [{"names": [...]}, ...] in driving order, closed loop
+    corners = []
+    for k in range(len(legs)):
+        a, b = nodes_of(legs[k]['names']), nodes_of(legs[(k + 1) % len(legs)]['names'])
+        common = a & b
+        if not common:
+            sys.exit(f'race legs {k} and {k + 1} do not meet: {legs[k]["names"]} / {legs[(k + 1) % len(legs)]["names"]}')
+        # several shared nodes (dual carriageways, offsets): take the one nearest the previous corner, else any
+        pick = sorted(common, key=lambda n: (np.linalg.norm(np.array(g['nodes'][str(n)]) - np.array(g['nodes'][str(corners[-1])]))
+                                             if corners else 0))[0]
+        corners.append(pick)
+    route_pts, route_edges = [], []
+    for k in range(len(corners)):
+        src, dst = corners[k - 1], corners[k]                # leg k runs from corner k-1 to corner k
+        for i, n in shortest(src, dst, legs[k]['names']):
+            e = edges[i]
+            pts = e['pts'] if e['b'] == n else list(reversed(e['pts']))
+            route_pts.extend(pts if not route_pts else pts[1:])
+            route_edges.append(e['id'])
+    line = LineString(route_pts)
+    total = line.length
+    n_cp = max(4, int(total // L['checkpoint_spacing_studs']))
+    checkpoints = []
+    for j in range(n_cp):
+        s = j * total / n_cp
+        p = line.interpolate(s); q = line.interpolate(min(s + 4, total))
+        checkpoints.append({'x': round(p.x, 2), 'z': round(p.y, 2), 'dx': round(q.x - p.x, 3), 'dz': round(q.y - p.y, 3)})
+    # width at each checkpoint = width of the nearest route edge
+    widths = {e['id']: e['width'] for e in edges}
+    route_lines = [(LineString(e['pts']), widths[e['id']]) for e in edges if e['id'] in set(route_edges)]
+    for c in checkpoints:
+        pt = Point(c['x'], c['z'])
+        c['w'] = round(min(route_lines, key=lambda t: t[0].distance(pt))[1] + 6, 1)
+
+    # start grid: just after checkpoint 0, two columns, cars facing along the route
+    s0 = checkpoints[0]
+    fwd = np.array([s0['dx'], s0['dz']]); fwd /= np.linalg.norm(fwd)
+    right = np.array([-fwd[1], fwd[0]])
+    grid = []
+    for k in range(L['grid_slots']):
+        row, col = divmod(k, 2)
+        p = np.array([s0['x'], s0['z']]) - fwd * (14 + row * 24) + right * (-1 if col == 0 else 1) * min(c['w'] for c in checkpoints[:1]) * 0.22
+        grid.append({'x': round(p[0], 2), 'z': round(p[1], 2), 'dx': round(fwd[0], 3), 'dz': round(fwd[1], 3)})
+    spawn = np.array([s0['x'], s0['z']]) - fwd * (14 + (L['grid_slots'] // 2) * 24 + 30)
+
+    # --- props: palms on the sea side of coastal roads, street lights along main roads -------------------------
+    bpath = os.path.join(ROOT, 'build', cfg['name'], 'buildings_game.json')
+    bpolys = []
+    for b in json.load(open(bpath, encoding='utf-8'))['buildings']:
+        r = Polygon([(-b['w'] / 2, -b['d'] / 2), (b['w'] / 2, -b['d'] / 2), (b['w'] / 2, b['d'] / 2), (-b['w'] / 2, b['d'] / 2)])
+        bpolys.append(affinity.translate(affinity.rotate(r, b['yaw']), b['x'], b['z']))
+    btree = STRtree(bpolys)
+    road_polys = [LineString(e['pts']).buffer(e['width'] / 2 + 1.5) for e in edges]
+    rtree = STRtree(road_polys)
+    sea_side_x = -1                                          # Pattaya: the sea is west of Beach Road
+
+    def free(p, r):
+        c = Point(p).buffer(r)
+        return not any(bpolys[i].intersects(c) for i in btree.query(c)) and not any(road_polys[i].intersects(c) for i in rtree.query(c))
+
+    palms, lights = [], []
+    for e in edges:
+        ln = LineString(e['pts'])
+        if ln.length < 30:
+            continue
+        if e['coastal']:
+            step, kind = L['palm_spacing_studs'], 'palm'
+        elif e['tier'] in ('main', 'express'):
+            step, kind = L['light_spacing_studs'], 'light'
+        else:
+            continue
+        off = e['width'] / 2 + max(e['sidewalk'], 4) / 2
+        s = step / 2
+        while s < ln.length - step / 3:
+            p = ln.interpolate(s); q = ln.interpolate(min(s + 2, ln.length))
+            t = np.array([q.x - p.x, q.y - p.y]); t /= (np.linalg.norm(t) + 1e-9)
+            nrm = np.array([-t[1], t[0]])
+            sides = [1, -1] if kind == 'light' else [1 if nrm[0] * sea_side_x > 0 else -1]
+            for sd in sides:
+                pos = np.array([p.x, p.y]) + nrm * sd * off
+                if free(pos, 1.0):
+                    item = {'x': round(pos[0], 2), 'z': round(pos[1], 2)}
+                    if kind == 'light':
+                        item['dx'], item['dz'] = round(-nrm[0] * sd, 3), round(-nrm[1] * sd, 3)   # arm points at the road
+                        lights.append(item)
+                    else:
+                        palms.append(item)
+            s += step
+
+    # --- landmarks (proxies) ------------------------------------------------------------------------------------
+    landmarks = []
+    src = json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'), encoding='utf-8'))
+    from pyproj import Transformer
+    tf = Transformer.from_crs('EPSG:4326', cfg['crs'], always_xy=True)
+    ox, oy = g['origin_utm']
+    kk = cfg['compression'] / cfg['meters_per_stud']
+    for lm in L['landmarks']:
+        if lm['at'] == 'poi':
+            poi = next((p for p in src['pois'] if p['id'] == lm['osm_id']), None)
+            if poi is None:
+                print(f"landmark {lm['id']}: OSM node {lm['osm_id']} not in the data, skipped")
+                continue
+            x, y = tf.transform(poi['lon'], poi['lat'])
+            pt = Point((x - ox) * kk, -(y - oy) * kk)
+            e = min(edges, key=lambda e: LineString(e['pts']).distance(pt))
+            ln = LineString(e['pts'])
+            s = ln.project(pt)
+            p = ln.interpolate(s); q = ln.interpolate(min(s + 3, ln.length))
+            d = np.array([q.x - p.x, q.y - p.y]); d /= np.linalg.norm(d)
+            landmarks.append({'id': lm['id'], 'kind': lm['kind'], 'label': lm['label'], 'x': round(p.x, 2), 'z': round(p.y, 2),
+                              'dx': round(d[0], 3), 'dz': round(d[1], 3), 'span': round(e['width'] + 2 * e['sidewalk'] + 4, 1),
+                              'source': f"OSM node {lm['osm_id']} ({poi['name']}) snapped to way {e['way']}",
+                              'snap_studs': round(ln.distance(pt), 1)})
+            continue
+        if lm['at'] == 'road_end_near':
+            cand = [e for e in edges if named(e, lm['road'])]
+            other = nodes_of(lm['near_road'])
+            ends = [(e, n) for e in cand for n in (e['a'], e['b']) if n in other]
+            if not ends:
+                print(f"landmark {lm['id']}: {lm['road']} does not meet {lm['near_road']} in this slice, skipped")
+                continue
+            e, n = ends[0]
+            pts = e['pts'] if e['a'] == n else list(reversed(e['pts']))
+            p0, p1 = np.array(pts[0]), np.array(pts[min(3, len(pts) - 1)])
+            d = (p1 - p0) / np.linalg.norm(p1 - p0)
+            pos = p0 + d * lm.get('inset_studs', 30)
+            landmarks.append({'id': lm['id'], 'kind': lm['kind'], 'label': lm['label'], 'x': round(pos[0], 2), 'z': round(pos[1], 2),
+                              'dx': round(d[0], 3), 'dz': round(d[1], 3), 'span': round(e['width'] + 2 * e['sidewalk'] + 4, 1),
+                              'source': f"OSM way {e['way']} ({e['name_en'] or e['name']})"})
+
+    # route centreline for GPS / minimap / test autopilot: resampled every 20 studs
+    path = [[round(line.interpolate(s).x, 1), round(line.interpolate(s).y, 1)] for s in np.arange(0, total, 20.0)]
+    out = {'race': {'id': L['race_id'], 'name': L['race_name'], 'laps': L['laps'], 'length_studs': round(total), 'path': path,
+                    'route_edges': route_edges, 'checkpoints': checkpoints, 'grid': grid,
+                    'legs': [l['names'][0] for l in legs]},
+           'spawn': {'x': round(spawn[0], 2), 'z': round(spawn[1], 2)},
+           'palms': palms, 'lights': lights, 'landmarks': landmarks}
+    out_dir = os.path.join(ROOT, 'build', cfg['name'])
+    json.dump(out, open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    print(f"race '{L['race_name']}': {total:,.0f} studs per lap ({total * cfg['meters_per_stud']:,.0f} m in-game), "
+          f"{len(route_edges)} edges, {len(checkpoints)} checkpoints, {len(grid)} grid slots")
+    print(f'props: {len(palms)} palms, {len(lights)} street lights; landmarks: {[l["id"] for l in landmarks]}')
+
+    # check image
+    allp = np.array([p for e in edges for p in e['pts']])
+    lo, hi = allp.min(0), allp.max(0)
+    sc = 1400 / (hi - lo).max()
+    im = Image.new('RGB', (int((hi[0] - lo[0]) * sc) + 20, int((hi[1] - lo[1]) * sc) + 20), (240, 238, 232))
+    dr = ImageDraw.Draw(im)
+    tr = lambda p: (10 + (p[0] - lo[0]) * sc, 10 + (p[1] - lo[1]) * sc)
+    for e in edges:
+        dr.line([tr(p) for p in e['pts']], fill=(170, 170, 175), width=2)
+    dr.line([tr(p) for p in route_pts], fill=(230, 40, 40), width=5)
+    for c in checkpoints:
+        x, y = tr((c['x'], c['z'])); dr.ellipse([x - 4, y - 4, x + 4, y + 4], fill=(20, 120, 230))
+    for p in palms:
+        x, y = tr((p['x'], p['z'])); dr.point((x, y), fill=(30, 150, 50))
+    x, y = tr((checkpoints[0]['x'], checkpoints[0]['z'])); dr.rectangle([x - 7, y - 7, x + 7, y + 7], outline=(0, 0, 0), width=3)
+    for l in landmarks:
+        x, y = tr((l['x'], l['z'])); dr.polygon([(x, y - 9), (x - 7, y + 6), (x + 7, y + 6)], fill=(200, 0, 200))
+    im.save(os.path.join(out_dir, 'layout_check.png'))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1])

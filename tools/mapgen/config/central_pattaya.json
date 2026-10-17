@@ -35,6 +35,25 @@
 
   "chunk_size_studs": 512,
 
+  "layout": {
+    "race_id": "central_loop",
+    "race_name": "Pattaya Central Loop",
+    "laps": 2,
+    "race_legs": [
+      {"names": ["Pattaya Sai Nueng Road", "Beach Road"]},
+      {"names": ["Pattaya Tai Road"]},
+      {"names": ["Pattaya Sai Song Road"]},
+      {"names": ["Pattaya Klang Road"]}
+    ],
+    "checkpoint_spacing_studs": 300,
+    "grid_slots": 6,
+    "palm_spacing_studs": 34,
+    "light_spacing_studs": 70,
+    "landmarks": [
+      {"id": "walking_street_gate", "kind": "gate", "label": "WALKING STREET", "at": "poi", "osm_id": 1207751537}
+    ]
+  },
+
   "buildings": {
     "level_height_m": 3.2,
     "vertical_scale": 0.75,

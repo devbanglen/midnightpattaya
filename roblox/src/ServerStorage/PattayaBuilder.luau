@@ -240,6 +240,159 @@ local function buildBuildings(chunk: Instance, rows: {number}, man: any)
 	folder.Parent = chunk
 end
 
+-- Props: palms (trunk + 5 fronds) on the sea side of Beach Road, street lights (pole + arm + lamp) on main roads.
+-- No collision on fronds/arms/lamps; trunks and poles collide so cars can't drive through them.
+local PALM_TRUNK = Color3.fromRGB(120, 92, 64)
+local PALM_LEAF = Color3.fromRGB(58, 140, 60)
+local POLE = Color3.fromRGB(70, 72, 78)
+local LAMP = Color3.fromRGB(255, 236, 190)
+
+local function buildProps(chunk: Instance, palms: {number}, lights: {number})
+	if #palms == 0 and #lights == 0 then
+		return
+	end
+	local folder = Instance.new("Model")
+	folder.Name = "Props"
+	for i = 1, #palms, 2 do
+		local x, z = palms[i], palms[i + 1]
+		local h = 26 + ((x * 7 + z * 13) % 9) -- deterministic height variation
+		local lean = math.rad(((x + z) % 10) - 5)
+		local base = CFrame.new(x, ROAD_TOP - 1, z) * CFrame.Angles(lean, (x * 3) % 6.28, 0)
+		local trunk = newPart(folder, "PalmTrunk", Vector3.new(h, 1.6, 1.6), base * CFrame.new(0, h / 2, 0) * CFrame.Angles(0, 0, math.rad(90)), PALM_TRUNK, true)
+		trunk.Shape = Enum.PartType.Cylinder
+		local top = base * CFrame.new(0, h, 0)
+		for k = 0, 4 do
+			local frond = newPart(folder, "PalmFrond", Vector3.new(2.2, 0.4, 13), top * CFrame.Angles(0, k * math.rad(72), 0) * CFrame.Angles(math.rad(-22), 0, 0) * CFrame.new(0, 0, -6), PALM_LEAF, false)
+			frond.CanQuery = false
+		end
+	end
+	for i = 1, #lights, 4 do
+		local x, z, dx, dz = lights[i], lights[i + 1], lights[i + 2], lights[i + 3]
+		local base = CFrame.lookAt(Vector3.new(x, ROAD_TOP, z), Vector3.new(x + dx, ROAD_TOP, z + dz))
+		newPart(folder, "LightPole", Vector3.new(0.7, 20, 0.7), base * CFrame.new(0, 10, 0), POLE, true)
+		local arm = newPart(folder, "LightArm", Vector3.new(0.4, 0.4, 7), base * CFrame.new(0, 19.8, -3.5), POLE, false)
+		arm.CanQuery = false
+		local lamp = newPart(folder, "Lamp", Vector3.new(1.6, 0.5, 2.6), base * CFrame.new(0, 19.4, -6.6), LAMP, false)
+		lamp.Material = Enum.Material.Neon
+		lamp.CanQuery = false
+	end
+	folder.Parent = chunk
+end
+
+-- Landmark proxies (handcrafted, separate from procedural buildings).
+local function buildLandmarks(world: Instance, man: any)
+	if not man.landmarks then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Landmarks"
+	for _, lm in man.landmarks do
+		local model = Instance.new("Model")
+		model.Name = lm.id
+		model:SetAttribute("Source", lm.source)
+		if lm.kind == "gate" then
+			-- an arch spanning the road with a neon name board, like the Walking Street entrance sign
+			local fwd = Vector3.new(lm.dx, 0, lm.dz).Unit
+			local cf = CFrame.lookAt(Vector3.new(lm.x, ROAD_TOP, lm.z), Vector3.new(lm.x, ROAD_TOP, lm.z) + fwd)
+			local half = lm.span / 2
+			for _, s in {-1, 1} do
+				newPart(model, "Pillar", Vector3.new(3, 30, 3), cf * CFrame.new(s * half, 15, 0), Color3.fromRGB(40, 40, 48), true)
+			end
+			newPart(model, "Beam", Vector3.new(lm.span + 3, 3, 3), cf * CFrame.new(0, 31.5, 0), Color3.fromRGB(40, 40, 48), true)
+			local board = newPart(model, "Board", Vector3.new(lm.span * 0.7, 7, 1), cf * CFrame.new(0, 26, 0), Color3.fromRGB(20, 20, 30), false)
+			for _, face in {Enum.NormalId.Front, Enum.NormalId.Back} do
+				local gui = Instance.new("SurfaceGui")
+				gui.Face = face
+				gui.LightInfluence = 0
+				gui.Brightness = 2
+				gui.PixelsPerStud = 20
+				local label = Instance.new("TextLabel")
+				label.Size = UDim2.fromScale(1, 1)
+				label.BackgroundTransparency = 1
+				label.Text = lm.label
+				label.TextScaled = true
+				label.Font = Enum.Font.GothamBlack
+				label.TextColor3 = Color3.fromRGB(255, 70, 200)
+				label.TextStrokeColor3 = Color3.fromRGB(120, 230, 255)
+				label.TextStrokeTransparency = 0.2
+				label.Parent = gui
+				gui.Parent = board
+			end
+			for _, s in {-1, 1} do
+				local strip = newPart(model, "Neon", Vector3.new(lm.span * 0.72, 0.4, 1.2), cf * CFrame.new(0, 26 + s * 3.8, 0), Color3.fromRGB(120, 230, 255), false)
+				strip.Material = Enum.Material.Neon
+			end
+		end
+		model:PivotTo(model:GetPivot() + Builder.ORIGIN)
+		model.Parent = folder
+	end
+	folder.Parent = world
+end
+
+-- Race infrastructure from the generated layout: checkpoint gates (invisible trigger plane + visible arch posts),
+-- start grid slots and the Pattaya spawn. The race logic itself lives in PattayaRaceServer / PattayaRaceClient.
+local function buildRace(world: Instance, man: any)
+	local race = man.race
+	if not race then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Race"
+	folder:SetAttribute("RaceId", race.id)
+	folder:SetAttribute("RaceName", race.name)
+	folder:SetAttribute("Laps", race.laps)
+	folder:SetAttribute("LengthStuds", race.lengthStuds)
+	-- route centreline (world coordinates) for GPS / minimap / tests: packed x,z pairs in a buffer-free string
+	local packed = table.create(#race.path)
+	for i = 1, #race.path, 2 do
+		table.insert(packed, ("%.1f,%.1f"):format(race.path[i] + Builder.ORIGIN.X, race.path[i + 1] + Builder.ORIGIN.Z))
+	end
+	folder:SetAttribute("Path", table.concat(packed, ";"))
+	-- the place has instance streaming on: checkpoint gates must always exist on every client (HUD + next-gate glow)
+	local cps = Instance.new("Model")
+	cps.Name = "Checkpoints"
+	cps.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	cps.Parent = folder
+	for i, c in race.checkpoints do
+		local fwd = Vector3.new(c.dx, 0, c.dz).Unit
+		local cf = CFrame.lookAt(Vector3.new(c.x, ROAD_TOP + 10, c.z), Vector3.new(c.x, ROAD_TOP + 10, c.z) + fwd)
+		local gate = newPart(cps, "CP" .. i, Vector3.new(c.w, 20, 2), cf, Color3.fromRGB(0, 200, 255), false)
+		gate.Transparency = 1
+		gate.CanQuery = false
+		gate:SetAttribute("Index", i)
+		for _, s in {-1, 1} do
+			local post = newPart(gate, "Post", Vector3.new(1.2, 18, 1.2), cf * CFrame.new(s * c.w / 2, -1, 0), if i == 1 then Color3.fromRGB(255, 255, 255) else Color3.fromRGB(0, 200, 255), false)
+			post.Material = Enum.Material.Neon
+			post.CanQuery = false
+		end
+	end
+	local grid = Instance.new("Model")
+	grid.Name = "StartGrid"
+	grid.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	grid.Parent = folder
+	for i, s in race.grid do
+		local slot = newPart(grid, "Slot" .. i, Vector3.new(9, 0.1, 17), CFrame.lookAt(Vector3.new(s.x, ROAD_TOP + 0.06, s.z), Vector3.new(s.x + s.dx, ROAD_TOP + 0.06, s.z + s.dz)), Color3.fromRGB(255, 255, 255), false)
+		slot.Transparency = 0.5
+		slot.CanQuery = false
+	end
+	local spawn = Instance.new("SpawnLocation")
+	spawn.Name = "PattayaSpawn"
+	spawn.Anchored = true
+	spawn.Size = Vector3.new(12, 1, 12)
+	spawn.CFrame = CFrame.new(man.spawn.x, ROAD_TOP + 0.5, man.spawn.z)
+	spawn.Color = Color3.fromRGB(0, 170, 255)
+	spawn.Material = Enum.Material.Neon
+	spawn.Duration = 0
+	spawn.CanQuery = false -- cars drive over it on their suspension rays
+	spawn.Parent = folder
+	for _, d in folder:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.CFrame += Builder.ORIGIN
+		end
+	end
+	folder.Parent = world
+end
+
 local function buildTerrain(man: any)
 	local terrain = workspace.Terrain
 	local o = Builder.ORIGIN
@@ -315,6 +468,7 @@ function Builder.Build(opts: {terrain: boolean?}?)
 			buildEdge(chunk, e :: Edge, junctionR)
 		end
 		buildBuildings(chunk, chunkData.buildings or {}, man)
+		buildProps(chunk, chunkData.palms or {}, chunkData.lights or {})
 		chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
 		for _, d in chunk:GetDescendants() do
 			if d:IsA("BasePart") then count += 1 end
@@ -322,6 +476,8 @@ function Builder.Build(opts: {terrain: boolean?}?)
 		chunk.Parent = chunksFolder
 		task.wait()
 	end
+	buildLandmarks(world, man)
+	buildRace(world, man)
 	if options.terrain ~= false then
 		buildTerrain(man)
 	end
