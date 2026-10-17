@@ -185,6 +185,61 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 	road.Parent = chunk
 end
 
+-- Buildings: one box Part each (+ a roof slab on taller ones), facades as Texture instances on the four sides so
+-- windows cost no Parts. Wall colour is picked per palette from the OSM id, so rebuilds give the same city.
+local WALLS = {
+	hotel = {Color3.fromRGB(236, 232, 222), Color3.fromRGB(214, 226, 236), Color3.fromRGB(242, 222, 196), Color3.fromRGB(200, 214, 220)},
+	condo = {Color3.fromRGB(220, 224, 230), Color3.fromRGB(190, 200, 214), Color3.fromRGB(235, 235, 235)},
+	apartment = {Color3.fromRGB(226, 214, 190), Color3.fromRGB(205, 196, 180), Color3.fromRGB(230, 220, 205)},
+	mall = {Color3.fromRGB(230, 230, 235), Color3.fromRGB(210, 220, 230)},
+	commercial = {Color3.fromRGB(200, 205, 210), Color3.fromRGB(176, 190, 200), Color3.fromRGB(222, 214, 200)},
+	shophouse = {Color3.fromRGB(232, 210, 170), Color3.fromRGB(214, 190, 160), Color3.fromRGB(240, 226, 190), Color3.fromRGB(205, 170, 150), Color3.fromRGB(190, 205, 190)},
+	house = {Color3.fromRGB(240, 232, 214), Color3.fromRGB(226, 206, 180)},
+	temple = {Color3.fromRGB(200, 60, 40)},
+	parking = {Color3.fromRGB(150, 150, 152)},
+}
+local FACADE_OF = {hotel = "tower", condo = "tower", apartment = "tower", mall = "office", commercial = "office",
+	parking = "office", shophouse = "shophouse"}
+local FACES = {Enum.NormalId.Front, Enum.NormalId.Back, Enum.NormalId.Left, Enum.NormalId.Right}
+
+local function buildBuildings(chunk: Instance, rows: {number}, man: any)
+	if #rows == 0 then
+		return
+	end
+	local folder = Instance.new("Model")
+	folder.Name = "Buildings"
+	local level = man.levelStuds
+	for i = 1, #rows, 8 do
+		local x, z, w, d, h, yaw = rows[i], rows[i + 1], rows[i + 2], rows[i + 3], rows[i + 4], rows[i + 5]
+		local palette = man.palettes[rows[i + 6]]
+		local id = rows[i + 7]
+		local colors = WALLS[palette]
+		local base = ROAD_TOP - 1 -- footings below the road top so buildings sit in the ground
+		local cf = CFrame.new(x, base + h / 2, z) * CFrame.Angles(0, -math.rad(yaw), 0)
+		local body = newPart(folder, palette, Vector3.new(w, h, d), cf, colors[id % #colors + 1], true)
+		body.CastShadow = h > 20
+		body:SetAttribute("OsmBuilding", id)
+		local facade = FACADE_OF[palette]
+		if facade then
+			for _, face in FACES do
+				local t = Instance.new("Texture")
+				t.Texture = man.facades[facade]
+				t.Face = face
+				t.StudsPerTileV = level
+				t.StudsPerTileU = if facade == "shophouse" then level * 1.3 else level * 1.1
+				t.OffsetStudsV = (h % level) -- full floors line up with the top
+				t.Parent = body
+			end
+		end
+		if h > 30 then
+			local roof = newPart(folder, "Roof", Vector3.new(math.max(w - 3, 1), 1, math.max(d - 3, 1)),
+				cf * CFrame.new(0, h / 2 + 0.5, 0), colors[1]:Lerp(Color3.new(0.3, 0.3, 0.32), 0.55), false)
+			roof.CanQuery = false
+		end
+	end
+	folder.Parent = chunk
+end
+
 local function buildTerrain(man: any)
 	local terrain = workspace.Terrain
 	local o = Builder.ORIGIN
@@ -259,6 +314,7 @@ function Builder.Build(opts: {terrain: boolean?}?)
 		for _, e in chunkData.edges do
 			buildEdge(chunk, e :: Edge, junctionR)
 		end
+		buildBuildings(chunk, chunkData.buildings or {}, man)
 		chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
 		for _, d in chunk:GetDescendants() do
 			if d:IsA("BasePart") then count += 1 end

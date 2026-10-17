@@ -33,5 +33,14 @@
 
   "smoothing": {"chaikin_iterations": 3, "resample_studs": 6},
 
-  "chunk_size_studs": 512
+  "chunk_size_studs": 512,
+
+  "buildings": {
+    "level_height_m": 3.2,
+    "vertical_scale": 0.75,
+    "ground_floor_extra_studs": 3,
+    "road_margin_studs": 3,
+    "min_area_studs2": 80,
+    "beachfront_studs": 160
+  }
 }
