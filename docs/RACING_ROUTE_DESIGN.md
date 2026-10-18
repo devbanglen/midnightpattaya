@@ -174,8 +174,17 @@ GPS arrow, HUD with position). Routes come from `PattayaRoute.pointToPoint`, whi
   - Autopilot at 70 studs/s: the AI led, the player finished 2nd in 22.96 s and was paid 39 ฿. Catch-up nitro was 30
     per checkpoint while behind.
   - Street Sprint still starts after the refactor.
-  - **Not tested:** two real players (invite / accept / decline). This needs Studio "Test → Clients and Servers"
-    with 2 players, which the tools here can't start.
+- **Street Challenge between two players** (Studio "Test → Clients and Servers", 2 players; the owner started it and
+  pressed C/Y):
+  - Both clients showed 7 gates with `P1/2` / `P2/2`. Cars were released after GO with each driver owning their car.
+  - Player1 driven by autopilot: all checkpoints, "Finished 1st - waiting for the others".
+  - Player2 then finished: "2nd place 116.70 s" (+45 ฿, +30 EXP). Player1 got "Challenge won" (+220 ฿ = length/15
+    + 100, +60 EXP). Both were back to free roam afterwards.
+  - Decline: Player2 saw "Player1 challenges you…", replied no, and Player1 got "Player2 declined".
+  - No answer: after 10.5 s Player1 got "Player2 didn't answer" and Player2's box closed.
+  - No script errors on the server (only the known DataStore Studio-access warning).
+  - Seen in the test: a request sent while the two cars were still drifting apart after the autopilot stopped got
+    the AI instead. The other car was over the 150-stud range at that moment (138 studs a few seconds later).
   - **Seen once and not reproduced:** a parked grid car ended up 21 studs ahead of its slot, past gate 1, after the
     player got in. That started the loop race. Getting out and back in, it moved only ~1 stud.
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
