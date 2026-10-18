@@ -250,3 +250,18 @@ Run these in Play (or Start Server with 2 players for test 9).
   someone's personal car. This is harmless: the copy has no seat.
 - **Merge conflict.** `PattayaProgress` now has GetData/SetData stored under `extra`. If the circuit teammate also
   adds them, keep one copy with the same signatures.
+
+## Tested by the leader (2026-10-18, Studio Play)
+- Grid cars: `CarId`/`Class`/`PI` attributes present on all 6 (hatch 483 Street, kei 493 Street, muscle 578 / jdm 587 /
+  gt_sedan 592 Sport, supercar 695 Super).
+- Garage ring found automatically beside `PattayaSpawn` (about 24 studs away); prompt "MIDNIGHT PATTAYA GARAGE".
+- Buy supercar at level 1 / ฿0: "Needs level 10". At level 12 / ฿2,000: "Needs ฿55000 (you have ฿2000)". Upgrade and
+  select on an unowned car: "Buy it first". SPAWN with only the hatch owned: personal hatch spawned and auto-seated,
+  `Owner` = the player's UserId, PI 483.
+- With ฿90,000: bought the supercar, engine tier 1 (PI 721) and 2 (PI 744) fitted, tier 3 refused ("would leave
+  Super (PI 767)"), grip tier 1 refused for the same reason. SPAWN replaced the hatch with the supercar (exactly one
+  `PersonalCar_<id>` in workspace, E2 G0). Money left ฿14,600 (55,000 + 2 engine tiers = ฿75,400 spent).
+- Driving: W held 8 s then nitro in the E2 supercar on Beach Road peaked at 181 studs/s (the car left the road on
+  the curve, so the 195 top speed was not reached); the hatch cap of 160 is therefore no longer global.
+- Not tested: save/rejoin (no DataStore in Studio), owner-only seat with a second player, Equalised/SpeedCap by hand
+  (the Survival event sets them; see RACING_ROUTE_DESIGN.md).
