@@ -14,8 +14,7 @@ Studio with the MCP tool (place id 117826785726076, game id 10771583260, owner t
 - Place is cloud-connected (PlaceId ≠ 0, owner = the user account that runs Studio).
 - `TeamCreateService` is present; the owner reported Team Create ON and a local `.rbxl` backup saved. The tool cannot
   read the Team Create toggle itself: confirm by the **Team Create** window (View → Team Create) showing you connected.
-- Auto-Recovery: the Studio setting could not be read through the tool (see the Studio Settings dialog: File → Studio
-  Settings → search "Auto-Recovery": Enabled = true, Interval = 5 minutes recommended). Auto-Recovery files land in
+- Auto-Recovery (read from Studio settings): **Enabled = true, Interval = 5 minutes**. Auto-Recovery files land in
   `%LOCALAPPDATA%\Roblox\AutoSaves\`; after a crash, Studio offers them on the next start (this happened once in this
   project on 2026-10-18 and restored the place).
 - With Team Create on, Ctrl+S is still useful: it forces a sync/publish-to-cloud point.
