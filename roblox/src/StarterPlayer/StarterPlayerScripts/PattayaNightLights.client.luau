@@ -7,8 +7,9 @@
 --  3. Floodlights: any BasePart with attribute FloodLight=true anywhere in workspace gets its SpotLight children
 --     enabled at night (circuit poles). Lamp and floodlight SpotLights share a budget: only the nearest
 --     LOD_SpotCap (60) within range of the camera are on (see section 3; LOD_Enabled = false lifts it). Any BasePart
---     with NightNeon=true turns Neon with its NightColor attribute at night and back to SmoothPlastic + DayColor by
---     day (circuit window bands, lamp heads).
+--     with NightNeon=true takes its night style at night (MaterialLibrary.NightStyles[Mat]: large lit panes warm and
+--     not emissive, small ones dimmed Neon, shopfront glass warm Glass, neon strips capped Neon; parts without a Mat:
+--     Neon + NightColor as before) and goes back to SmoothPlastic + DayColor by day.
 --     Street lamps, neon palette and headlight colour follow the active LightingPreset (section 1).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
@@ -16,9 +17,26 @@
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local L: any = Lighting
+
+-- MaterialLibrary.NightStyles (VIS-7.1). If the module is missing or fails, every NightNeon part keeps the old
+-- behaviour (Neon + palette), so this script never breaks on it.
+local NightStyles: any, SHOP_NAMES: any = nil, {}
+do
+	local mod = ReplicatedStorage:FindFirstChild("MaterialLibrary") or ReplicatedStorage:WaitForChild("MaterialLibrary", 5)
+	local ok, ml = false, nil
+	if mod then
+		ok, ml = pcall(require, mod)
+	end
+	if ok and type(ml) == "table" and ml.NightStyles then
+		NightStyles, SHOP_NAMES = ml.NightStyles, ml.SHOPFRONT_NAMES or {}
+	else
+		warn("[PattayaLighting] MaterialLibrary.NightStyles unavailable; lit panes use plain Neon")
+	end
+end
 
 local function isNight(): boolean
 	local t = Lighting.ClockTime
@@ -91,7 +109,8 @@ local CLEAR = {
 		Ambient = C(60, 68, 96), OutdoorAmbient = C(100, 114, 150), Brightness = 1.7, ExposureCompensation = 0.95,
 		EnvironmentDiffuseScale = 0.45, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(120, 140, 190),
 		atmo = {Density = 0.22, Offset = 0.1, Color = C(70, 84, 120), Decay = C(28, 34, 80), Glare = 0, Haze = 1.0},
-		bloom = {Intensity = 0.45, Size = 24, Threshold = 1.3},
+		-- VIS-7.1: 0.45 / 1.3 -> 0.35 / 1.45 (lit panes and neon read as light, not as glare)
+		bloom = {Intensity = 0.35, Size = 24, Threshold = 1.45},
 		grade = {Brightness = 0.02, Contrast = 0.12, Saturation = 0.12, TintColor = C(240, 244, 255)},
 		skyAtmo = {Offset = 0.22, Color = C(96, 92, 150), Decay = C(34, 42, 118), Haze = 1.8},
 		sky = {StarCount = 3000},
@@ -100,7 +119,7 @@ local CLEAR = {
 		Ambient = C(70, 58, 78), OutdoorAmbient = C(140, 104, 118), Brightness = 1.7, ExposureCompensation = 0.3,
 		EnvironmentDiffuseScale = 0.6, EnvironmentSpecularScale = 0.9, ColorShift_Top = C(255, 150, 100),
 		atmo = {Density = 0.3, Offset = 0.15, Color = C(250, 150, 120), Decay = C(90, 60, 120), Glare = 0.4, Haze = 1.8},
-		bloom = {Intensity = 0.5, Size = 24, Threshold = 1.2},
+		bloom = {Intensity = 0.4, Size = 24, Threshold = 1.35}, -- VIS-7.1: was 0.5 / 1.2 (neon is on from 17:48)
 		grade = {Brightness = 0.01, Contrast = 0.1, Saturation = 0.14, TintColor = C(255, 238, 228)},
 	},
 	day = {
@@ -114,7 +133,7 @@ local CLEAR = {
 		Ambient = C(72, 70, 88), OutdoorAmbient = C(132, 122, 140), Brightness = 1.5, ExposureCompensation = 0.2,
 		EnvironmentDiffuseScale = 0.6, EnvironmentSpecularScale = 0.9, ColorShift_Top = C(255, 190, 150),
 		atmo = {Density = 0.34, Offset = 0.15, Color = C(255, 196, 170), Decay = C(130, 120, 160), Glare = 0.3, Haze = 2},
-		bloom = {Intensity = 0.45, Size = 24, Threshold = 1.25},
+		bloom = {Intensity = 0.4, Size = 24, Threshold = 1.35}, -- VIS-7.1: was 0.45 / 1.25 (neon is on until 6:18)
 		grade = {Brightness = 0, Contrast = 0.06, Saturation = 0.1, TintColor = C(255, 242, 232)},
 	},
 }
@@ -149,10 +168,11 @@ end
 local WET = variant(CLEAR, {
 	night = {Ambient = C(54, 62, 90), OutdoorAmbient = C(94, 108, 144), ExposureCompensation = 1.0,
 		EnvironmentDiffuseScale = 0.4, EnvironmentSpecularScale = 1.0,
-		atmo = {Density = 0.26, Color = C(72, 86, 122), Haze = 1.3},
-		bloom = {Intensity = 0.55, Threshold = 1.2},
+		atmo = {Density = 0.26, Color = C(72, 86, 122), Haze = 1.5}, -- VIS-7.1: haze 1.3 -> 1.5 (humid air)
+		bloom = {Intensity = 0.4, Threshold = 1.4}, -- VIS-7.1: was 0.55 / 1.2
 		grade = {Contrast = 0.14, Saturation = 0.16, TintColor = C(236, 242, 255)},
-		skyAtmo = {Haze = 2.0}, sky = {StarCount = 1500}},
+		-- VIS-7.1: 2.0 -> 2.2; with NightSky = 1 (default) this, not atmo.Haze, is the haze actually shown at night
+		skyAtmo = {Haze = 2.2}, sky = {StarCount = 1500}},
 	dusk = {EnvironmentSpecularScale = 1.0, atmo = {Density = 0.34, Haze = 2.0}},
 	day = {Brightness = 2.2, OutdoorAmbient = C(132, 136, 146), EnvironmentSpecularScale = 1.0,
 		atmo = {Density = 0.32, Color = C(190, 200, 210), Haze = 1.6, Glare = 0.1},
@@ -191,14 +211,16 @@ local MIDNIGHT_LAMP = {light = C(255, 176, 96), part = C(255, 170, 80), brightne
 local MIDNIGHT_NEON = {cyan = C(0, 223, 255), magenta = C(255, 43, 214)}
 local HEAD_WARM = C(255, 241, 222) -- natural warm white (about 4,500 K), not blue-white
 local SETS = {
-	MidnightClear = {keys = CLEAR, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
+	-- styled = NightNeon parts use MaterialLibrary.NightStyles (VIS-7.1)
+	MidnightClear = {keys = CLEAR, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry",
+		styled = true},
 	MidnightWet = {keys = WET, lamp = {light = C(255, 176, 96), part = C(255, 170, 80), brightness = 1.15},
-		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "wet"},
-	Dawn = {keys = DAWN, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
+		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "wet", styled = true},
+	Dawn = {keys = DAWN, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry", styled = true},
 	Daylight = {keys = DAYLIGHT, lamp = {light = C(255, 190, 120), part = C(255, 184, 104), brightness = 1.1},
-		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
-	-- Legacy: lamps, neon and headlights exactly as the builders made them, road look off
-	Legacy = {keys = LEGACY, lamp = nil, neon = nil, head = C(255, 244, 220), road = "off"},
+		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry", styled = true},
+	-- Legacy: lamps, neon, lit panes and headlights exactly as the builders made them, road look off
+	Legacy = {keys = LEGACY, lamp = nil, neon = nil, head = C(255, 244, 220), road = "off", styled = false},
 }
 local DEFAULT_SET = "MidnightClear"
 local warnedPreset: any = nil
@@ -499,23 +521,75 @@ local function neonColor(c: Color3): Color3
 	end
 	return c
 end
+-- night style of a NightNeon part (MaterialLibrary.NightStyles, VIS-7.1); Legacy / no library = the old Neon + palette
+local LEGACY_STYLE = {material = Enum.Material.Neon, palette = true}
+local function nightStyle(part: BasePart): any
+	if not (NightStyles and activeSet().styled) then
+		return LEGACY_STYLE
+	end
+	local mat = part:GetAttribute("Mat")
+	if mat == "LitWindow" then
+		if part:GetAttribute("Shopfront") == true or SHOP_NAMES[part.Name] then
+			return NightStyles.Shopfront or LEGACY_STYLE
+		end
+		local lw = NightStyles.LitWindow
+		local s = part.Size
+		local area = math.max(s.X * s.Y, s.X * s.Z, s.Y * s.Z) -- the pane face = the two largest axes
+		return (if area <= (lw.smallArea or 20) then lw.small else lw.large) or LEGACY_STYLE
+	end
+	return (type(mat) == "string" and NightStyles[mat]) or NightStyles._default or LEGACY_STYLE
+end
+local function styledColor(c: Color3, st: any): Color3
+	if st.palette then
+		c = neonColor(c)
+	end
+	local m = st.colorMul
+	if m and m ~= 1 then
+		c = Color3.new(math.min(c.R * m, 1), math.min(c.G * m, 1), math.min(c.B * m, 1))
+	end
+	local cap = st.maxValue
+	if cap then
+		local h, s, v = c:ToHSV()
+		if v > cap then
+			c = Color3.fromHSV(h, s, cap)
+		end
+	end
+	return c
+end
 local neons = setmetatable({}, {__mode = "k"})
 local function applyNeon(part: BasePart)
 	local col = part:GetAttribute(if night then "NightColor" else "DayColor")
-	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
-	if typeof(col) == "Color3" then
-		part.Color = if night then neonColor(col) else col
+	if night then
+		local st = nightStyle(part)
+		local mat = st.material or Enum.Material.Neon
+		if part.Material ~= mat then
+			part.Material = mat
+		end
+		if typeof(col) == "Color3" then
+			part.Color = styledColor(col, st)
+		end
+	else
+		part.Material = Enum.Material.SmoothPlastic
+		if typeof(col) == "Color3" then
+			part.Color = col
+		end
 	end
 end
--- always-Neon sign props (PattayaBuilder "NeonSign"): recoloured through the palette, original colour kept
+-- always-Neon sign props (PattayaBuilder "NeonSign"): recoloured through the palette (plus the NightStyles.NeonSign
+-- value cap in the styled presets), original colour kept. A NeonSign that is also NightNeon (the vis-slice neon
+-- strips) belongs to applyNeon only: running both painted its day colour through the palette (bright cyan by day).
 local signOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
 local function applySign(part: BasePart)
+	if part:GetAttribute("NightNeon") == true then
+		return
+	end
 	local orig = signOrig[part]
 	if not orig then
 		orig = part.Color
 		signOrig[part] = orig
 	end
-	part.Color = neonColor(orig)
+	local st = if NightStyles and activeSet().styled then NightStyles.NeonSign else nil
+	part.Color = if st then styledColor(orig, st) else neonColor(orig)
 end
 -- street-lamp heads (parts named Lamp): Neon in the preset's warm lamp colour at night, the builder colour by day
 local lampOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
