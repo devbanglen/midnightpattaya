@@ -59,3 +59,26 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
   shows only the descriptive venue name.
 - Data: `access` in `roblox/data/circuits/bira.luau` (pts, width 26, joinNode 1457068485, scaleFrom 1.786,
   scaleTo 3.571, realLengthM 6.2, lengthStuds 200).
+
+## Built and tested by the leader (2026-10-18)
+- `tools/circuit/export_corridor.py` turns the corridor graph into a `PattayaBuilder.Extend()` dataset
+  (`build/bira/roblox_corridor/`: manifest + 16 chunk modules, 620 road segments, 6 new junction discs, flat ground
+  strips along the road clipped to stay outside the slice frame and short of the venue) and a merged runtime road
+  graph (`graph.luau`: the 463 city nodes / 614 edges first, unchanged, then 32 corridor nodes / 35 edges;
+  `baseNodes`/`baseEdges` keep sprint, challenge and boss destinations inside the city, and `osmIds` lets the GPS
+  address junctions by OSM id).
+- One-way corridor edges get no sidewalk: on the dual carriageways (Thammasat Rd) each carriageway's sidewalk sat
+  on the other's roadway at ×0.5 (252 of 1,385 probes hit a sidewalk).
+- Studio: `Extend({folder = "PattayaDataCorridor"})` built the 16 chunks in 22 s (2,782 parts) with Ground terrain
+  under them. 1,385 raycast probes every 25 studs along the corridor all hit road at y = 1, from the city join
+  (`Chunk_5_0 Pattaya Klang Road`) to the circuit's `TransitionRoad`, whose nearest part is 27 studs from the
+  corridor's last node.
+- **GPS** (`PattayaGPSServer` / `PattayaGPSClient`, key G): routes on the merged graph with
+  `PattayaRoute.routeTo`, which snaps the car to the nearest point on any edge and seeds Dijkstra from both ends
+  of that edge (snapping to junctions only lost the route mid-corridor, where edges are thousands of studs long).
+  The client draws the next 2,500 studs as a cyan line, an arrow over the car and the remaining route distance.
+- **Drive test** (physics-driven autopilot following the GPS line, traffic made non-solid for the run): from the
+  Pattaya start grid to "You have arrived: Bira Circuit" in **206 s**, 402 probes under the car all on road, car
+  upright (min UpVector.Y 0.99), at most 7 studs off the GPS line. Route 8.1 km in game (28,942 studs).
+- Not done: the corridor has no buildings, props or traffic; a return trip was routed (2,832 studs from
+  mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated.
