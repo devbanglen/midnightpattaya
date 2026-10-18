@@ -18,6 +18,8 @@ Wide-world options (all absent in central_pattaya.json, so that build is unchang
                              treat these ways as that class and never prune them (access roads to job-stand POIs)
   "clip_polygon_lat_lon": [[lat, lon], ...]
                              keep only roads inside this polygon too (pattaya_wide: sea .. Sukhumvit Road)
+  "dual_offsets": true      rule b of tools/mapgen/dual.py on the new edges (a soi too close beside another road is shifted
+                             sideways; build/<name>/dual_offsets.json lists the moved edges and their unshifted lengths)
   "merge_graphs": ["build/<other>/graph_game.json", ...]
                              extra gameplay graphs in the same schema/origin/compression (e.g. the Bira corridor from
                              tools/circuit); their edges are appended and join this graph where they share OSM node ids.
@@ -276,6 +278,13 @@ def main(cfg_path):
         shared = {n for e in added for n in (e['a'], e['b'])} & {n for e in game_edges for n in (e['a'], e['b'])}
         print(f"merge_graphs: {mg}: {len(added)} edges added, joined at {len(shared)} shared OSM nodes")
         game_edges += added
+    if cfg.get('dual_offsets'):
+        # rule b of tools/mapgen/dual.py: a different road running too close beside another one is shifted sideways
+        # (interior points of new edges only; end nodes and base edges never move). Logged for traffic.py, which plans
+        # its loops with the unshifted lengths so the loop choice does not change.
+        import dual
+        moved = dual.apply_offsets(game_edges, cfg)
+        json.dump(moved, open(os.path.join(out_dir, 'dual_offsets.json'), 'w', encoding='utf-8'), indent=1, sort_keys=True)
     game_coast = [{'id': c['id'], 'pts': [[round(x, 2), round(z, 2)] for x, z in to_game(c['pts'])]} for c in coast]
     nodes = {}
     for e in game_edges:

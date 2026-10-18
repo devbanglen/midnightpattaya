@@ -26,6 +26,9 @@ Classes (every finding has world x, z = map-local + PattayaBuilder.ORIGIN (20000
   kink       a vertex of the exported polyline (or a degree-2 joint between two edges) where the heading turns by
              more than 60 degrees (a zig-zag at driving speed).
   step       two edges meeting at one node whose end points are more than 0.05 studs apart (seam step).
+road_fix rule D (tools/mapgen/dual.py) is read from the modules: a hidden edge has no surface (it takes part in no
+finding), a cut edge's slab is its slab pieces (road_check.slab_pieces) plus its fill triangles, and a merged edge's end
+points lie off its nodes on purpose (centred between the two carriageways), so it is not checked for steps.
 Each overlap finding (crossing / tee / parallel / acute) also says whether it is VISIBLE: marking Parts of one road on
 the other, or more than 10 studs^2 of one road's sidewalk side on the other (road_fix.py rules M and S); otherwise the
 two slabs only share one flat unmarked surface (same height, same colour), which reads as one wider road.
@@ -38,7 +41,7 @@ worst 30 numbered, the same numbers as rank 1..30 in the CSV).
 import argparse, csv, json, math, os, sys
 from collections import Counter, defaultdict
 import numpy as np
-from shapely.geometry import LineString, MultiPoint, Point
+from shapely.geometry import LineString, MultiLineString, MultiPoint, Point
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
@@ -115,7 +118,7 @@ def visible_conflicts(edges, discs, jrs, gaps):
                 if a_ not in seen and W.suppresses(i, b_):
                     seen.add(a_)
                     marks[(i, W.slab_edge[b_])] += 1
-        if e['sidewalk'] > 0:
+        if e['sidewalk'] > 0 and not e.get('hidden'):
             jr = jrs[e['ds']]
             ra, rb = rfx.end_trims(e, jr)
             sw = rc.trim(e['pts'], ra + e['sidewalk'] if ra > 0 else 0, rb + e['sidewalk'] if rb > 0 else 0)
@@ -169,12 +172,19 @@ def audit(edges, discs, tags):
         e['idx'] = i
         e['line'] = LineString(e['pts'])
         e['len'] = e['line'].length
-        e['slab'] = unary_union(rc.stripe_rects(e['pts'], e['width'])) if len(e['pts']) > 1 else e['line'].buffer(e['width'] / 2)
+        pieces = [q for q in rc.slab_pieces(e) if len(q) > 1]
+        e['pieces'] = pieces                          # slab lines (none: hidden edge, no surface)
+        e['sline'] = (LineString(pieces[0]) if len(pieces) == 1 else MultiLineString([LineString(q) for q in pieces])) \
+            if pieces else None
+        rects = rc.slab_rects(e)
+        e['slab'] = unary_union(rects) if rects else e['line'].buffer(e['width'] / 2)
         e['lvl'] = level(tags.get(e['way']))
     node_pos = defaultdict(list)
     inc = defaultdict(list)                      # node -> [(edge index, at_end)]
-    for i, e in enumerate(edges):
+    for i, e in enumerate(sorted(range(len(edges)), key=lambda k: bool(edges[k].get('merged')))):
+        e = edges[e]                             # node positions from unmerged edges first (merged ends lie off the node)
         node_pos[e['a']].append(e['pts'][0]); node_pos[e['b']].append(e['pts'][-1])
+    for i, e in enumerate(edges):
         inc[e['a']].append((i, False)); inc[e['b']].append((i, True))
     deg = {n: len(v) for n, v in inc.items()}
     disc_r = defaultdict(float)                  # node -> disc radius actually built (junction or joint)
@@ -215,9 +225,11 @@ def audit(edges, discs, tags):
         if j <= i:
             continue
         A, B = edges[i], edges[j]
+        if A.get('hidden') or B.get('hidden'):
+            continue
         shared = {A['a'], A['b']} & {B['a'], B['b']}
         # crossings: centreline intersections away from any shared node
-        inter = A['line'].intersection(B['line'])
+        inter = A['sline'].intersection(B['sline']) if A['sline'] is not None and B['sline'] is not None else A['line'].intersection(B['line'])
         pts = []
         if not inter.is_empty:
             geoms = getattr(inter, 'geoms', [inter])
@@ -257,12 +269,15 @@ def audit(edges, discs, tags):
         if shared:
             continue                                         # adjacent pairs: see acute / short below
         # parallel overlap: samples of the shorter edge whose distance to the other centreline < (wa + wb) / 2
-        S, L = (A, B) if A['len'] <= B['len'] else (B, A)
-        sp, _ = sample(S['pts'])
+        # (both measured on the slab lines: a cut slab is shorter than its centreline)
+        if A['sline'] is None or B['sline'] is None:
+            continue
+        S, L = (A, B) if A['sline'].length <= B['sline'].length else (B, A)
+        sp = np.vstack([sample(q)[0] for q in S['pieces']])
         if len(sp) < 2:
             continue
         import shapely
-        d = shapely.distance(shapely.points(sp[:, 0], sp[:, 1]), L['line'])
+        d = shapely.distance(shapely.points(sp[:, 0], sp[:, 1]), L['sline'])
         lim = (A['width'] + B['width']) / 2
         ov = d < lim - 0.25
         for p in merged:                                     # not the crossing patch itself
@@ -322,6 +337,8 @@ def audit(edges, discs, tags):
                 if i == j:
                     continue
                 A, B = edges[i], edges[j]
+                if A.get('hidden') or B.get('hidden'):
+                    continue
                 ha, hb = heading(A['pts'], ei), heading(B['pts'], ej)
                 ang = math.degrees(math.acos(max(-1.0, min(1.0, float(ha @ hb)))))
                 if ang >= 60:
@@ -329,12 +346,16 @@ def audit(edges, discs, tags):
                 lim = (A['width'] + B['width']) / 2
                 spikes = []
                 for S, es, L in ((A, ei, B), (B, ej, A)):
+                    # overlap of the two slabs: S's samples from the node, beyond S's own slab cut at this end, against
+                    # L's slab line
                     sp, t = sample(S['pts'][::-1] if es else S['pts'])
-                    d = shapely.distance(shapely.points(sp[:, 0], sp[:, 1]), L['line'])
-                    k = 0
+                    d = shapely.distance(shapely.points(sp[:, 0], sp[:, 1]), L['sline'])
+                    c = (S.get('cutB') if es else S.get('cutA')) or 0.0
+                    k = int(np.searchsorted(t, c - 1e-9)) if c > 0 else 0
+                    k0 = k
                     while k < len(d) and (d[k] < lim - 0.25 or t[k] <= r):
                         k += 1
-                    spikes.append(t[min(k, len(t) - 1)])
+                    spikes.append(t[min(k, len(t) - 1)] - max(r, t[min(k0, len(t) - 1)] if c > 0 else r) + r)
                 spike = max(spikes) - r
                 if spike < ACUTE_MIN_SPIKE:
                     continue
@@ -348,6 +369,8 @@ def audit(edges, discs, tags):
                     spike=round(spike, 1), disc_r=round(r, 2),
                     detail=f'{ang:.0f} deg merge at node {n}: slabs overlap {spike:.0f} studs past the disc (r {r:.1f})')
     for i, e in enumerate(edges):
+        if e.get('hidden'):
+            continue
         if e['len'] < SHORT_STUDS and deg.get(e['a'], 0) >= 3 and deg.get(e['b'], 0) >= 3:
             ra, rb = disc_r.get(e['a'], 0), disc_r.get(e['b'], 0)
             ov = ra + rb - e['len']
@@ -357,6 +380,8 @@ def audit(edges, discs, tags):
 
     # ---- d: kinks inside an edge, kinks at degree-2 joints, seam steps ---------------------------------------------
     for e in edges:
+        if e.get('hidden'):
+            continue
         p = e['pts']
         for k in range(1, len(p) - 1):
             v1, v2 = p[k] - p[k - 1], p[k + 1] - p[k]
@@ -369,13 +394,18 @@ def audit(edges, discs, tags):
                     seg_in=round(float(n1), 1), seg_out=round(float(n2), 1), where='inside',
                     detail=f'heading turns {ang:.0f} deg inside the edge (segments {n1:.1f} / {n2:.1f} studs)')
     for n, lst in inc.items():
-        P = np.array(node_pos[n])
-        spread = float(np.max(np.linalg.norm(P - P[0], axis=1)))
-        if spread > 0.05:
-            i, _ = lst[0]
-            j = next(jj for jj, _ in lst if np.linalg.norm(np.array(edges[jj]['pts'][0 if edges[jj]['a'] == n else -1]) - P[0]) > 0.05)
-            add('step', spread * 50, P[0][0], P[0][1], edges[i], edges[j], node=n, step=round(spread, 2),
-                detail=f'end points at node {n} are {spread:.2f} studs apart')
+        st = [(i, at) for i, at in lst if not edges[i].get('merged') and not edges[i].get('hidden')]
+        if st:
+            P = np.array([edges[i]['pts'][-1 if at else 0] for i, at in st])
+            spread = float(np.max(np.linalg.norm(P - P[0], axis=1)))
+            if spread > 0.05:
+                i, _ = st[0]
+                j = next(jj for jj, _ in st if np.linalg.norm(np.array(edges[jj]['pts'][0 if edges[jj]['a'] == n else -1]) - P[0]) > 0.05)
+                add('step', spread * 50, P[0][0], P[0][1], edges[i], edges[j], node=n, step=round(spread, 2),
+                    detail=f'end points at node {n} are {spread:.2f} studs apart')
+        if len(lst) == 2 and any(edges[i].get('hidden') for i, _ in lst):
+            continue                                 # a degree-2 joint of the graph with a hidden edge: nothing built
+        P = np.array([edges[i]['pts'][-1 if at else 0] for i, at in lst])
         if len(lst) == 2:
             (i, ei), (j, ej) = lst
             if i == j:

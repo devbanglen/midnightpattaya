@@ -8,6 +8,11 @@ The client moves cars along them as a pure function of server time, so every pla
 network traffic. One-way roads are respected (edge a -> b).
 With a "base" block (wide world) the base build's loops are copied verbatim first and the new loops start on new
 (non-base) main roads; they may run through the base slice like real traffic does.
+Dual carriageways (tools/mapgen/dual.py, build/dual/plan.json): where two carriageways are built as ONE merged slab,
+the lane is measured from the merged centre and kept inside that slab (opposite directions each on their left half);
+the loop choice, car counts and every random draw stay exactly as without the merge (cars are counted on the unmerged
+lane length, edges moved sideways by dual.py rule b are planned with their unshifted length), so only the lane
+geometry on merged / moved edges changes.
 """
 import hashlib, heapq, json, math, os, random, sys
 from collections import defaultdict
@@ -43,6 +48,12 @@ def main(cfg_path):
     g = json.load(open(gpath, encoding='utf-8'))
     edges = g['edges']
     rng = random.Random(T.get('seed', 11))
+    sys.path.insert(0, os.path.dirname(__file__))
+    import dual
+    plan = dual.load_plan(ROOT)
+    field = dual.MergeField(plan, {e['id']: e for e in edges}) if plan else None
+    op = os.path.join(ROOT, 'build', cfg['name'], 'dual_offsets.json')
+    len0 = {k: v['len0'] for k, v in json.load(open(op, encoding='utf-8')).items()} if os.path.exists(op) else {}
 
     # directed links: node -> [(edge index, to node, forward?)]
     out = defaultdict(list)
@@ -50,7 +61,7 @@ def main(cfg_path):
         out[e['a']].append((i, e['b'], True))
         if not e['oneway']:
             out[e['b']].append((i, e['a'], False))
-    elen = [plen(e['pts']) for e in edges]
+    elen = [len0.get(e['id'], plen(e['pts'])) for e in edges]      # planning length (unshifted, dual.py rule b)
     main_edges = [i for i, e in enumerate(edges) if e['tier'] == 'main' and elen[i] > 40]
     if 'base' in cfg:
         main_edges = [i for i in main_edges if not edges[i].get('base')]
@@ -104,7 +115,7 @@ def main(cfg_path):
         if not (T['min_loop_studs'] <= total <= T['max_loop_studs'] * 1.6):
             continue
         # polyline in driving direction, offset into the left lane (left of travel = (dz, -dx))
-        pts = []
+        pts, pts0 = [], []
         for i, f in steps:
             e = edges[i]
             p = np.array(e['pts'] if f else list(reversed(e['pts'])), dtype=float)
@@ -117,16 +128,19 @@ def main(cfg_path):
             nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
             left = np.stack([nrm[:, 1], -nrm[:, 0]], axis=1)
             lane = e['width'] / 4 if (not e['oneway'] or e['width'] < 30) else e['width'] / 4 + rng.choice([0, e['width'] / 4])
-            q = p + left * lane
-            for k, pt in enumerate(q.tolist()):
-                if pts and k == 0 and np.linalg.norm(np.array(pts[-1]) - pt) < 1:
+            q0 = p + left * lane
+            q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else q0
+            for k, (pt, pt0) in enumerate(zip(q.tolist(), q0.tolist())):
+                if pts0 and k == 0 and np.linalg.norm(np.array(pts0[-1]) - pt0) < 1:
                     continue
-                pts.append(pt)
-        pts = dp(pts, 0.8)
+                pts.append(pt); pts0.append(pt0)
+        pts, pts0 = dp(pts, 0.8), dp(pts0, 0.8)
         if np.linalg.norm(np.array(pts[0]) - np.array(pts[-1])) > 0.5:
             pts.append(pts[0])
+        if np.linalg.norm(np.array(pts0[0]) - np.array(pts0[-1])) > 0.5:
+            pts0.append(pts0[0])
         L = plen(pts)
-        cars = max(1, int(L // T['studs_per_car']))
+        cars = max(1, int(plen(pts0) // T['studs_per_car']))   # as without the dual merge: same random draws after
         routes.append({'pts': [[round(x, 1), round(z, 1)] for x, z in pts], 'length': round(L, 1),
                        'speed': round(rng.uniform(*T['speed_studs_s']), 1), 'cars': cars,
                        'kinds': [rng.choices(range(len(T['kind_weights'])), T['kind_weights'])[0] for _ in range(cars)],

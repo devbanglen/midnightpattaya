@@ -1,0 +1,75 @@
+{
+ "crossing": {
+  "total": 0,
+  "high": 0,
+  "medium": 0,
+  "visible": 0,
+  "visible_by_dataset": {},
+  "grade_separated": 0,
+  "covered_by_disc": 0
+ },
+ "tee": {
+  "central": 9,
+  "central+wide": 2,
+  "wide": 107,
+  "total": 118,
+  "high": 2,
+  "medium": 28,
+  "visible": 0,
+  "visible_by_dataset": {}
+ },
+ "parallel": {
+  "central": 1,
+  "total": 1,
+  "high": 0,
+  "medium": 0,
+  "visible": 0,
+  "visible_by_dataset": {}
+ },
+ "acute": {
+  "total": 0,
+  "high": 0,
+  "medium": 0,
+  "visible": 0,
+  "visible_by_dataset": {}
+ },
+ "short": {
+  "central": 3,
+  "wide": 27,
+  "total": 30,
+  "high": 20,
+  "medium": 10
+ },
+ "kink": {
+  "central": 39,
+  "central+wide": 1,
+  "corridor": 2,
+  "wide": 246,
+  "total": 288,
+  "high": 4,
+  "medium": 245
+ },
+ "step": {
+  "total": 0,
+  "high": 0,
+  "medium": 0
+ },
+ "visible_conflicts": {
+  "central": {
+   "marking_parts_on_other_road": 0,
+   "sidewalk_sides_on_other_road_gt10": 0,
+   "sidewalk_area_on_other_road": 84.4
+  },
+  "wide": {
+   "marking_parts_on_other_road": 0,
+   "sidewalk_sides_on_other_road_gt10": 0,
+   "sidewalk_area_on_other_road": 35.0
+  },
+  "corridor": {
+   "marking_parts_on_other_road": 0,
+   "sidewalk_sides_on_other_road_gt10": 0,
+   "sidewalk_area_on_other_road": 0
+  },
+  "bare_bends_over_35deg": {}
+ }
+}

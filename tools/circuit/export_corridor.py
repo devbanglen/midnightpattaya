@@ -125,6 +125,45 @@ def frame_max_x_wide(city_dir, slice_frame):
     return float(m.group(1)) if m else slice_frame['maxX']
 
 
+def wide_dedupe(city_edges, cor_edges, city_nodes, nodes_xy, quiet=False):
+    """Wide world: the corridor's city-side stretch (Pattaya Klang, Sukhumvit) is already part of the wide graph.
+    Drop corridor edges with both ends in the city graph; cut an edge that leaves the city graph where the city's
+    own copy of that way ends (the wide graph stops a road at its bbox / pruning point, not at a corridor node).
+    Returns the corridor edges that the corridor dataset builds (edges are cut in place). Also used by
+    tools/mapgen/dual.py so its plan sees exactly the exported corridor edges."""
+    way_nodes = defaultdict(set)
+    for e in city_edges:
+        way_nodes[e['way']].update((e['a'], e['b']))
+    kept = []
+    for e in cor_edges:
+        a_in, b_in = e['a'] in city_nodes, e['b'] in city_nodes
+        if a_in and b_in:
+            continue
+        if a_in != b_in:
+            pts = np.array(e['pts'])
+            inside_end = e['a'] if a_in else e['b']
+            best = None   # (arc position, node) of the city node on this way that lies on the corridor polyline
+            for n in way_nodes.get(e['way'], ()):
+                xy = np.array(nodes_xy[str(n)]) if str(n) in nodes_xy else None
+                if xy is None:
+                    continue
+                d = np.linalg.norm(pts - xy, axis=1)
+                k = int(d.argmin())
+                if d[k] < 3 and n != inside_end:
+                    arc = k if a_in else len(pts) - 1 - k
+                    if best is None or arc > best[0]:
+                        best = (arc, n, k)
+            if best:
+                _, n, k = best
+                if a_in:
+                    e['pts'] = [list(nodes_xy[str(n)])] + pts[k + 1:].tolist(); e['a'] = n
+                else:
+                    e['pts'] = pts[:k].tolist() + [list(nodes_xy[str(n)])]; e['b'] = n
+                quiet or print(f"  corridor edge {e['id']} cut at city node {n} (city already has the way up to there)")
+        kept.append(e)
+    return kept
+
+
 def main(cfg_path, city_build='build/central_pattaya'):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
     C = 512
@@ -157,36 +196,7 @@ def main(cfg_path, city_build='build/central_pattaya'):
     # Drop corridor edges with both ends in the city graph; cut an edge that leaves the city graph where the city's
     # own copy of that way ends (the wide graph stops a road at its bbox / pruning point, not at a corridor node).
     if wide:
-        way_nodes = defaultdict(set)
-        for e in city_edges:
-            way_nodes[e['way']].update((e['a'], e['b']))
-        kept = []
-        for e in cor_edges:
-            a_in, b_in = e['a'] in city_nodes, e['b'] in city_nodes
-            if a_in and b_in:
-                continue
-            if a_in != b_in:
-                pts = np.array(e['pts'])
-                inside_end = e['a'] if a_in else e['b']
-                best = None   # (arc position, node) of the city node on this way that lies on the corridor polyline
-                for n in way_nodes.get(e['way'], ()):
-                    xy = np.array(nodes_xy[str(n)]) if str(n) in nodes_xy else None
-                    if xy is None:
-                        continue
-                    d = np.linalg.norm(pts - xy, axis=1)
-                    k = int(d.argmin())
-                    if d[k] < 3 and n != inside_end:
-                        arc = k if a_in else len(pts) - 1 - k
-                        if best is None or arc > best[0]:
-                            best = (arc, n, k)
-                if best:
-                    _, n, k = best
-                    if a_in:
-                        e['pts'] = [list(nodes_xy[str(n)])] + pts[k + 1:].tolist(); e['a'] = n
-                    else:
-                        e['pts'] = pts[:k].tolist() + [list(nodes_xy[str(n)])]; e['b'] = n
-                    print(f"  corridor edge {e['id']} cut at city node {n} (city already has the way up to there)")
-            kept.append(e)
+        kept = wide_dedupe(city_edges, cor_edges, city_nodes, nodes_xy)
         dropped = len(cor_edges) - len(kept)
         cor_edges = kept
         cor_nodes = set(n for e in cor_edges for n in (e['a'], e['b']))
