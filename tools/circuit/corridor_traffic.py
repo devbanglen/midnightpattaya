@@ -9,8 +9,10 @@ format, map-local studs, PattayaTraffic.client adds PattayaBuilder.ORIGIN), and 
 
 Loops (config corridor_life.traffic.loops, pairs of OSM node ids [from, to]): drive from -> to and back to -> from on
 the directed corridor graph (one-way edges only a -> b, so a dual carriageway is driven out on one carriageway and
-back on the other), offset into the left-hand lane exactly like tools/mapgen/traffic.py. The route helpers here are
-also used by export_corridor.py for the direction signs (remaining distance along the outbound route).
+back on the other), offset into the left-hand lane exactly like tools/mapgen/traffic.py (including its dual-carriageway
+lane fix, tools/mapgen/dual.py: on a merged slab the lane stays inside it; the corridor's own copies of city ways are
+matched by OSM way; car counts use the unmerged lane length so every random draw stays the same). The route helpers here
+are also used by export_corridor.py for the direction signs (remaining distance along the outbound route).
 """
 import heapq, json, os, random, sys
 from collections import defaultdict
@@ -60,9 +62,11 @@ def path_polyline(edges, path):
     return np.array(pts, float), owner
 
 
-def lane_polyline(edges, steps, rng):
-    """the loop's polyline offset into the left-hand lane (same rule as tools/mapgen/traffic.py)."""
-    pts = []
+def lane_polyline(edges, steps, rng, field=None, unmerged=None):
+    """the loop's polyline offset into the left-hand lane (same rule as tools/mapgen/traffic.py). With a dual.MergeField
+    the lanes on merged carriageways are moved inside the merged slab; `unmerged` (a list) then receives the polyline
+    without that fix."""
+    pts, pts0 = [], []
     for i, f in steps:
         e = edges[i]
         p = np.array(e['pts'] if f else list(reversed(e['pts'])), dtype=float)
@@ -75,14 +79,19 @@ def lane_polyline(edges, steps, rng):
         nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
         left = np.stack([nrm[:, 1], -nrm[:, 0]], axis=1)
         lane = e['width'] / 4 if (not e['oneway'] or e['width'] < 30) else e['width'] / 4 + rng.choice([0, e['width'] / 4])
-        q = p + left * lane
-        for k, pt in enumerate(q.tolist()):
-            if pts and k == 0 and np.linalg.norm(np.array(pts[-1]) - pt) < 1:
+        q0 = p + left * lane
+        q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else q0
+        for k, (pt, pt0) in enumerate(zip(q.tolist(), q0.tolist())):
+            if pts0 and k == 0 and np.linalg.norm(np.array(pts0[-1]) - pt0) < 1:
                 continue
-            pts.append(pt)
-    pts = dp(pts, 0.8)
+            pts.append(pt); pts0.append(pt0)
+    pts, pts0 = dp(pts, 0.8), dp(pts0, 0.8)
     if np.linalg.norm(np.array(pts[0]) - np.array(pts[-1])) > 0.5:
         pts.append(pts[0])
+    if np.linalg.norm(np.array(pts0[0]) - np.array(pts0[-1])) > 0.5:
+        pts0.append(pts0[0])
+    if unmerged is not None:
+        unmerged[:] = pts0
     return pts
 
 
@@ -93,14 +102,22 @@ def main(cfg_path):
     g = json.load(open(os.path.join(bira, 'corridor_graph_game.json'), encoding='utf-8'))
     edges = g['edges']
     rng = random.Random(T['seed'])
+    import dual
+    plan = dual.load_plan(ROOT)
+    field = None
+    if plan:
+        known = {e['id']: e for e in json.load(open(os.path.join(ROOT, 'build', 'pattaya_wide', 'graph_game.json'), encoding='utf-8'))['edges']}
+        known.update({e['id']: e for e in edges})
+        field = dual.MergeField(plan, known)
     routes = []
     for src, dst in T['loops']:
         out_p, back_p = directed_path(edges, src, dst), directed_path(edges, dst, src)
         if out_p is None or back_p is None:
             sys.exit(f'corridor loop {src} <-> {dst}: no directed path')
-        pts = lane_polyline(edges, out_p + back_p, rng)
+        pts0 = []
+        pts = lane_polyline(edges, out_p + back_p, rng, field, pts0)
         L = plen(pts)
-        cars = max(1, int(L // T['studs_per_car']))
+        cars = max(1, int(plen(pts0) // T['studs_per_car']))   # as without the dual merge: same random draws after
         routes.append({'from': src, 'to': dst, 'pts': [[round(x, 1), round(z, 1)] for x, z in pts], 'length': round(L, 1),
                        'speed': round(rng.uniform(*T['speed_studs_s']), 1), 'cars': cars,
                        'kinds': [rng.choices(range(len(T['kind_weights'])), T['kind_weights'])[0] for _ in range(cars)],

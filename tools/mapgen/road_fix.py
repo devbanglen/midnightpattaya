@@ -25,9 +25,15 @@ Rules (deterministic; same input -> same output; an edge that needs no fix keeps
              of a higher-class road over a minor road stay.
   J  joints  the central slice gets joint discs (joints.luau, same rule as the wide world: degree-1/2 nodes, radius =
              narrowest incident half-width) where neither it nor the wide world has a disc yet.
-Left out on purpose (see docs/ROAD_AUDIT.md): moving centrelines apart (would move traffic lanes, GPS lines, job-stand
-kerbs, props and buildings of the tested slice), junction nodes at crossings (the audit found no crossing without a
-shared node), raising bridges (no bridge / tunnel / layer pair crosses another road in the game graph).
+  D  dual    (runs first; tools/mapgen/dual.py, plan build/dual/plan.json) dual carriageways / same-name parallel roads
+             become ONE slab: the kept edge gets the merged centreline (`merged = true`, pts centred between the two
+             centrelines, two-way markings when the directions differ), the hidden edge builds no slab where the merged
+             slab covers it (`hidden = true`, or `cutA` / `cutB`); acute merges and slip roads get their slab cut back to
+             where they leave the other road (`cutA` / `cutB`); the part of a cut slab no other road covers is rebuilt as
+             flat triangles (`fill = {x1, z1, x2, z2, x3, z3, ...}`). Graph polylines are not touched (routing unchanged).
+Left out on purpose (see docs/ROAD_AUDIT.md): junction nodes at crossings (the audit found no crossing without a
+shared node), raising bridges (no bridge / tunnel / layer pair crosses another road in the game graph). Moving a
+centreline (rule b of dual.py) happens in road_graph.py, before every other stage, not here.
 
 Writes build/road_fix/changes.json (per dataset: changed chunk ids, per-edge changes) and, unless --dry-run,
 rewrites the chunk modules in place. Run it once per export: it refuses to run on modules it already rewrote
@@ -98,8 +104,9 @@ def load(root=ROOT):
 
 
 def end_trims(e, jr):
-    """what PattayaBuilder.buildEdge trims markings by at end a / b: the junction disc radius, else the bend trim"""
-    return jr.get(e['a'], 0) or e.get('jA', 0) or 0, jr.get(e['b'], 0) or e.get('jB', 0) or 0
+    """what PattayaBuilder.buildEdge trims markings by at end a / b: the junction disc radius, else the bend trim
+    (at least the slab cut of rule D)"""
+    return rc.end_cuts(e, jr.get(e['a'], 0) or e.get('jA', 0) or 0, jr.get(e['b'], 0) or e.get('jB', 0) or 0)
 
 
 def degrees(edges):
@@ -115,7 +122,7 @@ def plen(p):
 
 # ---- builder ports: markings exactly as PattayaBuilder.buildEdge draws them ----------------------------------------
 def mark_offsets(e):
-    if e['tier'] == 'soi':
+    if e['tier'] == 'soi' or e.get('hidden'):
         return []
     w, n = e['width'], e['lanes']
     if e['oneway']:
@@ -185,7 +192,7 @@ class World:
     def rebuild(self):
         self.slabs, self.slab_edge = [], []
         for i, e in enumerate(self.edges):
-            for r in rc.stripe_rects(e['pts'], e['width']):
+            for r in rc.slab_rects(e):
                 self.slabs.append(r); self.slab_edge.append(i)
         self.disc_nodes = []
         for (ds, k), (x, z, r) in self.discs.items():
@@ -262,7 +269,7 @@ def kerb_conflicts(W, i, jr):
     """{side: area of that side's strip on other roads} for the sides edge i builds now"""
     e = W.edges[i]
     out = {}
-    if e['sidewalk'] <= 0:
+    if e['sidewalk'] <= 0 or e.get('hidden'):
         return out
     ra, rb = end_trims(e, jr)
     sw = rc.trim(e['pts'], ra + e['sidewalk'] if ra > 0 else 0, rb + e['sidewalk'] if rb > 0 else 0)
@@ -369,7 +376,7 @@ def bend_rule(edges, discs):
         A, B = edges[i], edges[j]
         bends[n] = max(A['width'], B['width']) / 2
         for E, at_b, O in ((A, ei, B), (B, ej, A)):
-            if not mark_offsets(E) and E['sidewalk'] <= 0:
+            if not mark_offsets(E) and (E['sidewalk'] <= 0 or E.get('hidden')):
                 continue                                      # nothing to trim (a soi without sidewalks): line unchanged
             t = round(min(O['width'] / 2 * math.tan(math.radians(min(turn, 150)) / 2), BEND_TRIM_MAX), 2)
             E['jB' if at_b else 'jA'] = max(E.get('jB' if at_b else 'jA', 0.0), t)
@@ -394,8 +401,14 @@ def rewrite_line(ln, e):
     out = re.sub(r', swSide = -?1', '', ln)
     out = re.sub(r', noMarks = \{[^}]*\}', '', out)
     out = re.sub(r', j[AB] = [\d.]+', '', out)
+    out = re.sub(r', (hidden|merged) = true', '', out)
+    out = re.sub(r', cut[AB] = [\d.]+', '', out)
+    out = re.sub(r', fill = \{[^}]*\}', '', out)
+    out = re.sub(r', hide = \{[^}]*\}', '', out)
     if e['sidewalk_new'] != e['sidewalk_orig']:
-        out = re.sub(r'sidewalk = [\d.]+,', 'sidewalk = 0,', out, count=1)
+        out = re.sub(r'sidewalk = [\d.]+,', f"sidewalk = {e['sidewalk_new']:g},", out, count=1)
+    if e.get('merged'):                                  # rule D: the merged slab's marking style
+        out = re.sub(r'oneway = (true|false), lanes = \d+,', f"oneway = {str(e['oneway']).lower()}, lanes = {e['lanes']},", out, count=1)
     flat = ','.join(f'{x:.2f},{z:.2f}' for x, z in e['pts'])
     out = re.sub(r'pts = \{[^}]*\}', 'pts = {' + flat + '}', out, count=1) if e['pts_changed'] else out
     extra = ''
@@ -407,6 +420,18 @@ def rewrite_line(ln, e):
         extra += f', jB = {e["jB"]:g}'
     if e.get('noMarks'):
         extra += ', noMarks = {' + ','.join(f'{v:.1f}' for v in e['noMarks']) + '}'
+    if e.get('merged'):
+        extra += ', merged = true'
+    if e.get('hidden'):
+        extra += ', hidden = true'
+    if e.get('cutA'):
+        extra += f', cutA = {e["cutA"]:g}'
+    if e.get('cutB'):
+        extra += f', cutB = {e["cutB"]:g}'
+    if e.get('hide'):
+        extra += ', hide = {' + ','.join(f'{v:.1f}' for v in e['hide']) + '}'
+    if e.get('fill'):
+        extra += ', fill = {' + ','.join(f'{v:.2f}' for v in e['fill']) + '}'
     assert out.endswith(' },')
     return out[:-3] + extra + ' },'
 
@@ -434,15 +459,45 @@ def main():
         e['sidewalk_orig'] = e['sidewalk']
         e['swSide_orig'] = e.get('swSide')
         e['noMarks_orig'] = list(e['noMarks'])
+        e['pts_changed'] = False
 
-    # K: kinks (before anything else: the other rules use the final polylines)
+    # K: kinks (before anything else: the other rules use the final polylines; D smooths its merged lines too)
     n_kink = 0
     for e in edges:
         q = smooth_kinks(e['pts'])
-        e['pts_changed'] = len(q) != len(e['pts']) or bool(np.abs(q - e['pts']).max() > 1e-9)
-        if e['pts_changed']:
+        ch = len(q) != len(e['pts']) or bool(np.abs(q - e['pts']).max() > 1e-9)
+        if ch:
             n_kink += 1
             e['pts'] = q
+            e['pts_changed'] = True
+    # D: dual carriageways, acute merges, slip roads (tools/mapgen/dual.py plan): merged centrelines, hidden edges,
+    # slab cuts, fill triangles - right after K, so every later rule sees the final road surface
+    import dual
+    plan = dual.load_plan(root)
+    dstats = {}
+    if plan is not None:
+        gsw = {}
+        for _, rel in dual.GRAPHS[:2]:
+            gp = os.path.join(root, rel)
+            if os.path.exists(gp):
+                for ge in json.load(open(gp, encoding='utf-8'))['edges']:
+                    gsw[ge['id']] = ge['sidewalk']
+        for e in edges:
+            if e['id'] in gsw and e['ds'] != 'corridor':
+                e['sidewalk_graph'] = gsw[e['id']]
+        keep = []                                     # job stands, bosses, race grid, spawn: never off the road
+        for rel in ('build/central_pattaya/layout.json', 'build/pattaya_wide/layout.json'):
+            lp = os.path.join(root, rel)
+            if os.path.exists(lp):
+                L_ = json.load(open(lp, encoding='utf-8'))
+                keep += [(s_['x'], s_['z'], s_['id']) for s_ in L_.get('job_stands', [])]
+                keep += [(g_['x'], g_['z'], 'race grid') for g_ in L_.get('race', {}).get('grid', [])]
+                if L_.get('spawn'):
+                    keep.append((L_['spawn']['x'], L_['spawn']['z'], 'spawn'))
+        keep = sorted(set(keep))
+        dstats = dual.apply_chunk(edges, discs, plan, rc, smooth=smooth_kinks, keep_points=keep)
+        print(f'road_fix rule D: {dstats}')
+
     J = central_joints(edges, discs)
     for n, v in J.items():
         discs[('central', ('joint', n))] = v
@@ -472,7 +527,17 @@ def main():
     # M: markings
     n_marks = 0
     for i, e in enumerate(edges):
-        e['noMarks'] = mark_ranges(W, i, jrs[e['ds']])
+        e['noMarks'] = mark_ranges(W, i, jrs[e['ds']]) if not e.get('hidden') else []
+        if e.get('hide') and e['noMarks'] is not None:   # rule D hide ranges: no slab there, so no markings either
+            rr = sorted([e['noMarks'][k:k + 2] for k in range(0, len(e['noMarks']), 2)] +
+                        [e['hide'][k:k + 2] for k in range(0, len(e['hide']), 2)])
+            mm = [list(rr[0])]
+            for a_, b_ in rr[1:]:
+                if a_ <= mm[-1][1]:
+                    mm[-1][1] = max(mm[-1][1], b_)
+                else:
+                    mm.append([a_, b_])
+            e['noMarks'] = [round(v, 1) for r_ in mm for v in r_]
         n_marks += bool(e['noMarks'])
 
     # V: bend discs where Road Parts still meet end to end at a sharp angle with no disc (pass 2: the Studio kink
@@ -502,8 +567,18 @@ def main():
     for e in edges:
         e['sidewalk_new'] = e['sidewalk']
         what = []
-        if e['pts_changed']:
+        if e.get('merged'):
+            what.append(f"merged centreline (width {e['width']:g}, {'two-way' if not e['oneway'] else 'one-way'})")
+        elif e['pts_changed']:
             what.append('kink fillet')
+        if e.get('hidden'):
+            what.append('hidden')
+        if e.get('cutA') or e.get('cutB'):
+            what.append(f"slab cut a {e.get('cutA', 0):g} b {e.get('cutB', 0):g}")
+        if e.get('hide'):
+            what.append(f"slab hidden on {len(e['hide']) // 2} stretches")
+        if e.get('fill'):
+            what.append(f"fill {len(e['fill']) // 6} triangles")
         if e['sidewalk'] != e['sidewalk_orig'] or e.get('swSide') != e['swSide_orig']:
             what.append(f"kerb {e['swSide_orig'] or ('both' if e['sidewalk_orig'] > 0 else 'none')} -> "
                         f"{e.get('swSide') or ('both' if e['sidewalk'] > 0 else 'none')}")
@@ -520,7 +595,7 @@ def main():
         if lines != files[(ds, f)]:
             changes[ds]['chunks'].append(f[6:-5])
     os.makedirs(state_dir, exist_ok=True)
-    stats = {'kink_edges': n_kink, 'kerb_sides_dropped': n_side, 'edges_with_noMarks': n_marks, 'central_joint_discs': len(J),
+    stats = {'dual': dstats, 'kink_edges': n_kink, 'kerb_sides_dropped': n_side, 'edges_with_noMarks': n_marks, 'central_joint_discs': len(J),
              'bend_joints': len(bends), 'vertex_bend_discs': n_vdisc, 'bend_discs_widened': n_bend_disc,
              'edges_with_bend_trim': sum(1 for e in edges if e.get('jA') or e.get('jB'))}
     json.dump({'stats': stats, 'changes': changes}, open(os.path.join(state_dir, 'changes.json'), 'w', encoding='utf-8'), indent=1, ensure_ascii=False)

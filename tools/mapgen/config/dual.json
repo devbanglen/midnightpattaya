@@ -1,0 +1,5 @@
+{
+  "note": "tools/mapgen/dual.py options. exclude_link_kinds: any of opposite (two one-way carriageways of one road, opposite directions = rule a as specified), same_direction (main + service carriageway of one road, e.g. Sukhumvit frontage roads), two_way (a same-name pair with a two-way way, e.g. Chalermphrakiat's parallel carriageways), unnamed_dual (two unnamed one-way ways of one class, opposite). exclude_groups: merge group ids as build/dual/plan.json prints them (\"g:<edge id>\", stable: the member with the lowest graph index). Excluded pairs are not merged; they fall to rule b (offset) / rule c (trim + fill) like two different roads. Empty lists = everything merges (the build of 2026-10-19). After a change rerun from road_graph.py (docs/ROAD_AUDIT.md, Dual carriageways and slip roads).",
+  "exclude_link_kinds": [],
+  "exclude_groups": []
+}

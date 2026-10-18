@@ -19,7 +19,10 @@ Positions come from OSM nodes or from the rules below (config tools/mapgen/confi
 - Zebra crossings: OSM highway=crossing nodes (not crossing=no/unmarked, not crossing:markings=no) snapped to the
   nearest edge, plus one per signalised approach where OSM has none within `rule_skip_if_osm_within_studs`. Flat
   white bars on the slab (top y = ROAD_TOP + 0.07, 0.05 thick, CanCollide/CanQuery false), kept clear of junction
-  discs, inset from the slab edge. The only furniture on the road (`onRoad = true`).
+  discs, inset from the slab edge. The only furniture on the road (`onRoad = true`). Dual carriageways
+  (tools/mapgen/dual.py, road_fix rule D): on an edge whose chunk line is merged / hidden / cut, the crossing is
+  centred on the merged (kept) centreline of its group and spans that slab; bars are dropped (in pairs) until every
+  bar lies on the BUILT road surface; a crossing with no built slab under it is skipped.
 - Road name signs: at junctions (degree >= 3) with >= 2 distinct road names where at least one road is main /
   express tier: one blue board per name (Thai OSM `name` on top, OSM `name:en` below, exactly as tagged), on the
   kerb of that road near the junction, board parallel to the road it names.
@@ -32,7 +35,8 @@ Positions come from OSM nodes or from the rules below (config tools/mapgen/confi
 Every non-crossing footprint keeps `kerb_margin_studs` beyond width/2 + sidewalk of every road (wide world, central
 slice and the Bira corridor) and of every node disc, and stays clear of buildings, street lights, palms, signs,
 landmarks, corridor dressing and other furniture. Export-time shapely checks (assertions) repeat that on the final
-data. Map data (c) OpenStreetMap contributors, ODbL 1.0.
+data; the road surface for the on-road checks is the BUILT one, read from the fixed chunk modules (after road_fix:
+cut / hidden slabs, fill triangles, discs) besides the graph corridors. Map data (c) OpenStreetMap contributors, ODbL 1.0.
 """
 import argparse, json, math, os, sys, zlib
 from collections import Counter, defaultdict
@@ -249,9 +253,25 @@ def load_inputs(cfg, broot):
         if os.path.exists(jp):
             rows = luau_table.loads(open(jp, encoding='utf-8').read())
             discs += [(rows[i + 1], rows[i + 2], rows[i + 3]) for i in range(0, len(rows), 4)]
+    # the BUILT road surface (what PattayaBuilder makes from the fixed chunk modules: slab pieces after road_fix rule D,
+    # fill triangles, junction / joint discs) and the chunk line of every edge (merged / hidden / cut flags)
+    sys.path.insert(0, os.path.dirname(__file__))
+    import road_check as rc
+    built_polys, built_edges = [], {}
+    for sub in ((I['central'], 'roblox'), (I['wide'], 'roblox'), (I['corridor_roblox'],)):
+        d = rd(*sub)
+        if not os.path.exists(os.path.join(d, 'manifest.luau')):
+            continue
+        es, dd, _ = rc.load_dataset(d)
+        for e in es:
+            built_edges.setdefault(e['id'], e)
+            built_polys += rc.slab_rects(e)
+        built_polys += [circ((x, z), r) for (x, z, r) in dd.values()]
+    pp = rd('dual', 'plan.json')
+    plan = jl(pp) if os.path.exists(pp) else {'groups': [], 'roles': {}}
     osm_base = {'central': central.get('osm_base'), 'wide': wide.get('osm_base')}
     return dict(city=city, cor=cor, nodes=nodes, central_nodes=central_nodes, blds=blds, props=props, discs=discs,
-                osm_base=osm_base, origin=wide['origin_utm'])
+                osm_base=osm_base, origin=wide['origin_utm'], built_polys=built_polys, built_edges=built_edges, plan=plan)
 
 
 def load_osm(cfg, origin):
@@ -317,6 +337,12 @@ def build(cfg, broot):
     roads_only = [LineString(e['pts']).buffer(e['width'] / 2, cap_style=2, join_style=1) for e in allE]
     roads_only += [circ((x, z), r) for x, z, r in D['discs']]
     T_keep, T_slab, T_road = STRtree(keep), STRtree(slabs), STRtree(roads_only)
+    built = D['built_polys']                       # the built road surface (chunk modules after road_fix)
+    T_built = STRtree(built)
+
+    def on_built(g):
+        near = [built[k] for k in T_built.query(g)]
+        return bool(near) and unary_union(near).contains(g)
     blds, props = D['blds'], D['props']
     T_bld, T_prop = STRtree(blds), STRtree(props)
     placed = defaultdict(list)          # 64-stud grid -> [(poly, item key)]
@@ -527,7 +553,13 @@ def build(cfg, broot):
                 continue
             cands.append((i, s0, f'rule_signal_approach node {n}'))
     cands.sort(key=lambda c: (c[0], c[1]))
-    taken = []
+    taken, centres = [], []
+    BE, plan = D['built_edges'], D['plan']
+    kept_of = {}                                   # edge id -> chunk lines of the kept (merged) edges of its dual group
+    for g in plan.get('groups', []):
+        ks = [BE[k] for k in g['kept'] if k in BE and not BE[k].get('hidden')]
+        for m in g['kept'] + g['hidden']:
+            kept_of[m] = ks
     for i, s0, src in cands:
         e = city[i]
         L = lines[i].length
@@ -541,13 +573,37 @@ def build(cfg, broot):
             stats['crossing_merged'] += 1
             continue
         p, t = edge_at(i, s)
-        n = int((e['width'] - 2 * inset + gap) // (bw + gap))
+        width = e['width']
+        be = BE.get(e['id'])
+        changed = be is not None and (be.get('merged') or be.get('hidden') or be.get('cutA') or be.get('cutB')
+                                      or be.get('hide') or be.get('fill'))
+        if changed and (be.get('merged') or be.get('hidden') or kept_of.get(e['id'])):
+            # dual carriageway: centre the crossing on the merged (kept) centreline of the group, spanning that slab
+            best = None
+            for k in ([be] if be.get('merged') else []) + kept_of.get(e['id'], []):
+                kl = LineString(k['pts'])
+                d_ = kl.distance(Point(*p))
+                if d_ <= k['width'] / 2 + width / 2 and (best is None or d_ < best[0]):
+                    best = (d_, kl, k)
+            if best is not None:
+                _, kl, k = best
+                s2 = kl.project(Point(*p))
+                q, a_, b_ = kl.interpolate(s2), kl.interpolate(max(s2 - 1.0, 0)), kl.interpolate(min(s2 + 1.0, kl.length))
+                p, t, width = np.array([q.x, q.y]), unit((b_.x - a_.x, b_.y - a_.y)), k['width']
+                stats['crossing_on_merged_slab'] += 1
+            elif be.get('hidden'):
+                stats['crossing_hidden_edge_no_kept_twin'] += 1
+                continue
+        if any(np.hypot(p[0] - x, p[1] - z) < cc['merge_studs'] for x, z in centres):
+            stats['crossing_merged'] += 1                  # both carriageways of a merged road had one here
+            continue
+        n = int((width - 2 * inset + gap) // (bw + gap))
         ok = False
         while n >= 3:
             it = (R(p[0]), R(p[1]), R(t[0], 3), R(t[1], 3), n, bw, gap, dep)
             bars = crossing_bars(it)
             inside = all(any(roads_only[k].contains(b) for k in T_road.query(b)) or unary_union([roads_only[k] for k in T_road.query(b)]).contains(b)
-                         for b in bars)
+                         for b in bars) and all(on_built(b) for b in bars)
             if inside:
                 ok = True
                 break
@@ -556,6 +612,7 @@ def build(cfg, broot):
             stats['crossing_not_on_slab'] += 1
             continue
         taken.append((i, s))
+        centres.append((p[0], p[1]))
         place('crossings', it, {'src': src, 'edge': e['id'], 'ds': dataset(i=i)})
 
     # ---- 3. bus shelters, taxi stands -------------------------------------------------------------------------------
@@ -748,9 +805,13 @@ def build(cfg, broot):
             near = [roads_only[k] for k in T_road.query(g)]
             if not near or not unary_union(near).contains(g):
                 chk['crossing_bar_off_slab'] += 1
+            if not on_built(g):                      # the road PattayaBuilder actually builds (road_fix rule D)
+                chk['crossing_bar_off_built_road'] += 1
             continue
         if name not in OVER_ROAD and (hits(T_tight, slab_tight, g) or hits(T_slab, slabs, g)):
             chk['on_road_slab_sidewalk_or_disc'] += 1
+        if name not in OVER_ROAD and hits(T_built, built, g):
+            chk['on_built_road'] += 1
         if name in GROUND and hits(T_keep, keep, g):
             chk['ground_part_inside_kerb_margin'] += 1
         if hits(T_bld, blds, g):
@@ -769,7 +830,8 @@ def build(cfg, broot):
     bad = {k: v for k, v in chk.items() if v}
     assert not bad, f'furniture export check failed: {bad} {Counter((a, b, c) for a, b, c, _ in chk_ex)} {chk_ex[:5]}'
     stats.update({'check_' + k: 0 for k in ('on_road_slab_sidewalk_or_disc', 'ground_part_inside_kerb_margin', 'inside_building',
-                                             'on_existing_prop', 'furniture_overlap', 'crossing_bar_off_slab')})
+                                             'on_existing_prop', 'furniture_overlap', 'crossing_bar_off_slab',
+                                             'crossing_bar_off_built_road', 'on_built_road')})
     return dict(rows=rows, stats=stats, total=total, D=D, furn_base=furn_base, cen=cen, chunk_parts=chunk_parts)
 
 

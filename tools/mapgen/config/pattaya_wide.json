@@ -19,6 +19,8 @@
     703682.9114886925,
     1430916.133318141
   ],
+  "dual_offsets": true,
+  "dual_offsets_note": "tools/mapgen/dual.py rule b: a soi running too close beside another road is shifted sideways (interior points only, 60-stud transitions, new edges only); log in build/pattaya_wide/dual_offsets.json",
   "base": {
     "build": "build/central_pattaya",
     "slice_bbox_s_w_n_e": [

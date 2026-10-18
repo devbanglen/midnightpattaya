@@ -26,6 +26,12 @@ type Edge = {
 	noMarks: {number}?, -- road_fix: arc ranges s0, s1, ... along pts with no markings (they would lie on another road)
 	jA: number?, jB: number?, -- road_fix: a bend joint disc at end a / b: markings and sidewalks stop short of it like
 	-- at a junction disc (the inner kerb of a sharp bend would otherwise run into the other road)
+	-- road_fix rule D (tools/mapgen/dual.py: dual carriageways, slip roads, acute merges):
+	hidden: boolean?, -- no slab / markings / sidewalks (the merged slab of the other carriageway covers it); fill still built
+	cutA: number?, cutB: number?, -- the slab starts cutA studs after a / ends cutB studs before b (markings, kerbs too)
+	hide: {number}?, -- arc ranges s0, s1, ... along pts with no slab (a carriageway that touches the merged slab there)
+	fill: {number}?, -- flat road triangles x1, z1, x2, z2, x3, z3, ...: old slab parts no other road covers
+	merged: boolean?, -- pts are the merged centreline of a dual carriageway (centred between the two carriageways)
 }
 
 local function newPart(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, collide: boolean): Part
@@ -142,6 +148,60 @@ local function dashes(parent: Instance, pts: {Vector2}, dash: number, gap: numbe
 	end
 end
 
+-- one flat road triangle a-b-c (top at ROAD_TOP, ROAD_THICK deep) from two WedgeParts split at the foot of the altitude
+-- on the longest side. A WedgePart's cross-section (object Y-Z) is the right triangle (-h/2, -l/2), (-h/2, +l/2),
+-- (+h/2, +l/2) extruded along X, so X = up, Z runs from the acute corner to the right angle, Y from there to the apex.
+local function newWedge(parent: Instance, size: Vector3, cf: CFrame): WedgePart
+	local w = Instance.new("WedgePart")
+	w.Name = "Road"
+	w.Anchored = true
+	w.Size = size
+	w.CFrame = cf
+	w.Color = COLORS.road
+	w.Material = Enum.Material.SmoothPlastic
+	w.TopSurface = Enum.SurfaceType.Smooth
+	w.BottomSurface = Enum.SurfaceType.Smooth
+	w.CanCollide = true
+	w.CanQuery = true
+	w.CanTouch = false
+	w.CastShadow = false
+	w:SetAttribute("RoadFill", true) -- the leader's slab-overlap probe skips these (they lie on no other road)
+	w.Parent = parent
+	return w
+end
+
+local function roadTriangle(parent: Instance, a: Vector2, b: Vector2, c: Vector2)
+	local ab, bc, ca = (b - a).Magnitude, (c - b).Magnitude, (a - c).Magnitude
+	if bc > ab and bc >= ca then
+		a, b, c = b, c, a
+	elseif ca > ab and ca > bc then
+		a, b, c = c, a, b
+	end -- now a-b is the longest side
+	local len = (b - a).Magnitude
+	if len < 0.05 then
+		return
+	end
+	local dir = (b - a) / len
+	local t = (c - a):Dot(dir)
+	local foot = a + dir * t
+	local h = (c - foot).Magnitude
+	if h < 0.05 then
+		return
+	end
+	local y = ROAD_TOP - ROAD_THICK / 2
+	local yv = Vector3.new(c.X - foot.X, 0, c.Y - foot.Y) / h -- object Y: foot -> apex
+	for _, corner in {a, b} do
+		local l = (foot - corner).Magnitude
+		if l > 0.05 then
+			local zv = Vector3.new(foot.X - corner.X, 0, foot.Y - corner.Y) / l -- object Z: acute corner -> foot
+			local xv = yv:Cross(zv) -- vertical, up or down (right-handed X = Y x Z; the wedge is symmetric along X)
+			local centre = foot + Vector2.new(yv.X, yv.Z) * (h / 2) - Vector2.new(zv.X, zv.Z) * (l / 2)
+			local cf = CFrame.fromMatrix(Vector3.new(centre.X, y, centre.Y), xv, yv, zv)
+			newWedge(parent, Vector3.new(ROAD_THICK, h, l), cf)
+		end
+	end
+end
+
 local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}, dashGap: number?)
 	local gap = dashGap or 12 -- the wide-world extension uses sparser dashes (manifest.dashGap)
 	local pts = toPoints(e.pts)
@@ -154,11 +214,49 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 	road:SetAttribute("Oneway", e.oneway)
 	road:SetAttribute("Coastal", e.coastal)
 	if e.name then road:SetAttribute("NameTh", e.name) end
-	stripe(road, "Road", pts, e.width, ROAD_TOP, ROAD_THICK, COLORS.road, true)
+	if e.merged then road:SetAttribute("Merged", true) end
+	-- the slab: the whole line, or (road_fix rule D) cutA .. length - cutB minus the hide ranges, or nothing (hidden)
+	if not e.hidden and not (e.cutA or e.cutB or e.hide) then
+		stripe(road, "Road", pts, e.width, ROAD_TOP, ROAD_THICK, COLORS.road, true)
+	elseif not e.hidden then
+		local total = 0
+		for i = 1, #pts - 1 do
+			total += (pts[i + 1] - pts[i]).Magnitude
+		end
+		local hi = total - (e.cutB or 0)
+		local s = e.cutA or 0
+		local slabPieces = {}
+		local hide = e.hide or {}
+		for k = 1, #hide - 1, 2 do
+			if hide[k] > s then
+				table.insert(slabPieces, {s, math.min(hide[k], hi)})
+			end
+			s = math.max(s, hide[k + 1])
+		end
+		table.insert(slabPieces, {s, hi})
+		for _, sp in slabPieces do
+			if sp[2] > sp[1] then
+				local seg = trim(pts, sp[1], total - sp[2])
+				if seg then
+					stripe(road, "Road", seg, e.width, ROAD_TOP, ROAD_THICK, COLORS.road, true)
+				end
+			end
+		end
+	end
+	local fill = e.fill or {}
+	for k = 1, #fill - 5, 6 do
+		roadTriangle(road, Vector2.new(fill[k], fill[k + 1]), Vector2.new(fill[k + 2], fill[k + 3]), Vector2.new(fill[k + 4], fill[k + 5]))
+	end
+	if e.hidden then
+		road:SetAttribute("Hidden", true)
+		road.Parent = chunk
+		return
+	end
 
 	-- markings stop short of junction discs, and skip the noMarks ranges (tools/mapgen/road_fix.py: where they would
 	-- lie on another road, e.g. the other carriageway of a dual road squeezed together at x0.5)
 	local ra, rb = junctionR[e.a] or e.jA or 0, junctionR[e.b] or e.jB or 0
+	ra, rb = math.max(ra, e.cutA or 0), math.max(rb, e.cutB or 0) -- a cut slab: markings and kerbs start where it does
 	local pieces = {{ra, rb}} -- trim amounts {from the start, from the end} per marked piece
 	if e.noMarks and #e.noMarks > 0 then
 		local total = 0

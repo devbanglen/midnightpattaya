@@ -19,7 +19,8 @@ A ray hits the highest surface: sidewalk (top 1.6) > road slab / disc (top 1.0).
   hairline  - only on the bare boundary between two slabs that touch without overlapping (a node with no disc):
               a ray there can slip through in Studio (the leader's 62 misses were nearly all at such nodes)
   none      - no road part under it (a gap)
-Joint discs (joints.luau) and one-sided sidewalks (swSide) are read from the exported data.
+Joint discs (joints.luau) and one-sided sidewalks (swSide) are read from the exported data, and so are road_fix rule D's
+hidden edges (no slab), slab cuts (cutA / cutB) and fill triangles (tools/mapgen/dual.py).
 --json <file> writes every non-road probe (edge id, way, name, point, kind, chunk, the covering edge) for review.
 """
 import argparse, json, math, os, re, sys
@@ -35,6 +36,14 @@ EDGE_RE = re.compile(r'\{ id = "([^"]+)", way = (\d+), class = "[^"]*", tier = "
                      r'(?:, swSide = (-?1))?')
 DISC_RE = re.compile(r'\{ id = (\d+), x = (-?[\d.]+), z = (-?[\d.]+), r = ([\d.]+) \}')
 SEAM_RE = re.compile(r'\{ id = (\d+), r = ([\d.]+) \}')
+NAME_RE = re.compile(r'class = "([^"]*)", tier = "\w+", name = (nil|"(?:[^"\\]|\\.)*"), nameEn = (nil|"(?:[^"\\]|\\.)*")')
+
+
+def lua_unquote(s):
+    """a lua_str() literal back to text (None for nil)"""
+    if s is None or s == 'nil':
+        return None
+    return re.sub(r'\\(\d+|.)', lambda m: chr(int(m.group(1))) if m.group(1).isdigit() else m.group(1), s[1:-1])
 
 
 def section(src, key):
@@ -73,11 +82,23 @@ def load_dataset(rdir):
             flat = [float(v) for v in m.group(10).split(',') if v]
             rest = text[m.end():text.find(chr(10), m.end())]       # road_fix fields after swSide: jA / jB bend trims
             ja, jb = re.search(r', jA = ([\d.]+)', rest), re.search(r', jB = ([\d.]+)', rest)
+            # road_fix rule D (tools/mapgen/dual.py): hidden edge, slab cuts at a / b, fill triangles, merged centreline
+            ca, cb = re.search(r', cutA = ([\d.]+)', rest), re.search(r', cutB = ([\d.]+)', rest)
+            fl = re.search(r', fill = \{([^}]*)\}', rest)
+            hd = re.search(r', hide = \{([^}]*)\}', rest)
+            line = text[text.rfind(chr(10), 0, m.start()) + 1:m.end()]
+            nm = NAME_RE.search(line)
             edges.append({'id': m.group(1), 'way': int(m.group(2)), 'tier': m.group(3), 'oneway': m.group(4) == 'true',
                           'lanes': int(m.group(5)), 'width': float(m.group(6)), 'sidewalk': float(m.group(7)),
                           'a': int(m.group(8)), 'b': int(m.group(9)), 'pts': np.array(flat).reshape(-1, 2), 'chunk': f[6:-5],
                           'swSide': int(m.group(11)) if m.group(11) else None,
                           'jA': float(ja.group(1)) if ja else 0.0, 'jB': float(jb.group(1)) if jb else 0.0,
+                          'hidden': ', hidden = true' in rest, 'merged': ', merged = true' in rest,
+                          'cutA': float(ca.group(1)) if ca else 0.0, 'cutB': float(cb.group(1)) if cb else 0.0,
+                          'fill': [float(v) for v in fl.group(1).split(',') if v.strip()] if fl else [],
+                          'hide': [float(v) for v in hd.group(1).split(',') if v.strip()] if hd else [],
+                          # the road Model's name in Studio (PattayaBuilder.buildEdge: nameEn or name or class)
+                          'label': lua_unquote(nm.group(3)) or lua_unquote(nm.group(2)) or nm.group(1) if nm else None,
                           'set': os.path.basename(os.path.dirname(rdir.rstrip('/\\'))) + '/' + os.path.basename(rdir.rstrip('/\\'))})
     return edges, discs, jr
 
@@ -140,10 +161,53 @@ def trim(pts, d0, d1):
     return np.array(out) if len(out) >= 2 else None
 
 
+def slab_pieces(e):
+    """the polylines PattayaBuilder builds the edge's Road slab from (road_fix rule D): none for a hidden edge, the
+    stretch cutA .. length - cutB minus the `hide` arc ranges otherwise (pieces of 2 studs or less are not built, as
+    trim() returns nil for them). The edge's pts stay the full line (markings / sidewalks are measured on them)."""
+    if e.get('hidden'):
+        return []
+    ca, cb, hide = e.get('cutA') or 0.0, e.get('cutB') or 0.0, e.get('hide') or []
+    if not (ca or cb or hide):
+        return [e['pts']]
+    total = float(np.linalg.norm(np.diff(e['pts'], axis=0), axis=1).sum())
+    out, lo = [], ca
+    for k in range(0, len(hide) - 1, 2):
+        if hide[k] > lo:
+            out.append((lo, min(hide[k], total - cb)))
+        lo = max(lo, hide[k + 1])
+    out.append((lo, total - cb))
+    pieces = [trim(e['pts'], a, total - b) for a, b in out if b > a]
+    return [q for q in pieces if q is not None]
+
+
+def slab_pts(e):
+    """the first slab piece (None when the edge builds no slab); see slab_pieces"""
+    p = slab_pieces(e)
+    return p[0] if p else None
+
+
+def slab_rects(e):
+    """every Road Part footprint of the edge: its slab pieces' stripes plus its fill triangles"""
+    return [r for q in slab_pieces(e) for r in stripe_rects(q, e['width'])] + fill_polys(e)
+
+
+def fill_polys(e):
+    """the edge's fill triangles (road_fix rule D: old slab parts no other road covers, rebuilt as flat triangles)"""
+    v = e.get('fill') or []
+    return [Polygon([(v[k], v[k + 1]), (v[k + 2], v[k + 3]), (v[k + 4], v[k + 5])]) for k in range(0, len(v) - 5, 6)]
+
+
+def end_cuts(e, ra, rb):
+    """marking / sidewalk trims at a / b as PattayaBuilder.buildEdge: junction disc or bend trim, at least the slab cut"""
+    return max(ra, e.get('cutA') or 0.0), max(rb, e.get('cutB') or 0.0)
+
+
 def sidewalk_rects(e, jr):
-    if e['sidewalk'] <= 0:
+    if e['sidewalk'] <= 0 or e.get('hidden'):
         return []
     ra, rb = jr.get(e['a'], 0) or e.get('jA', 0), jr.get(e['b'], 0) or e.get('jB', 0)   # as PattayaBuilder.buildEdge
+    ra, rb = end_cuts(e, ra, rb)
     sw = trim(e['pts'], ra + e['sidewalk'] if ra > 0 else 0, rb + e['sidewalk'] if rb > 0 else 0)
     if sw is None:
         return []
@@ -173,7 +237,7 @@ def run(cfg_path, corridor=False, step=25.0, json_out=None, quiet=False):
         edges, discs, jr = load_dataset(d)
         for e in edges:
             k = len(edges_all); edges_all.append(e)
-            for r in stripe_rects(e['pts'], e['width']):
+            for r in slab_rects(e):
                 slabs.append(r); slab_edge.append(k)
             for r in sidewalk_rects(e, jr):
                 walks.append(r); walk_edge.append(k)

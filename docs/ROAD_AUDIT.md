@@ -351,3 +351,265 @@ Rebuild: replace `PattayaBuilder` (require a Clone) and the three `joints` modul
 - fix the stale kerb chunks as above.
 Expected Studio counts after pass 2: kink probe ~0 (replica 0; the replica found 78 where Studio found 90, so a few
 Studio-only cases may remain - send their coordinates); kerb probe 0 once the stale parts are gone (replica 0).
+
+
+## Dual carriageways and slip roads (team4/dual, 2026-10-19)
+
+Status: **data built and checked offline, NOT built in Studio yet.** Passes 1 and 2 only hid what was drawn on the
+overlapping slabs; this pass removes the overlaps themselves (the 92 slab-overlap pairs of docs/ROAD_AUDIT_STUDIO.md).
+All numbers come from the tools run on this worktree's build/ (= the modules the leader has in Studio, regenerated
+byte-identically by the unchanged pipeline before anything was changed). Map data (c) OpenStreetMap contributors, ODbL 1.0.
+
+### Tool and pipeline
+New module `tools/mapgen/dual.py` (rules in its docstring). Pipeline order:
+`road_graph.py` central, wide (wide calls `dual.apply_offsets`, rule b; config flag `dual_offsets` in pattaya_wide.json)
+-> **`dual.py`** (writes `build/dual/plan.json`: merge groups, kept / hidden roles, trims; copy `docs/road_audit/dual_plan.json`)
+-> `buildings.py` / `gameplay_layout.py` wide -> `traffic.py` central, wide (lane fix from the plan) -> `export_roblox.py`
+central, wide -> `export_corridor.py ... build/pattaya_wide` -> `corridor_traffic.py` (lane fix) -> `road_fix.py`
+(new rule D, first after K) -> furniture.py (leader). Two complete runs from road_graph.py gave byte-identical outputs
+(every module, plan, json). `dual.py --png <root before>` writes the check images.
+
+Per pair of overlapping edges (the road_audit pair rules: parallel without a shared node, < 60 deg at a shared node):
+- **(a) merge** - same name (normalised: case / space / '-' / '.' insensitive, Thai or English; Thep Prasit = Thepprasit)
+  and parallel, or an unnamed pair of one-way ways of one class running opposite (an unnamed dual carriageway). Both
+  edges stay in the graph. Per merge component the widest edges are KEPT (greedy, no two kept edges may overlap, also
+  re-checked after the shift: 27 more demoted to hidden), the others HIDDEN. Kept chunk line: `merged = true`, pts =
+  merged centreline (shifted sideways by half the lateral offset to the hidden partner = centred between the two
+  centrelines, centred on the extent with partners on both sides; fades out over 20 studs of extra gap, over 60 studs
+  before an end where the road continues un-merged; turns <= 17 deg off the old line), width = its own (the wider one),
+  two-way markings (lanes = width / 13) when the directions differ, sidewalks restored and re-checked by rule S.
+  Hidden chunk line: `hidden = true` (no slab, markings, kerbs), or - where the carriageway leaves the merged slab -
+  `cutA` / `cutB` / `hide` ranges: its slab is built only where it is clear of the merged surface, the transition is
+  rebuilt as `fill` triangles. Cross streets / median connectors ending at a merged node: their slab end is cut back to
+  where it is no longer fully inside the merged surface (no fill needed).
+  Pairs: 527 one-way opposite (rule a proper), 5 unnamed one-way opposite pairs, 42 one-way same direction (main carriageway + service carriageway of the
+  same road, e.g. Sukhumvit at flyovers: an offset would have to move them 40-56 studs), 11 with a two-way way
+  (Chalermphrakiat's 4-5 parallel carriageways, Thap Phraya). 27 groups: Sukhumvit (5 groups), Thep Prasit / Thepprasit
+  (22 kept / 23 hidden edges), Thappraya, Pattaya Nuea (central + wide), Jomtien Second Road (2), Chalermphrakiat (2),
+  Pattaya Tai (2), Pattaya Klang, Pattaya Na Kluea, Rajchawaroon, Central Park 2, Sukhumvit Pattaya 18, Thammasat
+  (corridor), 5 unnamed dual sois. 256 kept edges, 328 hidden (306 build nothing, 21 partly, 1 untouched).
+- **(b) offset** - two different roads in parallel, the minor one movable (wide world, not base), overlap at least 60
+  studs from both end nodes, shift <= 30: **1 edge**, `130659182:w2277` (unnamed soi beside `936726418:w2981`, world
+  ~(17,890, 6,940)), interior points moved up to 9.8 studs, end nodes fixed, 60-stud ramps. Every other different-road
+  pair touches an end node within its ramp length (or is in the base slice), so it falls to rule c.
+- **(c) trim** - acute pairs at a shared node (240 acute + 9 longer splits), slip roads (29 `*_link` pairs), different
+  roads overlapping near an end / in the base slice (60), new overlaps a merged line made (11): the minor road's slab is
+  cut back (`cutA` / `cutB`, or `hide` ranges for a parallel stretch) to where it fully leaves the other road; that part
+  of its old slab not covered by any other surface is rebuilt exactly as flat triangles (`fill`, two WedgeParts each,
+  attribute `RoadFill`) - lossless, no hole. Polylines (routing, GPS, traffic) unchanged.
+- Places that must stay on the road (job stands, bosses, race grid, spawn - none of them moves): 3 such points
+  (among them the job stands thepprasit_night and jomtien_beach_north, which sit at the kerb lane of a merged
+  carriageway) would have ended up off or within 3 studs of the edge of the narrower merged slab; the old slab is kept
+  under them as fill (+-25 studs along the road).
+
+Rule D totals (`road_fix` stats): 256 merged lines, 306 hidden + 21 partly hidden carriageways, 651 trim applications
+(424 cut edges, 126 short connectors / slip stubs entirely covered), 529 cross-street ends cut, 2,943 fill triangles
+(~280,000 studs^2) on 385 edges.
+
+### Before / after
+| check | before this pass | after |
+|---|---|---|
+| road_audit `parallel` (geometric, any names) | 684 (visible 0) | **1** (9 studs, central Chalermphrakiat x connector) |
+| road_audit `acute` (geometric) | 240 (visible 0) | **0** |
+| road_audit `tee` / `crossing` / `step` | 293 / 0 / 0 | 118 / 0 / 0 |
+| marking Parts on another road / kerb sides > 10 studs^2 on another road | 0 / 0 | **0 / 0** |
+| bare bends > 35 deg (audit) / kinks without disc (Studio replica) | 0 / 0 | **0 / 0** |
+| kerb parts inside another road (Studio replica) | 0 | **0** |
+| **slab-overlap probe replica, different road names** (Studio: 92 pairs, ~2,300 studs) | 70 edge pairs, 973 samples (~3,900 studs), 21 road-name pairs | **0** |
+| slab-overlap replica, all names (incl. Sukhumvit x Sukhumvit) | 234 edge pairs, ~18,700 studs | **0** |
+| road_check central: sidewalk / hairline / none (4,422 probes) | 0 / 8 / 1 | 0 / 8 / 1 |
+| road_check wide (23,142) / wide + corridor (24,404) | 0 / 1 / 0, 0 / 1 / 0 | 0 / 1 / 1, 0 / 2 / 1 |
+| traffic loop samples (every 10 studs, 60.4k) on no road surface | 3,013 | **1,182** |
+| race path (1,327 samples) on road, 3+ studs inside | 1,327 | 1,327 |
+| job stands / bosses / grid / spawn on road | all | all |
+
+The one `none` probe is `258748314:w2639` at world (24,938, 12,875): a point exactly on the border of its own fill
+triangle and slab (distance 0.00), i.e. a hairline. Replicas: `tools/mapgen/studio_probes.py` (now also the slab-overlap
+probe and a traffic probe), `road_audit.py`, `road_check.py` - all read hidden / cutA / cutB / hide / fill.
+Reports: `docs/road_audit/summary_before_dual.json`, `summary_after_dual.json`, `findings_after_dual.csv`,
+`docs/images/road_audit_after_dual.png`; check images `docs/images/dual_thep_prasit.png`,
+`dual_slip_sukhumvit_north.png` ((23,550, 4,431)), `dual_slip_sukhumvit_klang.png` ((24,479, 910) and (24,691, 342)).
+
+Road surface: merged carriageways get narrower on purpose (one slab of the wider width instead of the union of two):
+~1.08 M studs^2 of the old union is gone, all of it inside merge groups; outside them only the moved soi's old strip
+(847 studs^2) and simplification slivers (< 8 studs^2 each). Road Parts: before 15,005 slab Parts (matches Studio);
+after 13,706 slabs + 5,862 fill WedgeParts = 19,568 (central 2,063 + 374, wide 11,160 + 5,444, corridor 483 + 44);
+hidden carriageways also drop their markings and kerbs.
+
+### Downstream changes (asserted)
+- Graph (index stability): node lists, node order, edge order and every edge line of `graph.luau` are identical;
+  exactly one line differs, the moved soi in `graph_part_2.luau` (pattaya_wide line 186 / corridor line 418: length
+  322.6 -> 314.0, polyline). `graph_game.json` central: unchanged; wide: only `130659182:w2277`'s pts.
+- `jobs.luau`, `roadfight.luau`, `manifest.luau`, `worldmap.luau` (central, wide, corridor): byte-identical. Race path,
+  job stands, bosses, grid: unchanged (layout.json `race` / `job_stands` equal).
+- Traffic: same loops, same order, same speeds / car kinds / car counts (cars are counted on the unmerged lane length,
+  the moved soi is planned with its unshifted length); lane geometry changed on 8 of 36 central loops, 41 of 84 wide
+  loops (incl. those 8) and 2 of 3 corridor loops (max lane move 27 studs): on a merged slab the lane is measured from
+  the merged centre, opposite directions each on their left half, inside the slab.
+- buildings_game.json wide: 1 building trimmed (311941392 Grand Condominium, next to the moved soi). layout.json wide:
+  only `graph_sha1` and `landmarks` (the wide copy of the central landmark list was stale; it now carries the gate fix
+  the central slice already has - the wide export does not use it).
+- Backups: `build/*/roblox_prev_dual`, `build/bira/roblox_corridor_prev_dual`, `build/road_fix_prev_dual`,
+  `build/central_pattaya/traffic_prev_dual.json`, `build/pattaya_wide/{graph_game,buildings_game,layout,traffic}_prev_dual.json`.
+
+### What the leader installs and rebuilds (Studio)
+Save the place first. Replace modules as NEW ModuleScript instances (or let RebuildChunks require Clones, as now).
+1. `ServerStorage.PattayaBuilder` <- `roblox/src/ServerStorage/PattayaBuilder.luau` (hidden / cutA / cutB / hide /
+   fill / merged; edges without these fields build exactly as before).
+2. `ServerStorage.PattayaData.graph_part_2` <- `build/bira/roblox_corridor/graph_part_2.luau` (graph and graph_part_1
+   unchanged). `ReplicatedStorage.PattayaTraffic` <- `build/bira/roblox_corridor/traffic.luau`.
+   `ServerStorage.PattayaDataWide.joints` <- `build/pattaya_wide/roblox/joints.luau` (central and corridor joints unchanged).
+3. Chunk modules + `RebuildChunks` (groups of 8):
+   - central (`PattayaData`, `B.RebuildChunks(ids)`), 28:
+     `"-3_5","-3_6","-2_4","-2_5","-2_6","-1_4","-1_5","0_4","1_5","2_-1","2_3","2_5","3_-6","3_1","3_2","3_3","3_5","3_6","4_-6","4_2","4_3","4_4","4_5","5_-6","5_-2","5_0","5_1","5_4"`
+   - wide (`PattayaDataWide`, `B.RebuildChunks(ids, {folder = "PattayaDataWide"})`), 214: see
+     `docs/road_audit/dual_chunks.json` (`wide`).
+   - corridor (`PattayaDataCorridor`), 5: `"42_7","44_6","45_7","46_7","47_5"`.
+4. Furniture: replace `ServerStorage.PattayaDataFurniture` (manifest + every `chunk_f*`) with
+   `build/furniture/roblox` of this worktree, then `F.Remove()` and `F.Build({batch = "f1"})` ... `"f35"` (see
+   "Furniture follow-up" below; 92 chunks changed, 7 new, so a full furniture rebuild is simplest).
+5. Probes below + the pass-2 probes (kink, kerb) + drive regression (Central Loop; a lap on Sukhumvit / Thep Prasit).
+Undo: the `*_prev_dual` modules + the same RebuildChunks calls.
+
+### Slab-overlap probe (command bar, read-only)
+```lua
+-- Slab-overlap probe (docs/ROAD_AUDIT.md "Dual carriageways and slip roads"; offline replica tools/mapgen/studio_probes.py):
+-- every pair of intersecting Road Parts whose road Models have different names: the centreline of one Part is sampled
+-- every 4 studs; a sample counts inside the other Part (0.5 studs inside its edge) and outside every Junction/Joint disc
+-- (radius + 6). Model pairs with 2+ samples are findings. Fill wedges (attribute RoadFill) are not sampled.
+_G.SO = {state = "running"}
+task.spawn(function()
+	local W = workspace.PattayaWorld
+	local roads, grid, G = {}, {}, 64
+	for _, f in {W:FindFirstChild("Chunks"), W:FindFirstChild("WideChunks")} do
+		if f then
+			for _, p in f:GetDescendants() do
+				if p:IsA("BasePart") and p.Name == "Road" and not p:GetAttribute("RoadFill") then table.insert(roads, p) end
+			end
+		end
+	end
+	for _, f in {W:FindFirstChild("Junctions"), W:FindFirstChild("WideJunctions")} do
+		if f then
+			for _, d in f:GetChildren() do
+				if d:IsA("BasePart") then
+					local r, c = d.Size.Y / 2 + 6, d.Position -- discs are cylinders: Size.Y = Size.Z = 2 r
+					for gx = math.floor((c.X - r) / G), math.floor((c.X + r) / G) do
+						for gz = math.floor((c.Z - r) / G), math.floor((c.Z + r) / G) do
+							local k = gx .. "," .. gz
+							grid[k] = grid[k] or {}
+							table.insert(grid[k], {c.X, c.Z, r})
+						end
+					end
+				end
+			end
+		end
+	end
+	local function inDisc(x, z)
+		for _, d in grid[math.floor(x / G) .. "," .. math.floor(z / G)] or {} do
+			if (x - d[1]) ^ 2 + (z - d[2]) ^ 2 <= d[3] ^ 2 then return true end
+		end
+		return false
+	end
+	local op = OverlapParams.new()
+	op.FilterType = Enum.RaycastFilterType.Include
+	op.FilterDescendantsInstances = {W}
+	local hits, n = {}, 0
+	for _, a in roads do
+		local ma = a.Parent :: Instance
+		for _, b in workspace:GetPartsInPart(a, op) do
+			local mb = b.Parent :: Instance
+			if b.Name == "Road" and not b:GetAttribute("RoadFill") and mb ~= ma and mb.Name ~= ma.Name then
+				local cnt = 0
+				for t = -a.Size.Z / 2, a.Size.Z / 2, 4 do
+					local p = a.CFrame * Vector3.new(0, 0, t)
+					local lp = b.CFrame:PointToObjectSpace(p)
+					if math.abs(lp.X) < b.Size.X / 2 - 0.5 and math.abs(lp.Z) < b.Size.Z / 2 - 0.5 and not inDisc(p.X, p.Z) then
+						cnt += 1
+					end
+				end
+				if cnt > 0 then
+					local k = tostring(ma:GetAttribute("EdgeId")) .. " | " .. tostring(mb:GetAttribute("EdgeId"))
+					hits[k] = hits[k] or {n = 0, x = a.Position.X, z = a.Position.Z, names = ma.Name .. " x " .. mb.Name}
+					hits[k].n += cnt
+				end
+			end
+		end
+		n += 1
+		if n % 300 == 0 then task.wait() end
+	end
+	local findings, samples = {}, 0
+	for k, h in hits do
+		if h.n >= 2 then
+			table.insert(findings, ("%s (%s) %d samples at (%.0f, %.0f)"):format(h.names, k, h.n, h.x, h.z))
+			samples += h.n
+		end
+	end
+	local fills, hidden, merged = 0, 0, 0
+	for _, f in {W:FindFirstChild("Chunks"), W:FindFirstChild("WideChunks")} do
+		if f then
+			for _, d in f:GetDescendants() do
+				if d:IsA("WedgePart") and d:GetAttribute("RoadFill") then fills += 1
+				elseif d:IsA("Model") and d:GetAttribute("Hidden") then hidden += 1
+				elseif d:IsA("Model") and d:GetAttribute("Merged") then merged += 1 end
+			end
+		end
+	end
+	_G.SO = {state = "done", roads = #roads, findings = findings, samples = samples, fills = fills, hidden = hidden, merged = merged}
+	print(("slab-overlap: %d Road parts, %d edge pairs, %d samples (~%d studs); fill wedges %d, hidden models %d, merged models %d")
+		:format(#roads, #findings, samples, samples * 4, fills, hidden, merged))
+	for i = 1, math.min(#findings, 20) do print("  " .. findings[i]) end
+end)
+```
+Expected after the rebuild (offline replica): **0 edge pairs** (before: 70 pairs / ~3,900 studs by this definition; the
+original Studio probe counted 92); Road parts sampled 13,706; fill wedges 5,862 (central 374, wide 5,444, corridor 44);
+hidden models 432 (central 26, wide 403, corridor 3 - includes 126 fully covered stubs); merged models 256 (central 8,
+wide 245, corridor 3). Run the pass-1 probe too: marking parts on another road 0; road rays on a sidewalk ~0.
+
+### Open risks
+- Builder changes and the WedgePart triangle were not run in Studio. The triangle math was verified offline (80k
+  random points: exactly one wedge under every point of the triangle, none outside) assuming Roblox's WedgePart shape
+  (slope from the front-bottom edge up to the back-top edge). If the fills come out mirrored, flip the sign of `zv`.
+- Merged roads are narrower than the two carriageways were (by design: one slab of the wider width); junction discs at
+  the kept carriageway's nodes stay at their graph position and can bulge up to half the old centreline gap (Thep
+  Prasit 7 studs, Sukhumvit up to ~20) past the merged slab's edge.
+- Traffic lanes: on merged slabs fixed; 1,182 loop samples still off any road surface (pre-existing: outer-lane rule
+  `width/2` on wide one-way roads and DP corner cutting; was 3,013).
+- Furniture: fixed in the follow-up below (the unchanged furniture.py would have left 168 of 502 zebra crossings
+  hanging partly off the merged slabs). Kerb props stay clear of all roads (they keep off the union of the old
+  corridors) but may stand up to ~20 studs back from the narrower merged kerb.
+- Part count +4,500 net (fill wedges vs dropped hidden slabs); busiest chunk wide `8_2` (Sukhumvit / Pattaya Klang
+  interchange) ~370 fill wedges.
+- road_fix runs on fresh exports only; `dual.py` must run after road_graph.py (traffic.py and road_fix.py refuse a stale plan).
+
+### Furniture follow-up (team4/dual)
+`tools/mapgen/furniture.py` now reads the BUILT road surface from the fixed chunk modules (road_check.slab_rects: slab
+pieces after rule D, fill triangles, junction / joint discs) and the dual plan (`build/dual/plan.json`):
+- Zebra crossings on an edge whose chunk line is `merged` / `hidden` / cut (or of a dual group) are centred on the
+  merged (kept) centreline of the group and span that slab's width; a second crossing within `merge_studs` of one
+  already placed (the other carriageway had one at the same spot) is dropped; bars are dropped in pairs until all lie
+  on the built surface; a crossing on a hidden edge with no kept twin is skipped.
+- New export checks (asserted): `crossing_bar_off_built_road` and `on_built_road` (any non-overhead furniture part on
+  the built road surface), besides the old graph-corridor checks, so a road-surface change can no longer pass silently.
+
+Run (from D:/ROBLOXRACE-worldfix): `D:/ROBLOXRACE/.venv/Scripts/python.exe tools/mapgen/furniture.py tools/mapgen/config/furniture.json --build-root D:/ROBLOXRACE-worldfix/build`
+
+| | installed (D:/ROBLOXRACE/build/furniture) | after |
+|---|---|---|
+| zebra crossings | 502, 168 of them partly off the built road (checked on the dual build) | **438, 0 off the built road** (253 moved onto a merged centreline, 51 duplicates of the other carriageway dropped, 7 on hidden edges without a twin skipped, 14 no room on the built slab) |
+| signals / name signs / shelters / taxis on the built road | - | **0** (all checks 0) |
+| poles | 519 | 715 (the part budget freed by the crossings goes to more soi poles, as the budget rule says) |
+| parts / chunks | 9,246 / 267 | 9,140 / 274 (largest chunk 235 parts) |
+
+Changed furniture modules: manifest, 92 `chunk_f*` changed, 7 new (`f-1_9`, `f-2_8`, `f-2_9`, `f2_10`, `f2_9`,
+`f5_9`, `f6_-5`), none removed; list in `docs/road_audit/dual_furniture_chunks.json`.
+
+### Excluding merges (owner's choice)
+`tools/mapgen/config/dual.json`: `exclude_link_kinds` (any of `opposite`, `same_direction`, `two_way`, `unnamed_dual`)
+and `exclude_groups` (ids as in `build/dual/plan.json`, `"g:<edge id>"` = the member with the lowest graph index,
+stable while the graph is). Excluded pairs are not merged; they fall to rule b / c (offset, or cut + exact fill) like
+different roads. Each plan group lists its `link_kinds`, e.g. Sukhumvit `g:541668101:w945` {opposite 154,
+same_direction 26}, `g:688427427:w999` {opposite 3, same_direction 16}; the two-way ones are `g:35068359:w35`
+(Chalermphrakiat) and `g:143685763:w455` (Thap Phraya); unnamed duals `g:35608360:w99`, `g:742697975:w1984`,
+`g:375840698:w2720`, `g:936560638:w2938`, `g:1185423798:w3065`. Tried: `exclude_link_kinds: ["same_direction"]`
+gives 26 groups / 456 trims (the 42 frontage pairs become cut + fill). After a change rerun from road_graph.py
+(the whole chain, then furniture.py); empty lists = this build.
