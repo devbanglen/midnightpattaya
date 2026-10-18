@@ -232,29 +232,88 @@ def find_pairs(E, P):
     return out
 
 
-def classify(E, P, pairs, movable=None):
+LINK_KINDS = ('opposite', 'same_direction', 'two_way', 'unnamed_dual')
+
+
+def load_config(root=ROOT):
+    """tools/mapgen/config/dual.json (optional): exclude_link_kinds (any of LINK_KINDS) and exclude_groups (group ids
+    as the plan prints them, "g:<edge id>"): those pairs are not merged; they fall to rule b / c like different roads"""
+    p = os.path.join(root, 'tools', 'mapgen', 'config', 'dual.json')
+    cfg = json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
+    bad = set(cfg.get('exclude_link_kinds', [])) - set(LINK_KINDS)
+    if bad:
+        sys.exit(f'dual.json: unknown exclude_link_kinds {sorted(bad)} (known: {LINK_KINDS})')
+    return {'exclude_link_kinds': set(cfg.get('exclude_link_kinds', [])), 'exclude_groups': set(cfg.get('exclude_groups', []))}
+
+
+def merge_kind(A, B, pr):
+    """the rule-a link kind of a pair, or None: same name (normalised) and parallel / a dual split; or an unnamed pair
+    of one-way ways of one class running opposite"""
+    named = bool(names(A) & names(B))
+    unnamed = not names(A) and not names(B) and A['oneway'] and B['oneway'] and A['class'] == B['class'] and (
+        pr['kind'] == 'parallel' and pr['opposite'] and pr['run'] >= SPLIT_SPIKE or
+        pr['kind'] == 'split' and (A['a'] == pr['node']) != (B['a'] == pr['node']))
+    if not (named or unnamed) or not (pr['kind'] == 'parallel' or pr['spike'] > SPLIT_SPIKE):
+        return None
+    if unnamed and not named:
+        return 'unnamed_dual'
+    if not (A['oneway'] and B['oneway']):
+        return 'two_way'
+    if pr['kind'] == 'parallel':
+        opp = pr['opposite']
+    else:                                       # both leave the node: one drives in, one out = opposite
+        opp = (A['a'] == pr['node']) != (B['a'] == pr['node'])
+    return 'opposite' if opp else 'same_direction'
+
+
+def components(links):
+    parent = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]; x = parent[x]
+        return x
+    for i in sorted(links):
+        for j in sorted(links[i]):
+            parent[find(i)] = find(j)
+    comps = defaultdict(list)
+    for i in sorted(links):
+        comps[find(i)].append(i)
+    return [sorted(c) for _, c in sorted(comps.items(), key=lambda kv: min(kv[1]))]
+
+
+def group_id(E, members):
+    """stable id of a merge group: its member with the lowest edge index (graph order never changes)"""
+    return 'g:' + E[min(members)]['id']
+
+
+def classify(E, P, pairs, movable=None, cfg=None):
     """roles from the pairs: merge components (kept / hidden), trims, offsets, residual"""
+    cfg = cfg if cfg is not None else load_config()
     lens = [plen(p) for p in P]
+    # which pairs may merge: link kind not excluded, and their (provisional) group not excluded
+    cand = defaultdict(set)
+    for pr in pairs:
+        pr['mkind'] = merge_kind(E[pr['i']], E[pr['j']], pr)
+        if pr['mkind'] and pr['mkind'] not in cfg['exclude_link_kinds']:
+            cand[pr['i']].add(pr['j']); cand[pr['j']].add(pr['i'])
+    gid = {}
+    for c in components(cand):
+        for i in c:
+            gid[i] = group_id(E, c)
     merge_links = defaultdict(set)
     trims, offsets, residual, classes = [], [], [], defaultdict(int)
     for pr in pairs:
         A, B = E[pr['i']], E[pr['j']]
-        same = bool(names(A) & names(B))
-        if not names(A) and not names(B) and A['oneway'] and B['oneway'] and A['class'] == B['class'] and (
-                pr['kind'] == 'parallel' and pr['opposite'] and pr['run'] >= SPLIT_SPIKE or
-                pr['kind'] == 'split' and (A['a'] == pr['node']) != (B['a'] == pr['node'])):
-            same = True                         # an unnamed dual carriageway: two one-way ways of one class, opposite
-        if same and (pr['kind'] == 'parallel' or pr['spike'] > SPLIT_SPIKE):
+        mk = pr['mkind']
+        if mk and (mk in cfg['exclude_link_kinds'] or gid.get(pr['i']) in cfg['exclude_groups']):
+            classes['merge_excluded_by_config'] += 1
+            mk = None
+        if mk:
             merge_links[pr['i']].add(pr['j']); merge_links[pr['j']].add(pr['i'])
             pr['rule'] = 'merge'
-            if A['oneway'] and B['oneway']:
-                if pr['kind'] == 'parallel':
-                    opp = pr['opposite']
-                else:                                   # both leave the node: one drives in, one out = opposite
-                    opp = (A['a'] == pr['node']) != (B['a'] == pr['node'])
-                classes['merge_one-way_' + ('opposite' if opp else 'same_direction')] += 1
-            else:
-                classes['merge_with_two-way'] += 1
+            classes['merge_' + mk] += 1
             continue
         pi, pj = priority(A, lens[pr['i']]), priority(B, lens[pr['j']])
         minor, major = (pr['j'], pr['i']) if pi <= pj else (pr['i'], pr['j'])
@@ -301,27 +360,22 @@ def classify(E, P, pairs, movable=None):
             else:
                 classes['trim_parallel_' + ('end' if near_a or near_b else 'base_edge' if not mov else
                                             'no_room_for_ramps' if not fits else 'shift_too_large')] += 1
-    # merge components: union-find over the links, then greedy kept / hidden (no two kept edges overlap)
-    parent = {}
-
-    def find(x):
-        parent.setdefault(x, x)
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]; x = parent[x]
-        return x
-    for i in sorted(merge_links):
-        for j in sorted(merge_links[i]):
-            parent[find(i)] = find(j)
-    comps = defaultdict(list)
-    for i in sorted(merge_links):
-        comps[find(i)].append(i)
+    # merge components, then greedy kept / hidden (no two kept edges overlap)
     groups = []
-    for root in sorted(comps, key=lambda r: min(comps[r])):
-        mem = sorted(comps[root], key=lambda i: (priority(E[i], lens[i]), i))
+    link_kinds = defaultdict(lambda: defaultdict(int))
+    for pr in pairs:
+        if pr.get('rule') == 'merge':
+            link_kinds[min(pr['i'], pr['j'])][pr['mkind']] += 1
+    for comp in components(merge_links):
+        mem = sorted(comp, key=lambda i: (priority(E[i], lens[i]), i))
         kept, hidden = [], []
         for i in mem:
             (hidden if any(j in merge_links[i] for j in kept) else kept).append(i)
-        groups.append({'kept': sorted(kept), 'hidden': sorted(hidden)})
+        kinds = defaultdict(int)
+        for i in comp:
+            for k, v in link_kinds.get(i, {}).items():
+                kinds[k] += v
+        groups.append({'kept': sorted(kept), 'hidden': sorted(hidden), 'id': group_id(E, comp), 'link_kinds': dict(kinds)})
     return {'groups': groups, 'trims': trims, 'offsets': offsets, 'residual': residual, 'classes': dict(classes),
             'links': {i: sorted(v) for i, v in merge_links.items()}}
 
@@ -505,7 +559,8 @@ def build_plan(root=ROOT):
     for g in cl['groups']:
         ways = sorted({E[i]['way'] for i in g['kept'] + g['hidden']})
         kept = set(g['kept'])
-        groups.append({'kept': [E[i]['id'] for i in g['kept']], 'hidden': [E[i]['id'] for i in g['hidden']],
+        groups.append({'id': g['id'], 'link_kinds': g['link_kinds'],
+                       'kept': [E[i]['id'] for i in g['kept']], 'hidden': [E[i]['id'] for i in g['hidden']],
                        'pins': {E[i]['id']: pins(E, P, set(g['kept'] + g['hidden']), i) for i in g['kept']},
                        'ways': ways, 'names': sorted({E[i].get('name_en') or E[i].get('name') or '' for i in g['kept'] + g['hidden']}),
                        'datasets': sorted({E[i]['ds'] for i in g['kept'] + g['hidden']}), 'directions': None})

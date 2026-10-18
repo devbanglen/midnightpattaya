@@ -382,7 +382,7 @@ Per pair of overlapping edges (the road_audit pair rules: parallel without a sha
   `cutA` / `cutB` / `hide` ranges: its slab is built only where it is clear of the merged surface, the transition is
   rebuilt as `fill` triangles. Cross streets / median connectors ending at a merged node: their slab end is cut back to
   where it is no longer fully inside the merged surface (no fill needed).
-  Pairs: 532 one-way opposite (rule a proper), 42 one-way same direction (main carriageway + service carriageway of the
+  Pairs: 527 one-way opposite (rule a proper), 5 unnamed one-way opposite pairs, 42 one-way same direction (main carriageway + service carriageway of the
   same road, e.g. Sukhumvit at flyovers: an offset would have to move them 40-56 studs), 11 with a two-way way
   (Chalermphrakiat's 4-5 parallel carriageways, Thap Phraya). 27 groups: Sukhumvit (5 groups), Thep Prasit / Thepprasit
   (22 kept / 23 hidden edges), Thappraya, Pattaya Nuea (central + wide), Jomtien Second Road (2), Chalermphrakiat (2),
@@ -465,7 +465,9 @@ Save the place first. Replace modules as NEW ModuleScript instances (or let Rebu
    - wide (`PattayaDataWide`, `B.RebuildChunks(ids, {folder = "PattayaDataWide"})`), 214: see
      `docs/road_audit/dual_chunks.json` (`wide`).
    - corridor (`PattayaDataCorridor`), 5: `"42_7","44_6","45_7","46_7","47_5"`.
-4. Re-run furniture.py on the merged build/ and rebuild the furniture chunks it reports changed.
+4. Furniture: replace `ServerStorage.PattayaDataFurniture` (manifest + every `chunk_f*`) with
+   `build/furniture/roblox` of this worktree, then `F.Remove()` and `F.Build({batch = "f1"})` ... `"f35"` (see
+   "Furniture follow-up" below; 92 chunks changed, 7 new, so a full furniture rebuild is simplest).
 5. Probes below + the pass-2 probes (kink, kerb) + drive regression (Central Loop; a lap on Sukhumvit / Thep Prasit).
 Undo: the `*_prev_dual` modules + the same RebuildChunks calls.
 
@@ -572,14 +574,42 @@ wide 245, corridor 3). Run the pass-1 probe too: marking parts on another road 0
   Prasit 7 studs, Sukhumvit up to ~20) past the merged slab's edge.
 - Traffic lanes: on merged slabs fixed; 1,182 loop samples still off any road surface (pre-existing: outer-lane rule
   `width/2` on wide one-way roads and DP corner cutting; was 3,013).
-- **furniture.py (not touched, rerun by the leader) places by graph polylines.** Rerun on this build: unchanged output
-  (267 chunks, 9,246 parts, its own checks 0, since it tests against the graph corridors), but checked against the
-  BUILT surface, **168 of 502 zebra crossings would now hang partly off the road** (they span the old carriageway
-  around its graph line; e.g. (24,597, 559) Sukhumvit 139 studs^2, (23,944, 3,047), (24,357, 1,400); before: 0).
-  Needed in furniture.py before its rebuild: for a crossing on an edge that is `merged` / `hidden` / cut in the chunk
-  data, centre it on the merged centreline and clip its bars to the built slab (or skip it). Kerb props (signs, poles,
-  shelters) stay clear of all roads (they keep off the union of the old corridors) but may now stand up to ~20 studs
-  back from the narrower merged kerb.
+- Furniture: fixed in the follow-up below (the unchanged furniture.py would have left 168 of 502 zebra crossings
+  hanging partly off the merged slabs). Kerb props stay clear of all roads (they keep off the union of the old
+  corridors) but may stand up to ~20 studs back from the narrower merged kerb.
 - Part count +4,500 net (fill wedges vs dropped hidden slabs); busiest chunk wide `8_2` (Sukhumvit / Pattaya Klang
   interchange) ~370 fill wedges.
 - road_fix runs on fresh exports only; `dual.py` must run after road_graph.py (traffic.py and road_fix.py refuse a stale plan).
+
+### Furniture follow-up (team4/dual)
+`tools/mapgen/furniture.py` now reads the BUILT road surface from the fixed chunk modules (road_check.slab_rects: slab
+pieces after rule D, fill triangles, junction / joint discs) and the dual plan (`build/dual/plan.json`):
+- Zebra crossings on an edge whose chunk line is `merged` / `hidden` / cut (or of a dual group) are centred on the
+  merged (kept) centreline of the group and span that slab's width; a second crossing within `merge_studs` of one
+  already placed (the other carriageway had one at the same spot) is dropped; bars are dropped in pairs until all lie
+  on the built surface; a crossing on a hidden edge with no kept twin is skipped.
+- New export checks (asserted): `crossing_bar_off_built_road` and `on_built_road` (any non-overhead furniture part on
+  the built road surface), besides the old graph-corridor checks, so a road-surface change can no longer pass silently.
+
+Run (from D:/ROBLOXRACE-worldfix): `D:/ROBLOXRACE/.venv/Scripts/python.exe tools/mapgen/furniture.py tools/mapgen/config/furniture.json --build-root D:/ROBLOXRACE-worldfix/build`
+
+| | installed (D:/ROBLOXRACE/build/furniture) | after |
+|---|---|---|
+| zebra crossings | 502, 168 of them partly off the built road (checked on the dual build) | **438, 0 off the built road** (253 moved onto a merged centreline, 51 duplicates of the other carriageway dropped, 7 on hidden edges without a twin skipped, 14 no room on the built slab) |
+| signals / name signs / shelters / taxis on the built road | - | **0** (all checks 0) |
+| poles | 519 | 715 (the part budget freed by the crossings goes to more soi poles, as the budget rule says) |
+| parts / chunks | 9,246 / 267 | 9,140 / 274 (largest chunk 235 parts) |
+
+Changed furniture modules: manifest, 92 `chunk_f*` changed, 7 new (`f-1_9`, `f-2_8`, `f-2_9`, `f2_10`, `f2_9`,
+`f5_9`, `f6_-5`), none removed; list in `docs/road_audit/dual_furniture_chunks.json`.
+
+### Excluding merges (owner's choice)
+`tools/mapgen/config/dual.json`: `exclude_link_kinds` (any of `opposite`, `same_direction`, `two_way`, `unnamed_dual`)
+and `exclude_groups` (ids as in `build/dual/plan.json`, `"g:<edge id>"` = the member with the lowest graph index,
+stable while the graph is). Excluded pairs are not merged; they fall to rule b / c (offset, or cut + exact fill) like
+different roads. Each plan group lists its `link_kinds`, e.g. Sukhumvit `g:541668101:w945` {opposite 154,
+same_direction 26}, `g:688427427:w999` {opposite 3, same_direction 16}; the two-way ones are `g:35068359:w35`
+(Chalermphrakiat) and `g:143685763:w455` (Thap Phraya); unnamed duals `g:35608360:w99`, `g:742697975:w1984`,
+`g:375840698:w2720`, `g:936560638:w2938`, `g:1185423798:w3065`. Tried: `exclude_link_kinds: ["same_direction"]`
+gives 26 groups / 456 trims (the 42 frontage pairs become cut + fill). After a change rerun from road_graph.py
+(the whole chain, then furniture.py); empty lists = this build.
