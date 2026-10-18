@@ -448,3 +448,15 @@ are assumed; if it re-applies its own size the 2 Hz pass sets it again, an image
 the top of the default-priority CAS stack for G / DPadUp / M / Select (no other default-priority action uses those
 keys; the HUD's Select binding is High priority and unaffected). Desktop button feedback changed slightly (hover is
 now our colour instead of AutoButtonColor on the minimap buttons), layout did not.
+
+## Round 3 results — mobile touch test (leader, 2026-10-19, Device Emulator 830×439, TouchEnabled)
+- `TouchSelfTest`: 13 controls OK, 0 not OK; GPS/MAP legacy touch buttons gone; CAS grid NOS 72 px + DRIFT/R/SPRINT/RACE/CIRCUIT
+  56 px right-aligned above the jump button (no overlap with it or the thumbstick visual; the only "overlaps" reported are
+  the minimap buttons inside the dynamic thumbstick's invisible touch AREA, accepted). Client errors 0.
+- Real taps (Studio's mouse-input tool in the emulator delivers Touch events; its x is offset by −61 px in this emulator
+  window, corrected manually): ☰ → Activated, tile sheet opened and the activity strip hid; Map tile → `WorldMapUI` opened;
+  destination "BIRA CIRCUIT" → `GPS_Label = Bira Circuit`; X → map closed; minimap Expand → map opened; NOS → the CAS
+  button received InputBegan/InputEnded Touch (car stationary, so no boost state change).
+- Captures: `docs/images/hud_v4_mobile_touch.jpg` (compact HUD + CAS grid), `hud_v4_mobile_fullmap.jpg`.
+- Found: on a phone the full map opens in VIEW: ALL (Bira venue included), so the city is tiny; default to CITY view when
+  Compact (todo, small). The sheet auto-closes after 8 s, which is fine but surprised the test sequence.
