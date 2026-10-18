@@ -34,9 +34,10 @@ end
 local C = Color3.fromRGB
 local PRESETS = {
 	night = {
-		-- the first night preset was too dark to see the road (owner, 2026-10-18): lifted ambient/exposure, less fog.
+		-- the first night preset was too dark to see the road (owner, 2026-10-18): lifted ambient/exposure, less fog;
+		-- the owner then tuned NightExposure to +0.4 by eye (2026-10-19), baked in here (0.55 -> 0.95).
 		-- Lighting attribute NightExposure (default 0) adds to ExposureCompensation at night for live tuning.
-		Ambient = C(74, 70, 104), OutdoorAmbient = C(118, 112, 160), Brightness = 1.7, ExposureCompensation = 0.55,
+		Ambient = C(74, 70, 104), OutdoorAmbient = C(118, 112, 160), Brightness = 1.7, ExposureCompensation = 0.95,
 		EnvironmentDiffuseScale = 0.45, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(90, 60, 160),
 		atmo = {Density = 0.26, Offset = 0.12, Color = C(90, 65, 140), Decay = C(40, 25, 70), Glare = 0, Haze = 1.1},
 		bloom = {Intensity = 1.0, Size = 24, Threshold = 0.92},

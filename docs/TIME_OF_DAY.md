@@ -54,8 +54,17 @@ Between keyframes the values blend. For example, 5:30 is halfway between night a
 | Bloom intensity / size / threshold | 1.1 / 28 / 0.9 (neon glows) | 0.9 / 24 / 0.95 | 0.5 / 24 / 1.4 | 0.8 / 24 / 1.1 |
 | ColorCorrection contrast / saturation / tint | 0.12 / 0.18 / lilac | 0.08 / 0.2 / rose | 0.03 / 0.08 / white | 0.05 / 0.1 / warm |
 
-The night preset fixes the known problem "night is not very dark". It does this by pulling OutdoorAmbient down from
-the template's grey to deep violet. That makes the neon signs, the lit windows and the Walking Street gate stand out.
+The first night preset pulled OutdoorAmbient down to deep violet so the neon and lit windows stood out, but the owner
+could not see the road at all (2026-10-18). The preset was lifted (ambient, exposure, less fog) and the owner then tuned
+the live knob `Lighting` attribute `NightExposure` to **+0.4** by eye (2026-10-19). That value is baked in:
+ExposureCompensation 0.95 at night. `NightExposure` still works for further tuning (added to the exposure, scaled by
+how "night" the blend is), default 0.
+
+**Open (owner, 2026-10-19):** the exposure brightens the road and the headlight area, but the **sky stays almost
+black** and does not change with the knob. The template `Sky` has `StarCount = 0`, and ClockTime 20.5-21 puts the sun
+far below the horizon, so the skybox is unlit. Candidates for the next pass: a night preset that overrides the Sky
+(stars on, a lighter indigo horizon through the Atmosphere Color/Decay), or holding the night clock nearer 19.5
+("blue hour") instead of 21. The owner asked to leave it for now.
 
 **Template safety:**
 - All of this runs on the client, so the place's saved Lighting is never changed.
