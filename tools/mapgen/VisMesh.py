@@ -49,6 +49,19 @@ class Mesh:
         self.assets = asset_table(os.path.join(env['root'], self.vc['assets_manifest']))
         self.used = []                                        # asset names in export order (manifest.meshAssets)
         self.slots = self.vc['slots']
+        # merged (wide / floor-band) modules: tools/blender/gen_merged.py builds them from the kit .glb files
+        self.mc = self.vc.get('merged') or {}
+        self.merged_on = bool(self.mc.get('enabled'))
+        self.merged = {}                                      # merged asset name -> manifest row (generated + ok)
+        mpath = os.path.join(env['root'], self.mc.get('manifest', 'build/vis_assets/merged/manifest.json'))
+        if self.merged_on and os.path.isfile(mpath):
+            for a in json.load(open(mpath, encoding='utf-8'))['assets']:
+                if a.get('ok'):
+                    self.merged[a['name']] = a
+                    self.assets[a['name']] = a
+        self.requests = {}                                    # merged name -> {base, w, h} (what the sample needs)
+        self.missing = Counter()                              # requested but not in the merged manifest (base rows used)
+        self.predict = False                                  # citywide estimate: missing merged assets predicted
 
     def aidx(self, name):
         if name not in self.used:
@@ -296,7 +309,11 @@ class Mesh:
             if groups[i] not in meshed and groups[i] != i + 1:
                 groups[i] = i + 1                             # its mid band did not mesh: the glass band stays
 
-        # 6. counts (everything loads) ---------------------------------------------------------------------------------
+        # 6. merged tiles: runs of equal 1-bay modules -> wide (W bays) x floor-band (H floors) assets ----------------
+        base_rows = rows
+        mrows, minfo = self.merge_rows(bd, rows, fl) if self.merged_on else (rows, {})
+
+        # 7. counts (everything loads) ---------------------------------------------------------------------------------
         st_cfg = st
         part_parts = []
         for i, pl in enumerate(pls):
@@ -306,47 +323,194 @@ class Mesh:
         roof_part_rows = [rr for ri, rr in enumerate(B['roofs']) if 1001 + ri not in meshed]
         for rr in roof_part_rows:
             part_parts += kit.roof_parts(bd, rr)
-        n_mesh, by_asset, slots_swapped, lit = 0, Counter(), Counter(), 0
-        for r in rows:
-            a = self.assets[r['asset']]
-            n_mesh += r['nv'] * len(a['parts'])
-            by_asset[r['asset']] += r['nv']
-            slot = kit.mods[pls[r['group'] - 1][1] - 1] if r['group'] else 'corner'
-            slots_swapped[f"{slot} -> {r['asset']}"] += r['nv']
-            if r['flags'] & 3 and any(p['material'] == 'MP_Glass' for p in a['parts']):
-                pct = st['lit_win'] if r['flags'] & 1 else st['lit_shop']
-                spread = env['lit_cfg']['spread']
-                pct = max(0, min(100, pct + osm % (2 * spread + 1) - spread))
-                for k in range(r['nv']):
-                    if self.mesh_lit_hash(osm, r, k) % 100 < pct:
-                        lit += 1
-        for r in roof_rows:
-            n_mesh += len(self.assets[r['asset']]['parts'])
-            by_asset[r['asset']] += 1
-            slots_swapped[f"{kit.roof_mods[B['roofs'][r['group'] - 1001][0] - 1]} -> {r['asset']}"] += 1
+        roof_n = sum(len(self.assets[r['asset']]['parts']) for r in roof_rows)
+
+        def tally(rr_list):
+            n_mesh, by_asset, slots_swapped, lit = 0, Counter(), Counter(), 0
+            cells = [0, 0]                                    # [lit glass cells (1 module each), glass cells]
+            for r in rr_list:
+                a = self.assets[r['asset']]
+                n_mesh += r['nv'] * len(a['parts'])
+                by_asset[r['asset']] += r['nv']
+                slot = kit.mods[pls[r['group'] - 1][1] - 1] if r['group'] else 'corner'
+                slots_swapped[f"{slot} -> {r['asset']}"] += r['nv'] * r.get('w', 1) * r.get('h', 1)
+                glass = [p for p in a['parts'] if p['material'] == 'MP_Glass']
+                if r['flags'] & 3 and glass:
+                    pct = st['lit_win'] if r['flags'] & 1 else st['lit_shop']
+                    spread = env['lit_cfg']['spread']
+                    pct = max(0, min(100, pct + osm % (2 * spread + 1) - spread))
+                    n = r.get('w', 1) * r.get('h', 1)
+                    na = len(a.get('glass_alt_cells', [])) if 'glass_alt_cells' in a else (n // 2 if len(glass) > 1 else 0)
+                    per = [n - na, na] if len(glass) > 1 else [n]
+                    for k in range(r['nv']):
+                        for gi in range(len(glass)):
+                            cells[1] += per[min(gi, len(per) - 1)]
+                            if self.mesh_lit_hash(osm, r, k, gi) % 100 < pct:
+                                lit += 1
+                                cells[0] += per[min(gi, len(per) - 1)]
+            for r in roof_rows:
+                by_asset[r['asset']] += 1
+                slots_swapped[f"{kit.roof_mods[B['roofs'][r['group'] - 1001][0] - 1]} -> {r['asset']}"] += 1
+            tally.cells = cells
+            return n_mesh + roof_n, by_asset, slots_swapped, lit
+
+        n_mesh_b, by_asset_b, _, lit_b = tally(base_rows)
+        cells_b = tally.cells
+        n_mesh, by_asset, slots_swapped, lit = tally(mrows)
+        cells_m = tally.cells
         n_part = 2 + len(part_parts)
         rep = {'osm': osm, 'cat': b['cat'], 'style': B['style'], 'levels': b['levels'], 'h': b['h'],
                'centre_world_xz': [round(b['x'] + 20000, 1), round(b['z'], 1)], 'size_wdh': [b['w'], b['d'], b['h']],
                'yaw': b['yaw'], 'faces': B['faces'], 'inset_part': B['ins'], 'inset_mesh': ins_m,
                'before': {'parts': B['n'], 'meshparts': 0},
                'after': {'parts': n_part, 'meshparts': n_mesh, 'total': n_part + n_mesh},
+               'after_base_kit': {'parts': n_part, 'meshparts': n_mesh_b, 'total': n_part + n_mesh_b,
+                                  'note': 'VIS-7.1 1-bay kit modules (BuildMesh({merged = false}) / merged asset unusable)'},
+               'merged': minfo,
                'slots_swapped_instances': dict(sorted(slots_swapped.items())), 'asset_instances': dict(sorted(by_asset.items())),
-               'lit_glass_meshparts': lit, 'kept_parts_reasons': dict(why),
-               'signboard_meshparts_with_text': sum(1 for r in rows if r['flags'] & 4),
-               'neon_meshparts': sum(r['nv'] for r in rows for p in self.assets[r['asset']]['parts']
+               'asset_instances_base_kit': dict(sorted(by_asset_b.items())),
+               'lit_glass_meshparts': lit, 'lit_glass_meshparts_base_kit': lit_b,
+               'lit_glass_modules': {'merged': cells_m, 'base_kit': cells_b, 'note': '[lit, of] glass module cells at night'},
+               'kept_parts_reasons': dict(why),
+               'signboard_meshparts_with_text': sum(1 for r in mrows if r['flags'] & 4),
+               'neon_meshparts': sum(r['nv'] for r in mrows for p in self.assets[r['asset']]['parts']
                                      if p['material'] in ('MP_NeonCyan', 'MP_NeonMagenta')),
                'part_rows_meshed': sum(1 for gid in groups if gid in meshed), 'part_rows': len(pls)}
+
+        def pack(rr_list):
+            return [v for r in rr_list for v in (r['face'], self.aidx(r['asset']), round(r['uc'], 3), round(r['v0'], 3),
+                                                 r['nv'], round(r['dv'], 3), 1, r['group'], r['flags'], r['j'])]
         out = {'ins': ins_m, 'p': [v for pl in pls for v in pl], 'pg': groups,
                'rg': [1001 + ri for ri in range(len(B['roofs']))],
-               'm': [v for r in rows for v in (r['face'], self.aidx(r['asset']), round(r['uc'], 3), round(r['v0'], 3), r['nv'],
-                                               round(r['dv'], 3), 1, r['group'], r['flags'], r['j'])],
+               'm': pack(mrows), 'mb': pack(base_rows) if mrows is not base_rows else None,
                'q': [v for r in roof_rows for v in (self.aidx(r['asset']), r['x'], r['z'], r['yaw'], 1, r['group'])],
-               'parts': n_part, 'meshParts': n_mesh}
+               'parts': n_part, 'meshParts': n_mesh, 'meshPartsBase': n_mesh_b}
         return out, rep
 
-    def mesh_lit_hash(self, osm, r, k):
-        """twin of PattayaVisSliceBuilder's mesh pane hash: litHash(osm, face, 900 + asset, floor, column, 0)"""
-        return (osm % self.env['lit_cfg']['hash_mod']) * 7919 + r['face'] * 104729 + (900 + r['aidx']) * 1009 + k * 131 + r['j'] * 31
+    # merged tiles ------------------------------------------------------------------------------------------------------
+    def merged_name(self, base, w, h):
+        fam, grp, var = base.split('_', 2)
+        return f'{fam}_{grp}_{var}W{w}H{h}'
+
+    def mergeable(self, name):
+        a = self.assets.get(name)
+        if not a or name in self.merged:
+            return False
+        if a['kind'] == 'kit_module':
+            return abs(a['size_studs'][0] - MW) < 0.01
+        return a['kind'] == 'corner' and name in self.mc.get('corner_vertical', [])
+
+    def predicted(self, base, w, h):
+        """analytic manifest row of a merged asset (what gen_merged.py makes): used only by the citywide estimate"""
+        a = self.assets[base]
+        FH = self.mc.get('floor_studs', 8.5714286)
+        lo, hi = list(a['bbox_min']), list(a['bbox_max'])
+        lo[0] -= (w - 1) / 2 * MW
+        hi[0] += (w - 1) / 2 * MW
+        hi[1] += (h - 1) * FH
+        name = self.merged_name(base, w, h)
+        parts = []
+        for p in a['parts']:
+            parts.append({'name': name + p['name'][len(base):], 'material': p['material']})
+            if p['material'] == 'MP_Glass' and self.mc.get('split_glass', True) and w * h >= 2:
+                parts.append({'name': name + p['name'][len(base):] + 'Alt', 'material': 'MP_Glass'})
+        return {'name': name, 'kind': a['kind'], 'tris': a['tris'] * w * h, 'bytes': a['bytes'] * w * h,
+                'bbox_min': lo, 'bbox_max': hi, 'size_studs': [hi[i] - lo[i] for i in range(3)], 'parts': parts,
+                'base': base, 'w': w, 'h': h, 'predicted': True}
+
+    @staticmethod
+    def split(n, sizes):
+        """greedy: n cells -> [(start, size)] with the largest allowed sizes first (1 is always allowed)"""
+        out, i = [], 0
+        for s in sorted(set(sizes) | {1}, reverse=True):
+            while n - i >= s:
+                out.append((i, s))
+                i += s
+        return out
+
+    def merge_rows(self, bd, rows, fl):
+        """1-bay kit rows -> merged rows. Per Part row (group, face, v0, nv, dv) the columns sorted by u; a run of
+        adjacent columns with the same asset (never across the signboard-text column) is cut greedily into widths
+        from merged.widths, its floors into bands from merged.heights (a band of h floors is one mesh, repeated every
+        h floors). Corner stacks merge vertically only. A tile whose merged asset is not in the merged manifest, or
+        that fails a footprint check, stays as its 1-bay rows (so the first export, before gen_merged ran, is the
+        VIS-7.1 build plus the request list)."""
+        mc = self.mc
+        W, H, max_tris, gtol = mc['widths'], mc['heights'], mc['max_tris'], mc.get('band_grid_tol', 0.02)
+        FH = mc.get('floor_studs', 8.5714286)
+        keyed, order = defaultdict(list), []
+        for r in rows:
+            k = (r['group'], r['face'], r['v0'], r['nv'], r['dv'], r['flags'] & ~4, r['asset'] if not r['group'] else '')
+            if k not in keyed:
+                order.append(k)
+            keyed[k].append(r)
+        out = []
+        info = Counter()
+
+        def base_piece(E, i0, w, k0, nfl, dv):
+            for e in E[i0:i0 + w]:
+                out.append(dict(e, v0=round(e['v0'] + k0 * dv, 4), nv=nfl))
+
+        for k in order:
+            lst = sorted(keyed[k], key=lambda r: r['uc'])
+            runs, cur = [], []
+            for r in lst:
+                if cur and (r['asset'] != cur[-1]['asset'] or not self.mergeable(r['asset'])
+                            or (r['flags'] | cur[-1]['flags']) & 4 or abs(r['uc'] - cur[-1]['uc'] - MW) > 1e-3):
+                    runs.append(cur)
+                    cur = []
+                cur.append(r)
+            if cur:
+                runs.append(cur)
+            for E in runs:
+                r0 = E[0]
+                base, nv, dv = r0['asset'], r0['nv'], r0['dv']
+                if not self.mergeable(base):
+                    out += E
+                    continue
+                tb = self.assets[base]['tris']
+                corner = self.assets[base]['kind'] == 'corner'
+                ws = [1] if corner else [w for w in W if w * tb <= max_tris]
+                for i0, w in self.split(len(E), ws):
+                    if nv > 1 and dv > 0:
+                        hs = [h for h in H if w * h * tb <= max_tris and (h - 1) * abs(dv - FH) <= gtol]
+                        pieces = []
+                        for k0, h in self.split(nv, hs):
+                            if pieces and pieces[-1][1] == h:
+                                pieces[-1][2] += 1
+                            else:
+                                pieces.append([k0, h, 1])
+                    else:
+                        pieces = [[0, 1, nv]]
+                    for k0, h, q in pieces:
+                        if w == 1 and h == 1:
+                            base_piece(E, i0, 1, k0, q, dv)
+                            continue
+                        name = self.merged_name(base, w, h)
+                        self.requests[name] = {'base': base, 'w': w, 'h': h}
+                        if name not in self.merged and self.predict:
+                            self.merged[name] = self.assets[name] = self.predicted(base, w, h)
+                        if name not in self.merged:
+                            self.missing[name] += 1
+                            info['tiles kept 1-bay: merged asset not generated'] += q
+                            base_piece(E, i0, w, k0, h * q, dv)
+                            continue
+                        cols = E[i0:i0 + w]
+                        t = dict(r0, asset=name, uc=sum(e['uc'] for e in cols) / w, v0=round(r0['v0'] + k0 * dv, 4), nv=q,
+                                 dv=h * dv, j=cols[0]['j'], w=w, h=h)
+                        if any(self.env['check'](bd, inst) for inst in self.instances(bd, t)):
+                            info['tiles kept 1-bay: merged instance fails a footprint check'] += q
+                            base_piece(E, i0, w, k0, h * q, dv)
+                            continue
+                        info[f'tiles W{w}H{h}'] += q
+                        out.append(t)
+        return out, dict(sorted(info.items()))
+
+    def mesh_lit_hash(self, osm, r, k, gi=0):
+        """twin of VisMeshBuilder: litHash(osm, face, 900 + asset, repeat, column, 7 x glass part); the 2nd glass part
+        (GlassAlt) is 49 off mod 100, so the two halves of a merged tile are rarely lit together (lit share stays ~pct)"""
+        return (osm % self.env['lit_cfg']['hash_mod']) * 7919 + r['face'] * 104729 + (900 + self.aidx(r['asset'])) * 1009 + \
+            k * 131 + r['j'] * 31 + gi * 49
 
     def instances(self, bd, r):
         """pseudo parts (vis_slice part dicts) for every instance of a mesh row: the asset bbox in the face frame"""
@@ -375,14 +539,36 @@ class Mesh:
         out = []
         for name in self.used:
             a = self.assets[name]
-            parts = []
+            parts, gi = [], 0
             for p in a['parts']:
                 short = p['name'][len(name) + 1:]
                 col, mname = mat[p['material']]
-                parts.append({'name': p['name'], 'short': short, 'mp': p['material'], 'col': col, 'mat': mname,
-                              'size': p['size'], 'centre': p['centre']})
-            out.append({'name': name, 'kind': a['kind'], 'bmin': a['bbox_min'], 'bmax': a['bbox_max'], 'parts': parts})
+                e = {'name': p['name'], 'short': short, 'mp': p['material'], 'col': col, 'mat': mname,
+                     'size': p['size'], 'centre': p['centre']}
+                if p['material'] == 'MP_Glass':
+                    e['gi'] = gi                              # glass part ordinal: lit hash term (GlassAlt = 1)
+                    gi += 1
+                parts.append(e)
+            row = {'name': name, 'kind': a['kind'], 'bmin': a['bbox_min'], 'bmax': a['bbox_max'], 'parts': parts}
+            if name in self.merged:
+                row.update(base=a['base'], w=a['w'], h=a['h'])
+            out.append(row)
         return out
+
+    def write_requests(self):
+        """build/vis_assets/merged/request.json: the merged assets the sample block needs (input of gen_merged.py)"""
+        if not self.merged_on:
+            return None
+        path = os.path.join(self.env['root'], self.mc.get('request', 'build/vis_assets/merged/request.json'))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        req = [dict(name=n, **self.requests[n]) for n in sorted(self.requests)]
+        body = {'comment': 'written by tools/mapgen/VisMesh.py (vis_slice.py); read by tools/blender/gen_merged.py',
+                'module_w': MW, 'floor_studs': self.mc.get('floor_studs', 8.5714286), 'split_glass': self.mc.get('split_glass', True),
+                'assets': req}
+        open(path, 'w', encoding='utf-8', newline='\n').write(json.dumps(body, indent=1) + '\n')
+        return {'request': self.mc.get('request', 'build/vis_assets/merged/request.json'), 'requested': len(req),
+                'generated_ok': sum(1 for n in self.requests if n in self.merged),
+                'missing': sorted(self.missing), 'merged_manifest_assets': len(self.merged)}
 
 
 def palms(cfg, env, mesh):
@@ -402,10 +588,91 @@ def palms(cfg, env, mesh):
     for a in pc['assets']:
         mesh.aidx(a)
     n_mesh_parts = sum(len(mesh.assets[pc['assets'][r['v'] - 1]]['parts']) for r in rows)
+    n_col = 0 if pc.get('impostor_collides') else len(rows)
     rep = {'palms': len(rows), 'by_variant': dict(sorted(by_var.items())), 'by_city_chunk': dict(sorted(by_src.items())),
            'before': {'parts': 6 * len(rows), 'note': 'PattayaBuilder: PalmTrunk cylinder + 5 PalmFrond per palm'},
-           'after': {'meshparts': n_mesh_parts, 'impostor_parts': 2 * len(rows), 'collider_parts': len(rows),
-                     'parts': 3 * len(rows)},
+           'after': {'meshparts': n_mesh_parts, 'impostor_parts': 2 * len(rows), 'collider_parts': n_col,
+                     'parts': 2 * len(rows) + n_col,
+                     'note': ('the impostor trunk (cylinder at the trunk foot) is the collider' if not n_col else
+                              'separate VisMeshPalmCollider per palm')},
            'lod': f"full mesh within {pc['full_range']} studs, impostor beyond (client VisMeshPalmLOD); all palm parts are named "
                   'PalmTrunk / PalmFrond so PattayaLOD still hides them beyond LOD_PropRange'}
     return rows, rep
+
+
+def block_counts(cfg, palm_rows, mesh_rep, tot_b, tot_p, tot_m, tot_mb):
+    """instances in the sample block: its buildings + the palms within sample_block.count_radius of the centre
+    (map-local). Before = Part buildings + Part palms (6 each); after = mesh buildings + mesh palms."""
+    vc = cfg['vismesh']
+    sb, pc = vc['sample_block'], vc['palms']
+    R = sb.get('count_radius', 160)
+    n = sum(1 for r in palm_rows if math.hypot(r['x'] - sb['centre'][0], r['z'] - sb['centre'][1]) <= R)
+    per = 2 + 2 + (0 if pc.get('impostor_collides') else 1)       # 2 MeshParts + 2 impostor Parts (+ collider)
+    return {'radius_studs': R, 'buildings': len(mesh_rep), 'palms': n,
+            'before': {'building_parts': tot_b, 'palm_parts': 6 * n, 'total': tot_b + 6 * n},
+            'after': {'building_parts': tot_p, 'building_meshparts': tot_m, 'palm_instances': per * n,
+                      'total': tot_p + tot_m + per * n},
+            'after_base_kit': {'building_parts': tot_p, 'building_meshparts': tot_mb, 'palm_instances': 5 * n,
+                               'total': tot_p + tot_mb + 5 * n, 'note': 'VIS-7.1 as built (1-bay kit, separate collider)'}}
+
+
+def alternatives(reps, assets, tri_cap=10000):
+    """the two rejected options, from the 1-bay kit rows of each building report:
+    (b) one unique merged asset per building (split at tri_cap): MeshParts = materials per asset; (c) one MeshPart per
+    kit module (all materials in one mesh: vertex colours / atlas, one Material per module)."""
+    ua = um = ut = ub = mods = 0
+    for r in reps:
+        inst = r['asset_instances_base_kit']
+        tris = sum(n * assets[a]['tris'] for a, n in inst.items())
+        mats = {p['material'] for a in inst for p in assets[a]['parts']}
+        k = max(len(r['faces']), math.ceil(tris / tri_cap)) if inst else 0
+        ua += k
+        um += k * len(mats)
+        ut += tris
+        ub += sum(n * assets[a].get('bytes', 0) for a, n in inst.items())
+        mods += sum(inst.values())
+    return {'unique_per_building': {'assets_to_upload': ua, 'meshparts': um, 'tris': ut, 'glb_bytes_est': ub},
+            'one_meshpart_per_kit_module': {'meshparts': mods}}
+
+
+def citywide(cfg, env, built):
+    """estimate (not exported, nothing built): every slice building through the mesh path, per merged variant.
+    Missing merged assets are predicted analytically (gen_merged.py makes exactly W x H base cells)."""
+    import copy
+    ce = cfg['vismesh'].get('citywide_estimate') or {}
+    base_bytes = {}
+    out = {'buildings': len(built), 'note': 'export-side estimate: Part rows that would mesh, counts when every asset '
+                                           'loads; not built in Studio', 'variants': {}}
+    for vname, over in ce.get('variants', {}).items():
+        c2 = copy.deepcopy(cfg)
+        c2['vismesh']['merged'] = dict(c2['vismesh'].get('merged') or {}, **over)
+        c2['vismesh']['merged']['manifest'] = '-'                   # predicted only: never the sample's real manifest
+        m = Mesh(c2, env)
+        m.predict = True
+        before = parts = mp_b = mp_m = 0
+        per_b, reps = [], []
+        for B in built:
+            o, r = m.building(B)
+            reps.append(r)
+            before += r['before']['parts']
+            parts += r['after']['parts']
+            mp_b += r['after_base_kit']['meshparts']
+            mp_m += r['after']['meshparts']
+            per_b.append(r['after']['meshparts'])
+        merged = [a for a in m.merged.values()]
+        base_used = sorted({n for n in m.used if n not in m.merged})
+        for n in base_used:
+            base_bytes[n] = m.assets[n].get('bytes', 0)
+        per_b.sort()
+        out['variants'][vname] = {
+            'merged': over, 'parts_before': before, 'parts_after': parts,
+            'meshparts_base_kit': mp_b, 'meshparts_merged': mp_m,
+            'total_base_kit': parts + mp_b, 'total_merged': parts + mp_m,
+            'meshparts_per_building': {'mean': round(mp_m / max(1, len(built)), 1), 'median': per_b[len(per_b) // 2] if per_b else 0,
+                                       'p90': per_b[int(len(per_b) * 0.9)] if per_b else 0, 'max': per_b[-1] if per_b else 0},
+            'kit_assets_used': len(base_used), 'merged_assets_needed': len(merged),
+            'merged_assets_tris': sum(a['tris'] for a in merged), 'merged_assets_bytes_est': sum(a['bytes'] for a in merged),
+            'kit_assets_bytes': sum(base_bytes[n] for n in base_used)}
+        if not m.merged_on:
+            out['variants'][vname]['alternatives'] = alternatives(reps, m.assets)
+    return out

@@ -877,6 +877,31 @@
       "top": "BLD_CN_Top",
       "top_for": ["parapet_a"]
     },
+    "merged": {
+      "comment": "mesh-opt: runs of equal 1-bay kit modules become wide (W bays) x floor-band (H floors) merged assets (tools/blender/gen_merged.py from the kit .glb files: the same per-material MeshParts, glass split into Glass + GlassAlt so lit panes still vary). Builder falls back merged -> 1-bay kit -> Part kit per Part row.",
+      "enabled": true,
+      "manifest": "build/vis_assets/merged/manifest.json",
+      "request": "build/vis_assets/merged/request.json",
+      "widths": [1, 2, 3, 4],
+      "heights": [1, 2, 3, 4],
+      "widths_comment": "picked from citywide_estimate (507 buildings): 1-4 x 1-4 -> 21.9k instances with 111 merged assets / 6 MB; 1,2,4,8 -> 24.3k / 86 assets; 1-8 x 1-8 -> 17.4k but 250 assets / 35 MB",
+      "max_tris": 10000,
+      "floor_studs": 8.5714286,
+      "band_grid_tol": 0.02,
+      "split_glass": true,
+      "corner_vertical": ["BLD_CN_Mid", "BLD_CN_GlassMid"]
+    },
+    "citywide_estimate": {
+      "comment": "report only (mesh_sample.json citywide_estimate): every slice building through the mesh path with these merged settings; missing merged assets are predicted analytically. Nothing is exported for them.",
+      "variants": {
+        "base_kit_only": {"enabled": false},
+        "w1234_h1234 (default)": {},
+        "w1234_h1234_no_glass_split": {"split_glass": false},
+        "w123_h123": {"widths": [1, 2, 3], "heights": [1, 2, 3]},
+        "w1248_h1248": {"widths": [1, 2, 4, 8], "heights": [1, 2, 4, 8]},
+        "w1to8_h1to8": {"widths": [1, 2, 3, 4, 5, 6, 7, 8], "heights": [1, 2, 3, 4, 5, 6, 7, 8]}
+      }
+    },
     "mat_map": {
       "comment": "manifest material -> [builder colour key, MaterialLibrary / Mat name]",
       "MP_Wall": ["wall", "PaintedPlaster"],
@@ -897,7 +922,9 @@
       "comment": "every city palm in the slice bbox -> RSD_Palm_<v> at the trunk foot, yaw of the Part palm, no lean; variant = floor(|7x + 13z|) % 3",
       "assets": ["RSD_Palm_A", "RSD_Palm_B", "RSD_Palm_C"],
       "full_range": 400,
-      "collider": [1.6, 20, 1.6]
+      "collider": [1.6, 20, 1.6],
+      "impostor_collides": true,
+      "impostor_collides_comment": "mesh-opt: the impostor trunk cylinder (at the trunk foot, invisible near the camera) is the collider; no separate VisMeshPalmCollider (5 -> 4 instances per palm). false = the VIS-7.1 collider part."
     }
   }
 }

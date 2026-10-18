@@ -634,6 +634,8 @@ def main(cfg_path):
         mesh_out[B['b']['osm']] = o
         mesh_rep.append(r)
     palm_rows, palm_rep = VisMesh.palms(cfg, env, mesh)
+    merged_rep = mesh.write_requests()
+    city_est = VisMesh.citywide(cfg, env, built) if vm_cfg.get('citywide_estimate') else None
     # before/after camera: from the sea side of Beach Road, looking at the block centre
     cx = sum(B['b']['x'] for B in sample) / len(sample)
     cz = sum(B['b']['z'] for B in sample) / len(sample)
@@ -725,7 +727,9 @@ def main(cfg_path):
                'palms': [[r['x'], r['z'], r['v'], r['yaw'], r['h']] for r in palm_rows],
                'palmSrc': [r['src'] for r in palm_rows], 'castShadowMinHeight': vm_cfg['cast_shadow_min_height'],
                'expected': {'parts': sum(o['parts'] for o in mesh_out.values()),
-                            'meshParts': sum(o['meshParts'] for o in mesh_out.values())}}
+                            'meshParts': sum(o['meshParts'] for o in mesh_out.values()),
+                            'meshPartsBase': sum(o['meshPartsBase'] for o in mesh_out.values()),
+                            'palmParts': palm_rep['after']['impostor_parts'] + palm_rep['after']['collider_parts']}}
     open(os.path.join(rb_dir, 'vismesh.luau'), 'w', encoding='utf-8', newline='\n').write(
         head + '-- ServerStorage.PattayaDataVisSlice.vismesh: VIS-7.1 kit assets (manifest sizes / centres, MP material -> colour '
         'key + MaterialLibrary name), the sample block ids, the before/after camera and the palm rows {x, z, variant, yaw, old '
@@ -764,6 +768,8 @@ def main(cfg_path):
     tot_b = sum(r['before']['parts'] for r in mesh_rep)
     tot_p = sum(r['after']['parts'] for r in mesh_rep)
     tot_m = sum(r['after']['meshparts'] for r in mesh_rep)
+    tot_mb = sum(r['after_base_kit']['meshparts'] for r in mesh_rep)
+    block = VisMesh.block_counts(cfg, palm_rows, mesh_rep, tot_b, tot_p, tot_m, tot_mb)
     sb_rep = {'attribution': attribution, 'written_not_built': 'counts are what the exporter expects the builder to make; '
               'nothing here was measured in Studio',
               'sample_block': {'centre_map_local_xz': sb['centre'], 'centre_world_xz': [sb['centre'][0] + 20000, sb['centre'][1]],
@@ -773,8 +779,11 @@ def main(cfg_path):
               'camera_world': camera,
               'totals': {'before': {'parts': tot_b, 'meshparts': 0},
                          'after': {'parts': tot_p, 'meshparts': tot_m, 'total': tot_p + tot_m},
+                         'after_base_kit': {'parts': tot_p, 'meshparts': tot_mb, 'total': tot_p + tot_mb},
                          'asset_instances': dict(sum((Counter(r['asset_instances']) for r in mesh_rep), Counter()).most_common()),
                          'kept_parts_reasons': dict(sum((Counter(r['kept_parts_reasons']) for r in mesh_rep), Counter()).most_common())},
+              'block_instances': block, 'merged_assets': merged_rep, 'citywide_estimate': city_est,
+              'alternatives': VisMesh.alternatives(mesh_rep, mesh.assets),
               'buildings': mesh_rep, 'palms': palm_rep,
               'assets_used': [a['name'] for a in vm_data['assets']]}
     json.dump(sb_rep, open(os.path.join(out_dir, 'mesh_sample.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
@@ -788,7 +797,11 @@ def main(cfg_path):
           ', '.join(f'{k}={report["batches"][k]["parts"]}' for k in order))
     print('checks: ' + ', '.join(f'{k} {v}' for k, v in checks.items()))
     print(f'vismesh sample block: {len(sample)} buildings ' + str(dict(Counter(B["b"]["cat"] for B in sample))) +
-          f'; Parts {tot_b} -> {tot_p} Parts + {tot_m} MeshParts; palms {len(palm_rows)}; camera {camera["cframe_lua"]}')
+          f'; Parts {tot_b} -> {tot_p} Parts + {tot_m} MeshParts (1-bay kit {tot_mb}); palms {len(palm_rows)}; camera {camera["cframe_lua"]}')
+    if merged_rep:
+        print(f'vismesh merged: {merged_rep["requested"]} merged assets requested, {merged_rep["generated_ok"]} generated '
+              f'({merged_rep["request"]}); block {block["radius_studs"]} studs: {block["before"]["total"]} -> {block["after"]["total"]} '
+              f'instances (1-bay kit {block["after_base_kit"]["total"]})')
     if bad or over or total_parts > cfg['part_budget']:
         print('FAILED:', bad, over, total_parts)
         sys.exit(1)
