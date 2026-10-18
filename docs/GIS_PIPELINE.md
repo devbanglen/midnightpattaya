@@ -59,3 +59,7 @@ Results (2026-10-18): 3,186 new edges (+614 base), 2,925 nodes; new road length 
 buildings; 13 new job stands; 278 palms on Jomtien Beach Rd / Naklua coast, 1,214 street lights; 48 new traffic
 loops; 444 new chunk modules. Check images: `build/pattaya_wide/compare.png`, `buildings_check.png`,
 `layout_check.png` (districts, stands, bosses).
+
+Check after an export: `.venv\Scripts\python tools\mapgen\road_check.py tools\mapgen\config\pattaya_wide.json [--corridor]`
+(offline replay of the Studio road probe, see `docs/ROAD_SYSTEM.md`). Corridor: `tools\circuit\export_corridor.py
+tools\circuit\config\bira.json build\pattaya_wide`, then `tools\circuit\corridor_traffic.py tools\circuit\config\bira.json`.

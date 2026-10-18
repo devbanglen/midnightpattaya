@@ -87,7 +87,7 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
 - A straight line from the corridor's end to the ring (instead of the transition road) drops the car 4 studs onto
   terrain beside the road, from which the car cannot climb back (first attempt in the test). A low kerb or ground
   blending along the transition road would be a sensible later polish.
-- Not done: the corridor has no buildings, props or traffic; a return trip was routed (2,832 studs from
+- Not done: the corridor has no buildings or props other than the street lights and signs below (traffic: see below); a return trip was routed (2,832 studs from
   mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated; the world-map UI
   (menu with a map icon for the circuit) is still pending, GPS is key-driven for now.
 
@@ -112,3 +112,30 @@ is 10 studs past the plaza.
   level and blended back over 64 studs. A car that leaves the road rolls down at most 1 stud onto flat ground and can
   drive back, instead of the 4-stud drop the leader found. The road tops are unchanged (still y = 1; plaza 1.02,
   car park 1.015, paddock road 0.96, paddock 1.01).
+## Corridor life: traffic, street lights, direction signs (2026-10-18, data only, not run in Studio)
+Config: `corridor_life` in `tools/circuit/config/bira.json`.
+- **Traffic** (`tools/circuit/corridor_traffic.py`, run after `export_corridor.py` and the wide export): 3 loops on
+  the directed corridor graph (`corridor_graph_game.json`; one-way edges only a → b, so the dual carriageways are
+  driven out on one carriageway and back on the other), each from → to and back, offset into the left-hand lane with
+  the same rule as `tools/mapgen/traffic.py`:
+  | loop | studs | cars | speed |
+  |---|---|---|---|
+  | Pattaya Klang east end (423748313) ↔ venue junction (1457068485) | 54,184 | 90 | 67.1 |
+  | Sukhumvit Pattaya 47 start (605264874) ↔ Thammasat junction (1077826539) | 42,576 | 70 | 50.4 |
+  | Thammasat junction (1077826539) ↔ venue junction | 7,032 | 11 | 61.8 |
+  600 studs per car (the city uses 420), 50–68 studs/s. Output `build/bira/roblox_corridor/traffic.luau`: the 84 wide
+  loops byte for byte, then the 3 corridor loops, same format (map-local studs; `PattayaTraffic.client` adds the
+  ORIGIN) → `ReplicatedStorage.PattayaTraffic`. Also `build/bira/corridor_traffic.json`.
+- **Street lights** (`export_corridor.py`): the city layout rule (every 110 studs on main/express edges, width/2 +
+  sidewalk/2 from the centreline, facing the road, clear of every road and building). Two-way roads get both sides;
+  one-way edges (one carriageway of a dual road) only the kerb side, left of travel, so the median is not lit twice.
+  434 lights in the chunk modules' `lights` lists, assigned to the chunk of the edge they stand beside (a light's own
+  position could fall in a chunk id the wide world uses). About 1,300 Parts and 217 SpotLights (every second lamp).
+- **Direction signs** (`export_corridor.py`): manifest field `signs = {{x, z, dx, dz, text}}` (map-local, dx/dz =
+  direction of travel). Placed where the REAL distance left along the route (game studs × 0.28 / 0.5) is the stated
+  value, on the driver's left outside the sidewalk, only on stretches the corridor dataset builds:
+  outbound "BIRA CIRCUIT 12 / 8 / 5 / 2 km", return "PATTAYA 12 / 7 / 3 km" (to the Pattaya Klang east end).
+  `PattayaBuilder.buildRoadSigns` builds a grey post and a green board with a white SurfaceGui TextLabel (SmoothPlastic,
+  original artwork) into `workspace.PattayaWorld.RoadSigns_bira_corridor`; `Extend` calls it when the manifest has
+  `signs` and that model does not exist yet.
+- Also new: `joints.luau` (13 joint discs, see `docs/ROAD_SYSTEM.md`). Studio steps: `docs/WORLD_CHUNKS.md`, "Road fix".

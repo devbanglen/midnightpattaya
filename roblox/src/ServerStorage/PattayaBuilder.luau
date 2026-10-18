@@ -22,6 +22,7 @@ local COLORS = {
 type Edge = {
 	id: string, way: number, class: string, tier: string, name: string?, nameEn: string?, oneway: boolean,
 	lanes: number, width: number, sidewalk: number, coastal: boolean, a: number, b: number, pts: {number},
+	swSide: number?, -- wide world: only this side (-1 / 1) gets a sidewalk (the other lies on a parallel road)
 }
 
 local function newPart(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, collide: boolean): Part
@@ -179,7 +180,9 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 		local sw = trim(pts, sa, sb)
 		if sw then
 			for _, side in {-1, 1} do
-				stripe(road, "Sidewalk", offset(sw, side * (e.width + e.sidewalk) / 2), e.sidewalk, ROAD_TOP + CURB, ROAD_THICK + CURB, COLORS.sidewalk, true)
+				if e.swSide == nil or e.swSide == side then
+					stripe(road, "Sidewalk", offset(sw, side * (e.width + e.sidewalk) / 2), e.sidewalk, ROAD_TOP + CURB, ROAD_THICK + CURB, COLORS.sidewalk, true)
+				end
 			end
 		end
 	end
@@ -302,6 +305,55 @@ local function buildProps(chunk: Instance, palms: {number}, lights: {number}, si
 		frame.CanQuery = false
 	end
 	folder.Parent = chunk
+end
+
+-- Roadside direction signs (manifest.signs = {{x, z, dx, dz, text}}, map-local; dx, dz = direction of travel): a
+-- grey post and a green board facing the oncoming drivers, text on a SurfaceGui. Original artwork (plain colours and
+-- text, no real-world sign design copied). Built anchored, the board does not collide.
+local SIGN_BOARD = Color3.fromRGB(18, 96, 60)
+local function buildRoadSigns(folder: Instance, signs: {any})
+	for _, s in signs do
+		local x, z, dx, dz, text = s[1], s[2], s[3], s[4], s[5]
+		local pos = Vector3.new(x, ROAD_TOP - 1, z)
+		local face = CFrame.lookAt(pos, pos - Vector3.new(dx, 0, dz)) -- front face looks back down the road
+		local sign = Instance.new("Model")
+		sign.Name = "RoadSign"
+		sign:SetAttribute("Text", text)
+		newPart(sign, "SignPost", Vector3.new(0.8, 16, 0.8), face * CFrame.new(0, 8, 0), POLE, true)
+		local board = newPart(sign, "SignBoard", Vector3.new(16, 5, 0.4), face * CFrame.new(0, 13.5, -0.6), SIGN_BOARD, false)
+		board.CanQuery = false
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = Enum.NormalId.Front
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 32
+		gui.LightInfluence = 0.2 -- readable at night without its own light
+		local label = Instance.new("TextLabel")
+		label.Size = UDim2.fromScale(1, 1)
+		label.BackgroundTransparency = 1
+		label.Text = text
+		label.TextColor3 = Color3.fromRGB(255, 255, 255)
+		label.Font = Enum.Font.GothamBold
+		label.TextScaled = true
+		label.Parent = gui
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0.05, 0)
+		pad.PaddingRight = UDim.new(0.05, 0)
+		pad.PaddingTop = UDim.new(0.12, 0)
+		pad.PaddingBottom = UDim.new(0.12, 0)
+		pad.Parent = label
+		local stroke = Instance.new("UIStroke") -- white border line around the board
+		stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		stroke.Color = Color3.fromRGB(255, 255, 255)
+		stroke.Thickness = 4
+		local frame = Instance.new("Frame")
+		frame.Size = UDim2.new(1, -12, 1, -12)
+		frame.Position = UDim2.fromOffset(6, 6)
+		frame.BackgroundTransparency = 1
+		stroke.Parent = frame
+		frame.Parent = gui
+		gui.Parent = board
+		sign.Parent = folder
+	end
 end
 
 -- Landmark proxies (handcrafted, separate from procedural buildings).
@@ -521,6 +573,8 @@ end
 --   B.Extend({terrain = false})                            -- everything left; built chunks are skipped (resumable)
 --   B.Extend({roads = false, terrain = false, removeBaseConflicts = true}) -- remove the seam buildings it lists
 --   B.RemoveExtension()                                    -- undo: wide chunks, discs and wide terrain
+--   B.Extend({terrain = false, only = {}})                 -- no chunks: adds missing junction/joint discs and road signs
+--   (an existing WideJunctions model only gets the discs it lacks; a data folder with `signs` gets RoadSigns_<name>)
 local function extendTerrain(man: any)
 	local terrain = workspace.Terrain
 	local o = Builder.ORIGIN
@@ -581,17 +635,49 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 	end
 	local built, parts = 0, 0
 	if options.roads ~= false then
-		if not world:FindFirstChild("WideJunctions") then
-			local junctions = Instance.new("Model")
-			junctions.Name = "WideJunctions"
-			for _, j in man.junctions do
-				local cf = CFrame.new(j.x, ROAD_TOP - ROAD_THICK / 2 - 0.01, j.z) * CFrame.Angles(0, 0, math.rad(90))
-				local p = newPart(junctions, "Junction", Vector3.new(ROAD_THICK, j.r * 2, j.r * 2), cf, COLORS.junction, true)
-				p.Shape = Enum.PartType.Cylinder
-				p:SetAttribute("OsmNode", j.id)
+		-- junction discs (manifest.junctions) and joint discs (optional `joints` module: osmNode, x, z, r) go into
+		-- WideJunctions. When it already exists (an earlier Extend, or another data folder such as the corridor),
+		-- only the discs it does not have yet are added, so a later dataset's discs are no longer skipped.
+		local existing = world:FindFirstChild("WideJunctions")
+		local have: {[string]: boolean} = {}
+		if existing then
+			for _, p in existing:GetChildren() do
+				local id = p:GetAttribute("OsmNode")
+				if id then
+					have[p.Name .. ":" .. tostring(id)] = true
+				end
 			end
+		end
+		local junctions = Instance.new("Model")
+		junctions.Name = "WideJunctions"
+		local function disc(kind: string, id: number, x: number, z: number, r: number)
+			if have[kind .. ":" .. tostring(id)] then
+				return
+			end
+			local cf = CFrame.new(x, ROAD_TOP - ROAD_THICK / 2 - 0.01, z) * CFrame.Angles(0, 0, math.rad(90))
+			local p = newPart(junctions, kind, Vector3.new(ROAD_THICK, r * 2, r * 2), cf, COLORS.junction, true)
+			p.Shape = Enum.PartType.Cylinder
+			p:SetAttribute("OsmNode", id)
+		end
+		for _, j in man.junctions do
+			disc("Junction", j.id, j.x, j.z, j.r)
+		end
+		local jointsModule = data:FindFirstChild("joints")
+		if jointsModule then
+			local rows = require(jointsModule) :: any
+			for i = 1, #rows, 4 do
+				disc("Joint", rows[i], rows[i + 1], rows[i + 2], rows[i + 3])
+			end
+		end
+		if not existing then
 			junctions:PivotTo(junctions:GetPivot() + Builder.ORIGIN)
 			junctions.Parent = world
+		else
+			for _, p in junctions:GetChildren() do
+				(p :: BasePart).Position += Builder.ORIGIN
+				p.Parent = existing
+			end
+			junctions:Destroy()
 		end
 		local folder = world:FindFirstChild("WideChunks")
 		if not folder then
@@ -622,6 +708,16 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 				built += 1
 				task.wait()
 			end
+		end
+	end
+	if options.roads ~= false and man.signs and #man.signs > 0 then
+		local name = "RoadSigns_" .. man.name -- one model per data folder; rebuilt only when it is missing
+		if not world:FindFirstChild(name) then
+			local signs = Instance.new("Model")
+			signs.Name = name
+			buildRoadSigns(signs, man.signs)
+			signs:PivotTo(signs:GetPivot() + Builder.ORIGIN)
+			signs.Parent = world
 		end
 	end
 	local removed = 0
@@ -658,7 +754,7 @@ end
 function Builder.RemoveExtension(folderName: string?)
 	local world = workspace:FindFirstChild("PattayaWorld")
 	if world then
-		for _, n in {"WideChunks", "WideJunctions"} do
+		for _, n in {"WideChunks", "WideJunctions", "RoadSigns_bira_corridor"} do
 			local f = world:FindFirstChild(n)
 			if f then f:Destroy() end
 		end

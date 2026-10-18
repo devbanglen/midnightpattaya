@@ -22,6 +22,102 @@ sys.path.insert(0, os.path.join(ROOT, 'tools', 'mapgen'))
 from export_roblox import douglas_peucker, split_long, lua_str, LineString_len, DP_TOLERANCE, MAX_SEGMENT  # noqa: E402
 
 
+def road_tree(edges, margin, buildings=()):
+    """obstacles for props: every road (width/2 + margin) and the city's building boxes"""
+    from shapely.geometry import LineString, Polygon
+    from shapely import affinity
+    from shapely.strtree import STRtree
+    polys = [LineString(e['pts']).buffer(e['width'] / 2 + margin) for e in edges]
+    for b in buildings:
+        r = Polygon([(-b['w'] / 2, -b['d'] / 2), (b['w'] / 2, -b['d'] / 2), (b['w'] / 2, b['d'] / 2), (-b['w'] / 2, b['d'] / 2)])
+        polys.append(affinity.translate(affinity.rotate(r, b['yaw']), b['x'], b['z']))
+    return polys, STRtree(polys)
+
+
+def city_buildings(city_dir):
+    out = []
+    for d in {city_dir, os.path.join(ROOT, 'build', 'central_pattaya')}:
+        fp = os.path.join(d, 'buildings_game.json')
+        if os.path.exists(fp):
+            out += json.load(open(fp, encoding='utf-8'))['buildings']
+    return out
+
+
+def is_free(polys, tree, x, z, r):
+    from shapely.geometry import Point
+    c = Point(x, z).buffer(r)
+    return not any(polys[i].intersects(c) for i in tree.query(c))
+
+
+def corridor_lights(step, city_edges, cor_edges, signs, buildings):
+    """street lights along the corridor's main / express roads: the city layout rule (tools/mapgen/gameplay_layout.py:
+    every `step` studs, width/2 + sidewalk/2 (or 4) from the centreline, facing the road, clear of every road by 1.5 +
+    1 studs and of every building). Two-way roads get both sides; a one-way edge (one carriageway of a dual road) only its kerb side (left of
+    travel; Thailand drives on the left), so the median is not lit twice. Returns {edge id: [(x, z, dx, dz)]}."""
+    from shapely.geometry import LineString
+    polys, tree = road_tree(city_edges + cor_edges, 1.5, buildings)
+    out = defaultdict(list)
+    for e in cor_edges:
+        if e['tier'] not in ('main', 'express'):
+            continue
+        ln = LineString(e['pts'])
+        if ln.length < 30:
+            continue
+        off = e['width'] / 2 + (e['sidewalk'] / 2 if e['sidewalk'] >= 4 else 4)
+        s = step / 2
+        while s < ln.length - step / 3:
+            p = ln.interpolate(s); q = ln.interpolate(min(s + 2, ln.length))
+            t = np.array([q.x - p.x, q.y - p.y]); t /= (np.linalg.norm(t) + 1e-9)
+            nrm = np.array([-t[1], t[0]])                 # right of travel; left = -nrm
+            for sd in ([-1] if e['oneway'] else [1, -1]):
+                pos = np.array([p.x, p.y]) + nrm * sd * off
+                if is_free(polys, tree, pos[0], pos[1], 1.0) and all(math.hypot(pos[0] - x, pos[1] - z) > 10 for x, z, *_ in signs):
+                    out[e['id']].append((round(pos[0], 2), round(pos[1], 2), round(-nrm[0] * sd, 3), round(-nrm[1] * sd, 3)))
+            s += step
+    return out
+
+
+def corridor_signs(sc, city_edges, cor_edges, bira_dir, buildings):
+    """direction signs at given REAL distances (km) before the end of the outbound route (to the venue junction) and
+    of the return route (to the city join): on the driver's left, outside the sidewalk, only on stretches the corridor
+    dataset builds (the city part has its own streets). Returns [(x, z, dx, dz, text)]."""
+    from corridor_traffic import directed_path, path_polyline
+    full = json.load(open(os.path.join(bira_dir, 'corridor_graph_game.json'), encoding='utf-8'))
+    E = full['edges']
+    J0, J1 = full['join_nodes']['city'], full['join_nodes']['facility']
+    m_per_stud = full['meters_per_stud'] / full['compression']
+    from shapely.geometry import LineString, Point
+    built = [LineString(e['pts']) for e in cor_edges]     # what the corridor dataset builds (after the wide dedupe)
+    polys, tree = road_tree(city_edges + cor_edges, 1.5, buildings)
+    out = []
+    for src, dst, text, kms in ((J0, J1, sc['outbound_text'], sc['outbound_km']), (J1, J0, sc['return_text'], sc['return_km'])):
+        pts, owner = path_polyline(E, directed_path(E, src, dst))
+        cum = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(pts, axis=0), axis=1))])
+        total = cum[-1]
+        for km in kms:
+            s = total - km * 1000 / m_per_stud
+            if s <= 0:
+                print(f'  sign "{text} {km} km": route is only {total * m_per_stud / 1000:.1f} km, skipped')
+                continue
+            k = int(np.searchsorted(cum, s)) - 1
+            e = E[owner[k + 1]]
+            f = (s - cum[k]) / (cum[k + 1] - cum[k])
+            p = pts[k] + (pts[k + 1] - pts[k]) * f
+            if min(l.distance(Point(*p)) for l in built) > 1:
+                print(f'  sign "{text} {km} km": on {e["name_en"]} in the city part (built by the wide world), skipped')
+                continue
+            t = (pts[k + 1] - pts[k]) / np.linalg.norm(pts[k + 1] - pts[k])
+            left = np.array([t[1], -t[0]])
+            for extra in (3, 6, 10, 15):
+                pos = p + left * (e['width'] / 2 + e['sidewalk'] + extra)
+                if is_free(polys, tree, pos[0], pos[1], 1.0):
+                    out.append((round(pos[0], 1), round(pos[1], 1), round(t[0], 3), round(t[1], 3), f'{text} {km} km'))
+                    break
+            else:
+                print(f'  sign "{text} {km} km": no free spot beside {e["name_en"]}, skipped')
+    return out
+
+
 def main(cfg_path, city_build='build/central_pattaya'):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
     C = 512
@@ -30,7 +126,7 @@ def main(cfg_path, city_build='build/central_pattaya'):
     out_dir = os.path.join(bira_dir, 'roblox_corridor')
     os.makedirs(out_dir, exist_ok=True)
     for f in os.listdir(out_dir):
-        if f.startswith('chunk_') or f in ('manifest.luau', 'graph.luau'):
+        if f.startswith('chunk_') or f in ('manifest.luau', 'graph.luau', 'joints.luau'):
             os.remove(os.path.join(out_dir, f))
     city = json.load(open(os.path.join(city_dir, 'graph_game.json'), encoding='utf-8'))
     cor = json.load(open(os.path.join(bira_dir, 'corridor_graph_game.json'), encoding='utf-8'))
@@ -107,6 +203,12 @@ def main(cfg_path, city_build='build/central_pattaya'):
     touched = cor_nodes
     new_discs = {n: radius[n] for n in touched if deg[n] >= 3 and base_deg[n] < 3}
     seam_discs = {n: base_radius[n] for n in touched if base_deg[n] >= 3}
+    # joint discs at degree-1/2 nodes (same rule as export_roblox.main_wide; joints.luau, they trim nothing)
+    min_half = {}
+    for e in city_edges + cor_edges:
+        for n in (e['a'], e['b']):
+            min_half[n] = min(min_half.get(n, 1e9), e['width'] / 2)
+    joints = {n: min_half[n] for n in touched if deg[n] <= 2}
 
     # dual carriageways (paired one-way edges, e.g. Thammasat Rd) sit so close at x0.5 that each one's sidewalk would lie
     # on the other's roadway (252 of 1,385 probes hit a sidewalk in Studio): corridor one-ways get no sidewalk
@@ -115,14 +217,23 @@ def main(cfg_path, city_build='build/central_pattaya'):
             e['sidewalk'] = 0
     chunks = defaultdict(list)
     seg_total = 0
+    edge_chunk = {}
     for e in cor_edges:
         q = split_long(douglas_peucker(np.array(e['pts']), DP_TOLERANCE), MAX_SEGMENT)
         seg_total += len(q) - 1
         mid = q[len(q) // 2]
-        chunks[(int(math.floor(mid[0] / C)), int(math.floor(mid[1] / C)))].append((e, q))
+        cid = (int(math.floor(mid[0] / C)), int(math.floor(mid[1] / C)))
+        chunks[cid].append((e, q))
+        edge_chunk[e['id']] = cid
+    life = cfg.get('corridor_life', {})
+    blds = city_buildings(city_dir) if life else []
+    signs = corridor_signs(life['signs'], city_edges, cor_edges, bira_dir, blds) if life.get('signs') else []
+    lights = corridor_lights(life['light_spacing_studs'], city_edges, cor_edges, signs, blds) if life.get('light_spacing_studs') else {}
     for (cx, cz), items in sorted(chunks.items()):
+        ll = [p for e, _ in items for p in lights.get(e['id'], [])]
         lines = [f'-- generated by tools/circuit/export_corridor.py from OSM ({cor["attribution"]}); do not edit',
-                 f'return {{ id = "{cx}_{cz}",', '  buildings = {},', '  palms = {},', '  lights = {},', '  signs = {},', '  edges = {']
+                 f'return {{ id = "{cx}_{cz}",', '  buildings = {},', '  palms = {},',
+                 '  lights = {' + ','.join(f'{x:.1f},{z:.1f},{dx:.2f},{dz:.2f}' for x, z, dx, dz in ll) + '},', '  signs = {},', '  edges = {']
         for e, q in items:
             flat = ','.join(f'{x:.2f},{z:.2f}' for x, z in q)
             lines.append(f'  {{ id = "{e["id"]}", way = {e["way"]}, class = "{e["class"]}", tier = "{e["tier"]}", '
@@ -149,6 +260,7 @@ def main(cfg_path, city_build='build/central_pattaya'):
     junc = ',\n'.join(f'  {{ id = {n}, x = {nodes_xy[str(n)][0]:.2f}, z = {nodes_xy[str(n)][1]:.2f}, r = {r:.2f} }}' for n, r in sorted(new_discs.items()))
     seam = ',\n'.join(f'  {{ id = {n}, x = {nodes_xy[str(n)][0]:.2f}, z = {nodes_xy[str(n)][1]:.2f}, r = {r:.2f} }}' for n, r in sorted(seam_discs.items()))
     chunk_ids = [f'"{cx}_{cz}"' for cx, cz in sorted(chunks)]
+    signs_lua = ',\n'.join(f'  {{ {x:.1f}, {z:.1f}, {dx:.3f}, {dz:.3f}, {lua_str(t)} }}' for x, z, dx, dz, t in signs)
     manifest = f'''-- generated by tools/circuit/export_corridor.py; do not edit
 return {{
   name = "bira_corridor",
@@ -172,9 +284,17 @@ return {{
   sea = {{}},
   joinNodes = {{ {', '.join(str(n) for n in joins)} }},
   venueNode = {cor.get('join_nodes', {}).get('facility', 1457068485)},
+  -- direction signs {{x, z, dx, dz, text}} (map-local; dx, dz = direction of travel, the board faces the drivers):
+  -- built by PattayaBuilder.Extend into workspace.PattayaWorld.RoadSigns_<name>
+  signs = {{
+{signs_lua}
+  }},
 }}
 '''
     open(os.path.join(out_dir, 'manifest.luau'), 'w', encoding='utf-8').write(manifest)
+    open(os.path.join(out_dir, 'joints.luau'), 'w', encoding='utf-8').write(
+        '-- generated by tools/circuit/export_corridor.py; do not edit. Joint discs (osmNode, x, z, r) at degree-1/2 nodes\n'
+        'return {' + ','.join(f'{n},{nodes_xy[str(n)][0]:.2f},{nodes_xy[str(n)][1]:.2f},{r:.2f}' for n, r in sorted(joints.items())) + '}\n')
 
     # merged runtime graph: city first (same order as export_roblox: sorted node ids), then the corridor
     base_ids = sorted(set(n for e in base_edges for n in (e['a'], e['b'])))
@@ -235,7 +355,9 @@ return {{
     cm.append('  },\n}')
     open(os.path.join(out_dir, 'corridormap.luau'), 'w', encoding='utf-8').write('\n'.join(cm) + '\n')
     print(f'graph: base {len(base_ids)} nodes / {len(base_edges)} edges, wide {len(wide_ids)} nodes, corridor {len(extra_ids)} nodes, {len(parts)} part modules')
-    print(f'{len(chunks)} corridor chunks, {seg_total} segments, {len(new_discs)} new discs, {len(seam_discs)} seam discs, '
+    print(f'corridor life: {sum(len(v) for v in lights.values())} street lights, {len(signs)} direction signs: '
+          + '; '.join(t for *_, t in signs))
+    print(f'{len(chunks)} corridor chunks, {seg_total} segments, {len(new_discs)} new discs, {len(seam_discs)} seam discs, {len(joints)} joint discs, '
           f'{len(rects)} ground rects; graph: {len(base_ids)}+{len(extra_ids)} nodes, {len(city_edges)}+{len(cor_edges)} edges')
 
 
