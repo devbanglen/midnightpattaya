@@ -1,0 +1,3728 @@
+{
+ "summary": {
+  "assets": 43,
+  "ok": 43,
+  "tris_total": 5789,
+  "tris_max": 512,
+  "by_family": {
+   "buildings": 24,
+   "roadside": 14,
+   "racing": 5
+  },
+  "units": "studs (1 glTF unit = 1 stud), Y up, front -Z",
+  "limits": {
+   "asset_tris_budget": 10000,
+   "meshpart_tris_hard": 20000,
+   "materials": 4
+  }
+ },
+ "assets": [
+  {
+   "name": "BLD_CN_GlassMid",
+   "file": "buildings/BLD_CN_GlassMid.glb",
+   "bytes": 4864,
+   "sha1": "803619960ed90978b0555bc1b2ff2a4658ab9573",
+   "tris": 36,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal"
+   ],
+   "parts": [
+    {
+     "name": "BLD_CN_GlassMid_Glass",
+     "material": "MP_Glass",
+     "tris": 32,
+     "size": [
+      0.05,
+      7.371,
+      0.08
+     ],
+     "centre": [
+      -0.875,
+      4.886,
+      -0.99
+     ]
+    },
+    {
+     "name": "BLD_CN_GlassMid_Metal",
+     "material": "MP_Metal",
+     "tris": 4,
+     "size": [
+      1.88,
+      8.571,
+      1.88
+     ],
+     "centre": [
+      0.04,
+      4.286,
+      -0.04
+     ]
+    }
+   ],
+   "bbox_min": [
+    -0.9,
+    0.0,
+    -1.03
+   ],
+   "bbox_max": [
+    0.98,
+    8.571,
+    0.9
+   ],
+   "size_studs": [
+    1.88,
+    8.571,
+    1.93
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "CN",
+   "kind": "corner",
+   "anchor": "corner",
+   "grid": {
+    "height_studs": 8.5714
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "origin = building box corner; building interior at Roblox x<0, z>0; rotate 90 deg per corner"
+  },
+  {
+   "name": "BLD_CN_Ground",
+   "file": "buildings/BLD_CN_Ground.glb",
+   "bytes": 1532,
+   "sha1": "ebad10a45f8add29308d5b0a21146ca92275b52c",
+   "tris": 4,
+   "materials": [
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_CN_Ground_Accent",
+     "material": "MP_WallAccent",
+     "tris": 4,
+     "size": [
+      1.88,
+      11.571,
+      1.88
+     ],
+     "centre": [
+      0.04,
+      5.786,
+      -0.04
+     ]
+    }
+   ],
+   "bbox_min": [
+    -0.9,
+    0.0,
+    -0.98
+   ],
+   "bbox_max": [
+    0.98,
+    11.571,
+    0.9
+   ],
+   "size_studs": [
+    1.88,
+    11.571,
+    1.88
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "CN",
+   "kind": "corner",
+   "anchor": "corner",
+   "grid": {
+    "height_studs": 11.5714
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "origin = building box corner; building interior at Roblox x<0, z>0; rotate 90 deg per corner"
+  },
+  {
+   "name": "BLD_CN_Mid",
+   "file": "buildings/BLD_CN_Mid.glb",
+   "bytes": 1520,
+   "sha1": "82f1d2a5d858b0147ea092cc7e04f4c0f278d7e2",
+   "tris": 4,
+   "materials": [
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_CN_Mid_Accent",
+     "material": "MP_WallAccent",
+     "tris": 4,
+     "size": [
+      1.88,
+      8.571,
+      1.88
+     ],
+     "centre": [
+      0.04,
+      4.286,
+      -0.04
+     ]
+    }
+   ],
+   "bbox_min": [
+    -0.9,
+    0.0,
+    -0.98
+   ],
+   "bbox_max": [
+    0.98,
+    8.571,
+    0.9
+   ],
+   "size_studs": [
+    1.88,
+    8.571,
+    1.88
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "CN",
+   "kind": "corner",
+   "anchor": "corner",
+   "grid": {
+    "height_studs": 8.5714
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "origin = building box corner; building interior at Roblox x<0, z>0; rotate 90 deg per corner"
+  },
+  {
+   "name": "BLD_CN_Top",
+   "file": "buildings/BLD_CN_Top.glb",
+   "bytes": 2088,
+   "sha1": "983e6b09a4a6efc83958d22f93e7414c58cebe69",
+   "tris": 12,
+   "materials": [
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_CN_Top_Accent",
+     "material": "MP_WallAccent",
+     "tris": 12,
+     "size": [
+      2.13,
+      3.514,
+      2.13
+     ],
+     "centre": [
+      0.165,
+      1.757,
+      -0.165
+     ]
+    }
+   ],
+   "bbox_min": [
+    -0.9,
+    0.0,
+    -1.23
+   ],
+   "bbox_max": [
+    1.23,
+    3.514,
+    0.9
+   ],
+   "size_studs": [
+    2.13,
+    3.514,
+    2.13
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "CN",
+   "kind": "corner",
+   "anchor": "corner",
+   "grid": {
+    "height_studs": 3.5143
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "origin = building box corner; building interior at Roblox x<0, z>0; rotate 90 deg per corner"
+  },
+  {
+   "name": "BLD_GF_Commercial7Bay",
+   "file": "buildings/BLD_GF_Commercial7Bay.glb",
+   "bytes": 37988,
+   "sha1": "e692e0889eac8c3da251ded257a7e10a25d3164e",
+   "tris": 512,
+   "materials": [
+    "MP_Glass",
+    "MP_Signboard",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_Commercial7Bay_Accent",
+     "material": "MP_WallAccent",
+     "tris": 274,
+     "size": [
+      50.0,
+      9.4,
+      3.7
+     ],
+     "centre": [
+      0.0,
+      4.7,
+      -2.15
+     ]
+    },
+    {
+     "name": "BLD_GF_Commercial7Bay_Glass",
+     "material": "MP_Glass",
+     "tris": 84,
+     "size": [
+      49.3,
+      8.2,
+      0.05
+     ],
+     "centre": [
+      0.35,
+      4.1,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_GF_Commercial7Bay_Sign",
+     "material": "MP_Signboard",
+     "tris": 84,
+     "size": [
+      49.0,
+      1.6,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      10.4,
+      -0.895
+     ]
+    },
+    {
+     "name": "BLD_GF_Commercial7Bay_Wall",
+     "material": "MP_Wall",
+     "tris": 70,
+     "size": [
+      50.0,
+      11.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -25.0,
+    0.0,
+    -4.0
+   ],
+   "bbox_max": [
+    25.0,
+    11.571,
+    -0.25
+   ],
+   "size_studs": [
+    50.0,
+    11.571,
+    3.75
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 7,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "7-bay commercial front (28 m real) as one mesh"
+  },
+  {
+   "name": "BLD_GF_CommercialBay",
+   "file": "buildings/BLD_GF_CommercialBay.glb",
+   "bytes": 9880,
+   "sha1": "0637a18febcf2a5c910883508d9bdd1eb0e4321c",
+   "tris": 82,
+   "materials": [
+    "MP_Glass",
+    "MP_Signboard",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_CommercialBay_Accent",
+     "material": "MP_WallAccent",
+     "tris": 48,
+     "size": [
+      7.143,
+      9.4,
+      0.9
+     ],
+     "centre": [
+      0.0,
+      4.7,
+      -0.75
+     ]
+    },
+    {
+     "name": "BLD_GF_CommercialBay_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      6.443,
+      8.2,
+      0.05
+     ],
+     "centre": [
+      0.35,
+      4.1,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_GF_CommercialBay_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      6.143,
+      1.6,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      10.4,
+      -0.895
+     ]
+    },
+    {
+     "name": "BLD_GF_CommercialBay_Wall",
+     "material": "MP_Wall",
+     "tris": 10,
+     "size": [
+      7.143,
+      11.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.2
+   ],
+   "bbox_max": [
+    3.571,
+    11.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    11.571,
+    0.95
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "one commercial bay; repeat along the edge"
+  },
+  {
+   "name": "BLD_GF_HotelLobby",
+   "file": "buildings/BLD_GF_HotelLobby.glb",
+   "bytes": 11908,
+   "sha1": "5b80e646a996517bfec7407a3e49ab1fad11fe9d",
+   "tris": 110,
+   "materials": [
+    "MP_Glass",
+    "MP_NeonCyan",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_HotelLobby_Accent",
+     "material": "MP_WallAccent",
+     "tris": 76,
+     "size": [
+      13.286,
+      10.2,
+      7.5
+     ],
+     "centre": [
+      0.0,
+      5.1,
+      -4.05
+     ]
+    },
+    {
+     "name": "BLD_GF_HotelLobby_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      12.686,
+      10.2,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      5.1,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_GF_HotelLobby_NeonC",
+     "material": "MP_NeonCyan",
+     "tris": 10,
+     "size": [
+      13.286,
+      0.5,
+      0.15
+     ],
+     "centre": [
+      0.0,
+      8.0,
+      -7.825
+     ]
+    },
+    {
+     "name": "BLD_GF_HotelLobby_Wall",
+     "material": "MP_Wall",
+     "tris": 12,
+     "size": [
+      14.286,
+      11.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -7.143,
+    0.0,
+    -7.9
+   ],
+   "bbox_max": [
+    7.143,
+    11.571,
+    -0.25
+   ],
+   "size_studs": [
+    14.286,
+    11.571,
+    7.65
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 2,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "hotel/condo lobby with drop-off canopy and LED edge"
+  },
+  {
+   "name": "BLD_GF_Restaurant",
+   "file": "buildings/BLD_GF_Restaurant.glb",
+   "bytes": 13708,
+   "sha1": "126a6ff9ea2c2ee93d5957711462ac006c39ae89",
+   "tris": 150,
+   "materials": [
+    "MP_Glass",
+    "MP_Signboard",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_Restaurant_Accent",
+     "material": "MP_WallAccent",
+     "tris": 78,
+     "size": [
+      7.143,
+      8.6,
+      3.3
+     ],
+     "centre": [
+      0.0,
+      4.3,
+      -1.95
+     ]
+    },
+    {
+     "name": "BLD_GF_Restaurant_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      6.243,
+      7.3,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.25,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_GF_Restaurant_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      6.343,
+      2.1,
+      0.31
+     ],
+     "centre": [
+      0.0,
+      9.95,
+      -0.955
+     ]
+    },
+    {
+     "name": "BLD_GF_Restaurant_Wall",
+     "material": "MP_Wall",
+     "tris": 48,
+     "size": [
+      7.143,
+      11.571,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.775
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -3.6
+   ],
+   "bbox_max": [
+    3.571,
+    11.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    11.571,
+    3.35
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "restaurant glazing, canopy, planters, sign slot"
+  },
+  {
+   "name": "BLD_GF_ShophouseAwning",
+   "file": "buildings/BLD_GF_ShophouseAwning.glb",
+   "bytes": 10280,
+   "sha1": "ae6a61518c912630e73a8763a400b8580f30575f",
+   "tris": 88,
+   "materials": [
+    "MP_Awning",
+    "MP_Glass",
+    "MP_Signboard",
+    "MP_Wall"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_ShophouseAwning_Awning",
+     "material": "MP_Awning",
+     "tris": 20,
+     "size": [
+      6.743,
+      2.5,
+      3.7
+     ],
+     "centre": [
+      0.0,
+      7.35,
+      -2.65
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseAwning_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      6.143,
+      7.8,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      3.9,
+      -0.225
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseAwning_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      6.543,
+      2.1,
+      0.26
+     ],
+     "centre": [
+      0.0,
+      9.95,
+      -0.93
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseAwning_Wall",
+     "material": "MP_Wall",
+     "tris": 44,
+     "size": [
+      7.143,
+      11.571,
+      0.55
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.525
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -4.5
+   ],
+   "bbox_max": [
+    3.571,
+    11.571,
+    -0.2
+   ],
+   "size_studs": [
+    7.143,
+    11.571,
+    4.3
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "open shopfront, fabric awning, sign slot"
+  },
+  {
+   "name": "BLD_GF_ShophouseShutter",
+   "file": "buildings/BLD_GF_ShophouseShutter.glb",
+   "bytes": 11724,
+   "sha1": "60d0b607c78ba4749fb24f4834d80bbb8d6d96e2",
+   "tris": 108,
+   "materials": [
+    "MP_Glass",
+    "MP_Shutter",
+    "MP_Signboard",
+    "MP_Wall"
+   ],
+   "parts": [
+    {
+     "name": "BLD_GF_ShophouseShutter_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      6.043,
+      4.2,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      2.1,
+      -0.075
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseShutter_Shutter",
+     "material": "MP_Shutter",
+     "tris": 72,
+     "size": [
+      7.143,
+      4.2,
+      3.9
+     ],
+     "centre": [
+      0.0,
+      6.3,
+      -2.05
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseShutter_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      6.543,
+      2.2,
+      0.26
+     ],
+     "centre": [
+      0.0,
+      9.9,
+      -0.93
+     ]
+    },
+    {
+     "name": "BLD_GF_ShophouseShutter_Wall",
+     "material": "MP_Wall",
+     "tris": 12,
+     "size": [
+      7.143,
+      11.571,
+      0.7
+     ],
+     "centre": [
+      0.0,
+      5.786,
+      -0.45
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -4.0
+   ],
+   "bbox_max": [
+    3.571,
+    11.571,
+    -0.05
+   ],
+   "size_studs": [
+    7.143,
+    11.571,
+    3.95
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "GF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 11.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "Thai shophouse, roller shutter half down, sign slot"
+  },
+  {
+   "name": "BLD_MF_BalconyRow",
+   "file": "buildings/BLD_MF_BalconyRow.glb",
+   "bytes": 7108,
+   "sha1": "5dba9542da38be5091136d269086ec75d93f3671",
+   "tris": 61,
+   "materials": [
+    "MP_Glass",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_BalconyRow_Accent",
+     "material": "MP_WallAccent",
+     "tris": 24,
+     "size": [
+      7.143,
+      7.0,
+      3.75
+     ],
+     "centre": [
+      0.0,
+      3.5,
+      -2.175
+     ]
+    },
+    {
+     "name": "BLD_MF_BalconyRow_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      5.943,
+      6.5,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      3.75,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_MF_BalconyRow_Wall",
+     "material": "MP_Wall",
+     "tris": 25,
+     "size": [
+      7.143,
+      8.571,
+      3.7
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -2.15
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -4.05
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    3.8
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "balcony with solid parapet"
+  },
+  {
+   "name": "BLD_MF_CondoBalcony",
+   "file": "buildings/BLD_MF_CondoBalcony.glb",
+   "bytes": 14404,
+   "sha1": "1b2d6a146501c4c6095f193c9fec258b6ac4e6ec",
+   "tris": 150,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_CondoBalcony_Accent",
+     "material": "MP_WallAccent",
+     "tris": 10,
+     "size": [
+      7.143,
+      0.4,
+      3.6
+     ],
+     "centre": [
+      0.0,
+      0.2,
+      -2.6
+     ]
+    },
+    {
+     "name": "BLD_MF_CondoBalcony_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      6.443,
+      7.5,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.15,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_MF_CondoBalcony_Metal",
+     "material": "MP_Metal",
+     "tris": 108,
+     "size": [
+      7.063,
+      7.5,
+      4.07
+     ],
+     "centre": [
+      0.0,
+      4.15,
+      -2.335
+     ]
+    },
+    {
+     "name": "BLD_MF_CondoBalcony_Wall",
+     "material": "MP_Wall",
+     "tris": 20,
+     "size": [
+      7.143,
+      8.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -4.4
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    4.15
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "condo balcony with railing"
+  },
+  {
+   "name": "BLD_MF_CurtainWall",
+   "file": "buildings/BLD_MF_CurtainWall.glb",
+   "bytes": 6652,
+   "sha1": "7344e9a1012d5e0ace792e2b060415c99f4699ef",
+   "tris": 48,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_CurtainWall_Accent",
+     "material": "MP_WallAccent",
+     "tris": 12,
+     "size": [
+      7.143,
+      1.2,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      0.6,
+      -0.775
+     ]
+    },
+    {
+     "name": "BLD_MF_CurtainWall_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      7.143,
+      7.371,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.886,
+      -0.675
+     ]
+    },
+    {
+     "name": "BLD_MF_CurtainWall_Metal",
+     "material": "MP_Metal",
+     "tris": 24,
+     "size": [
+      7.143,
+      7.421,
+      0.35
+     ],
+     "centre": [
+      0.0,
+      4.861,
+      -0.875
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.05
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.65
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    0.4
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "curtain wall glass"
+  },
+  {
+   "name": "BLD_MF_CurtainWallNeon",
+   "file": "buildings/BLD_MF_CurtainWallNeon.glb",
+   "bytes": 7548,
+   "sha1": "2d1121bb0161b4a3e0d04399c241e041b2009232",
+   "tris": 44,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_NeonMagenta",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_CurtainWallNeon_Accent",
+     "material": "MP_WallAccent",
+     "tris": 8,
+     "size": [
+      7.143,
+      8.571,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -1.1
+     ]
+    },
+    {
+     "name": "BLD_MF_CurtainWallNeon_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      7.143,
+      7.371,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.886,
+      -0.675
+     ]
+    },
+    {
+     "name": "BLD_MF_CurtainWallNeon_Metal",
+     "material": "MP_Metal",
+     "tris": 18,
+     "size": [
+      7.143,
+      7.421,
+      0.35
+     ],
+     "centre": [
+      0.0,
+      4.861,
+      -0.875
+     ]
+    },
+    {
+     "name": "BLD_MF_CurtainWallNeon_NeonM",
+     "material": "MP_NeonMagenta",
+     "tris": 6,
+     "size": [
+      0.25,
+      8.571,
+      0.15
+     ],
+     "centre": [
+      -3.346,
+      4.286,
+      -1.575
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.65
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.65
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    1.0
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "curtain wall + magenta LED fin"
+  },
+  {
+   "name": "BLD_MF_PunchedAC",
+   "file": "buildings/BLD_MF_PunchedAC.glb",
+   "bytes": 11444,
+   "sha1": "b62bb59c1b12f37f8941681ec64390e0450da86b",
+   "tris": 110,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_PunchedAC_Accent",
+     "material": "MP_WallAccent",
+     "tris": 42,
+     "size": [
+      7.143,
+      6.8,
+      1.7
+     ],
+     "centre": [
+      0.0,
+      3.4,
+      -1.15
+     ]
+    },
+    {
+     "name": "BLD_MF_PunchedAC_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      4.743,
+      4.0,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.8,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_MF_PunchedAC_Metal",
+     "material": "MP_Metal",
+     "tris": 38,
+     "size": [
+      2.6,
+      1.4,
+      1.05
+     ],
+     "centre": [
+      -1.471,
+      1.6,
+      -1.425
+     ]
+    },
+    {
+     "name": "BLD_MF_PunchedAC_Wall",
+     "material": "MP_Wall",
+     "tris": 18,
+     "size": [
+      7.143,
+      8.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -2.0
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    1.75
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "wide window + AC condenser"
+  },
+  {
+   "name": "BLD_MF_PunchedTwin",
+   "file": "buildings/BLD_MF_PunchedTwin.glb",
+   "bytes": 9548,
+   "sha1": "a406513e30fee6b27721f48acccc08b7213fee91",
+   "tris": 98,
+   "materials": [
+    "MP_Glass",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_PunchedTwin_Accent",
+     "material": "MP_WallAccent",
+     "tris": 42,
+     "size": [
+      7.143,
+      6.9,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      3.45,
+      -0.7
+     ]
+    },
+    {
+     "name": "BLD_MF_PunchedTwin_Glass",
+     "material": "MP_Glass",
+     "tris": 24,
+     "size": [
+      5.343,
+      4.6,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.6,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_MF_PunchedTwin_Wall",
+     "material": "MP_Wall",
+     "tris": 32,
+     "size": [
+      7.143,
+      8.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.1
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    0.85
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "two punched windows"
+  },
+  {
+   "name": "BLD_MF_ShophouseUpper",
+   "file": "buildings/BLD_MF_ShophouseUpper.glb",
+   "bytes": 12900,
+   "sha1": "865e6e988a40c58822fcad8283dae00c24b4fc4c",
+   "tris": 132,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_MF_ShophouseUpper_Accent",
+     "material": "MP_WallAccent",
+     "tris": 10,
+     "size": [
+      7.143,
+      0.6,
+      0.45
+     ],
+     "centre": [
+      0.0,
+      7.9,
+      -1.025
+     ]
+    },
+    {
+     "name": "BLD_MF_ShophouseUpper_Glass",
+     "material": "MP_Glass",
+     "tris": 24,
+     "size": [
+      5.543,
+      5.1,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      4.35,
+      -0.275
+     ]
+    },
+    {
+     "name": "BLD_MF_ShophouseUpper_Metal",
+     "material": "MP_Metal",
+     "tris": 64,
+     "size": [
+      5.543,
+      5.1,
+      0.1
+     ],
+     "centre": [
+      0.0,
+      4.35,
+      -0.8
+     ]
+    },
+    {
+     "name": "BLD_MF_ShophouseUpper_Wall",
+     "material": "MP_Wall",
+     "tris": 34,
+     "size": [
+      7.143,
+      8.571,
+      0.5
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      -0.55
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.25
+   ],
+   "bbox_max": [
+    3.571,
+    8.571,
+    -0.25
+   ],
+   "size_studs": [
+    7.143,
+    8.571,
+    1.0
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "MF",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 8.5714,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "shophouse upper floor, grilles, cornice"
+  },
+  {
+   "name": "BLD_RF_ACUnits",
+   "file": "buildings/BLD_RF_ACUnits.glb",
+   "bytes": 13840,
+   "sha1": "09caaed1b6679c3ee43c8143b4afd6b2e2e79404",
+   "tris": 162,
+   "materials": [
+    "MP_Concrete",
+    "MP_Metal",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "BLD_RF_ACUnits_Concrete",
+     "material": "MP_Concrete",
+     "tris": 10,
+     "size": [
+      8.4,
+      0.4,
+      3.2
+     ],
+     "centre": [
+      0.0,
+      0.2,
+      0.0
+     ]
+    },
+    {
+     "name": "BLD_RF_ACUnits_Metal",
+     "material": "MP_Metal",
+     "tris": 40,
+     "size": [
+      8.2,
+      1.9,
+      2.0
+     ],
+     "centre": [
+      0.0,
+      1.35,
+      0.1
+     ]
+    },
+    {
+     "name": "BLD_RF_ACUnits_Steel",
+     "material": "MP_MetalDark",
+     "tris": 112,
+     "size": [
+      7.7,
+      1.331,
+      0.1
+     ],
+     "centre": [
+      0.0,
+      1.35,
+      -0.95
+     ]
+    }
+   ],
+   "bbox_min": [
+    -4.2,
+    0.0,
+    -1.6
+   ],
+   "bbox_max": [
+    4.2,
+    2.3,
+    1.6
+   ],
+   "size_studs": [
+    8.4,
+    2.3,
+    3.2
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "RF",
+   "kind": "roof_item",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": ""
+  },
+  {
+   "name": "BLD_RF_PlantRoom",
+   "file": "buildings/BLD_RF_PlantRoom.glb",
+   "bytes": 11936,
+   "sha1": "f9d9f8b508f2e1ddcbef4022e11f22e3de19e530",
+   "tris": 118,
+   "materials": [
+    "MP_Metal",
+    "MP_Shutter",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_RF_PlantRoom_Accent",
+     "material": "MP_WallAccent",
+     "tris": 12,
+     "size": [
+      12.8,
+      0.5,
+      9.8
+     ],
+     "centre": [
+      0.0,
+      8.821,
+      0.0
+     ]
+    },
+    {
+     "name": "BLD_RF_PlantRoom_Metal",
+     "material": "MP_Metal",
+     "tris": 12,
+     "size": [
+      2.1,
+      6.0,
+      0.05
+     ],
+     "centre": [
+      3.55,
+      3.0,
+      -4.175
+     ]
+    },
+    {
+     "name": "BLD_RF_PlantRoom_Shutter",
+     "material": "MP_Shutter",
+     "tris": 58,
+     "size": [
+      6.0,
+      5.6,
+      0.45
+     ],
+     "centre": [
+      -2.0,
+      4.0,
+      -4.425
+     ]
+    },
+    {
+     "name": "BLD_RF_PlantRoom_Wall",
+     "material": "MP_Wall",
+     "tris": 36,
+     "size": [
+      12.0,
+      8.571,
+      9.0
+     ],
+     "centre": [
+      0.0,
+      4.286,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -6.4,
+    0.0,
+    -4.9
+   ],
+   "bbox_max": [
+    6.4,
+    9.071,
+    4.9
+   ],
+   "size_studs": [
+    12.8,
+    9.071,
+    9.8
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "RF",
+   "kind": "roof_item",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "place on the roof, inset >= 2 studs from the parapet"
+  },
+  {
+   "name": "BLD_RF_SignFrame",
+   "file": "buildings/BLD_RF_SignFrame.glb",
+   "bytes": 13144,
+   "sha1": "ecfe49db312503ba9a25323f460bc9e3858301d5",
+   "tris": 144,
+   "materials": [
+    "MP_MetalDark",
+    "MP_NeonMagenta",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "BLD_RF_SignFrame_NeonM",
+     "material": "MP_NeonMagenta",
+     "tris": 32,
+     "size": [
+      21.4,
+      8.0,
+      0.2
+     ],
+     "centre": [
+      0.0,
+      8.065,
+      0.468
+     ]
+    },
+    {
+     "name": "BLD_RF_SignFrame_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      20.6,
+      7.2,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      8.065,
+      0.583
+     ]
+    },
+    {
+     "name": "BLD_RF_SignFrame_Steel",
+     "material": "MP_MetalDark",
+     "tris": 100,
+     "size": [
+      21.4,
+      12.065,
+      2.735
+     ],
+     "centre": [
+      0.0,
+      6.032,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -10.7,
+    0.0,
+    -1.368
+   ],
+   "bbox_max": [
+    10.7,
+    12.065,
+    1.368
+   ],
+   "size_studs": [
+    21.4,
+    12.065,
+    2.735
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "RF",
+   "kind": "roof_item",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "rooftop sign, plain placeholder board (no brands)"
+  },
+  {
+   "name": "BLD_RF_WaterTank",
+   "file": "buildings/BLD_RF_WaterTank.glb",
+   "bytes": 15108,
+   "sha1": "fb12509d68fe679bad9c410187b369034f79cc7e",
+   "tris": 200,
+   "materials": [
+    "MP_Concrete",
+    "MP_Metal",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "BLD_RF_WaterTank_Concrete",
+     "material": "MP_Concrete",
+     "tris": 40,
+     "size": [
+      4.7,
+      0.3,
+      4.7
+     ],
+     "centre": [
+      0.0,
+      0.15,
+      0.0
+     ]
+    },
+    {
+     "name": "BLD_RF_WaterTank_Metal",
+     "material": "MP_Metal",
+     "tris": 92,
+     "size": [
+      4.0,
+      5.7,
+      3.9
+     ],
+     "centre": [
+      0.0,
+      5.45,
+      0.0
+     ]
+    },
+    {
+     "name": "BLD_RF_WaterTank_Steel",
+     "material": "MP_MetalDark",
+     "tris": 68,
+     "size": [
+      4.6,
+      2.3,
+      4.6
+     ],
+     "centre": [
+      0.0,
+      1.45,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -2.35,
+    0.0,
+    -2.35
+   ],
+   "bbox_max": [
+    2.35,
+    8.3,
+    2.35
+   ],
+   "size_studs": [
+    4.7,
+    8.3,
+    4.7
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "RF",
+   "kind": "roof_item",
+   "anchor": "base",
+   "collision": "Hull",
+   "can_collide": false,
+   "note": ""
+  },
+  {
+   "name": "BLD_TP_CorniceNeon",
+   "file": "buildings/BLD_TP_CorniceNeon.glb",
+   "bytes": 6008,
+   "sha1": "aab67bc6de90db5f59eb935cc2a1871fd99dabee",
+   "tris": 38,
+   "materials": [
+    "MP_NeonCyan",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_TP_CorniceNeon_Accent",
+     "material": "MP_WallAccent",
+     "tris": 28,
+     "size": [
+      7.143,
+      4.514,
+      1.7
+     ],
+     "centre": [
+      0.0,
+      2.257,
+      -0.85
+     ]
+    },
+    {
+     "name": "BLD_TP_CorniceNeon_NeonC",
+     "material": "MP_NeonCyan",
+     "tris": 6,
+     "size": [
+      7.143,
+      0.2,
+      0.1
+     ],
+     "centre": [
+      0.0,
+      3.164,
+      -1.75
+     ]
+    },
+    {
+     "name": "BLD_TP_CorniceNeon_Wall",
+     "material": "MP_Wall",
+     "tris": 4,
+     "size": [
+      7.143,
+      4.214,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      2.107,
+      -0.4
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.8
+   ],
+   "bbox_max": [
+    3.571,
+    4.514,
+    0.0
+   ],
+   "size_studs": [
+    7.143,
+    4.514,
+    1.8
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "TP",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 4.5143,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "hotel cornice with cyan LED line"
+  },
+  {
+   "name": "BLD_TP_CrownFin",
+   "file": "buildings/BLD_TP_CrownFin.glb",
+   "bytes": 9264,
+   "sha1": "2feb8990983937decafad08e3138eaa258c852a5",
+   "tris": 74,
+   "materials": [
+    "MP_Metal",
+    "MP_NeonCyan",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_TP_CrownFin_Accent",
+     "material": "MP_WallAccent",
+     "tris": 28,
+     "size": [
+      7.143,
+      17.143,
+      2.2
+     ],
+     "centre": [
+      0.0,
+      8.571,
+      -1.1
+     ]
+    },
+    {
+     "name": "BLD_TP_CrownFin_Metal",
+     "material": "MP_Metal",
+     "tris": 24,
+     "size": [
+      5.943,
+      7.611,
+      1.4
+     ],
+     "centre": [
+      0.0,
+      8.771,
+      -1.0
+     ]
+    },
+    {
+     "name": "BLD_TP_CrownFin_NeonC",
+     "material": "MP_NeonCyan",
+     "tris": 18,
+     "size": [
+      7.143,
+      15.143,
+      0.15
+     ],
+     "centre": [
+      0.0,
+      8.971,
+      -2.275
+     ]
+    },
+    {
+     "name": "BLD_TP_CrownFin_Wall",
+     "material": "MP_Wall",
+     "tris": 4,
+     "size": [
+      7.143,
+      1.4,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      0.7,
+      -0.4
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -2.35
+   ],
+   "bbox_max": [
+    3.571,
+    17.143,
+    0.0
+   ],
+   "size_studs": [
+    7.143,
+    17.143,
+    2.35
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "TP",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 17.1429,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "tower crown, 2 floors, LED edges"
+  },
+  {
+   "name": "BLD_TP_Parapet",
+   "file": "buildings/BLD_TP_Parapet.glb",
+   "bytes": 3732,
+   "sha1": "8a52ecdaa02a5489d3af2fc7ae91e1906c1de83b",
+   "tris": 22,
+   "materials": [
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "BLD_TP_Parapet_Accent",
+     "material": "MP_WallAccent",
+     "tris": 18,
+     "size": [
+      7.143,
+      3.514,
+      1.05
+     ],
+     "centre": [
+      0.0,
+      1.757,
+      -0.525
+     ]
+    },
+    {
+     "name": "BLD_TP_Parapet_Wall",
+     "material": "MP_Wall",
+     "tris": 4,
+     "size": [
+      7.143,
+      3.214,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      1.607,
+      -0.4
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.571,
+    0.0,
+    -1.05
+   ],
+   "bbox_max": [
+    3.571,
+    3.514,
+    0.0
+   ],
+   "size_studs": [
+    7.143,
+    3.514,
+    1.05
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "buildings",
+   "group": "TP",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w": 1,
+    "height_studs": 3.5143,
+    "module_w_studs": 7.1429
+   },
+   "collision": "Box",
+   "can_collide": false,
+   "note": "parapet above the roof (closed back)"
+  },
+  {
+   "name": "RSD_Awning_Shop",
+   "file": "roadside/RSD_Awning_Shop.glb",
+   "bytes": 5912,
+   "sha1": "038f5c355bd38332c913d1cfa929909e16dfffa2",
+   "tris": 52,
+   "materials": [
+    "MP_Awning",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Awning_Shop_Awning",
+     "material": "MP_Awning",
+     "tris": 16,
+     "size": [
+      8.036,
+      2.607,
+      5.057
+     ],
+     "centre": [
+      0.0,
+      1.304,
+      -0.175
+     ]
+    },
+    {
+     "name": "RSD_Awning_Shop_Steel",
+     "material": "MP_MetalDark",
+     "tris": 36,
+     "size": [
+      8.036,
+      2.167,
+      5.266
+     ],
+     "centre": [
+      0.0,
+      1.624,
+      0.071
+     ]
+    }
+   ],
+   "bbox_min": [
+    -4.018,
+    0.0,
+    -2.704
+   ],
+   "bbox_max": [
+    4.018,
+    2.707,
+    2.704
+   ],
+   "size_studs": [
+    8.036,
+    2.707,
+    5.407
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Awning",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "wall side at the bbox -Y/+Z(Roblox) edge"
+  },
+  {
+   "name": "RSD_Barrier_Parking",
+   "file": "roadside/RSD_Barrier_Parking.glb",
+   "bytes": 10508,
+   "sha1": "9c21c3692a5223e08c9342e2f54393156d1ff622",
+   "tris": 104,
+   "materials": [
+    "MP_MetalDark",
+    "MP_Stripe",
+    "MP_Wall"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Barrier_Parking_Steel",
+     "material": "MP_MetalDark",
+     "tris": 22,
+     "size": [
+      11.902,
+      2.829,
+      1.138
+     ],
+     "centre": [
+      5.382,
+      1.414,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Barrier_Parking_Stripe",
+     "material": "MP_Stripe",
+     "tris": 46,
+     "size": [
+      11.652,
+      2.679,
+      0.938
+     ],
+     "centre": [
+      5.357,
+      1.339,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Barrier_Parking_Wall",
+     "material": "MP_Wall",
+     "tris": 36,
+     "size": [
+      9.375,
+      0.4,
+      0.3
+     ],
+     "centre": [
+      5.156,
+      2.429,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -0.569,
+    0.0,
+    -0.569
+   ],
+   "bbox_max": [
+    11.333,
+    2.829,
+    0.569
+   ],
+   "size_studs": [
+    11.902,
+    2.829,
+    1.138
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Barrier",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": true,
+   "note": "arm along +X"
+  },
+  {
+   "name": "RSD_Bench_Park",
+   "file": "roadside/RSD_Bench_Park.glb",
+   "bytes": 8988,
+   "sha1": "92e383b34813cd8e52e4984906dd641e70aa1c5a",
+   "tris": 96,
+   "materials": [
+    "MP_MetalDark",
+    "MP_Wood"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Bench_Park_Steel",
+     "material": "MP_MetalDark",
+     "tris": 36,
+     "size": [
+      4.221,
+      2.455,
+      1.225
+     ],
+     "centre": [
+      0.0,
+      1.228,
+      0.03
+     ]
+    },
+    {
+     "name": "RSD_Bench_Park_Wood",
+     "material": "MP_Wood",
+     "tris": 60,
+     "size": [
+      4.821,
+      1.24,
+      1.285
+     ],
+     "centre": [
+      0.0,
+      1.705,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -2.411,
+    0.0,
+    -0.643
+   ],
+   "bbox_max": [
+    2.411,
+    2.455,
+    0.643
+   ],
+   "size_studs": [
+    4.821,
+    2.455,
+    1.285
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Bench",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": true,
+   "note": ""
+  },
+  {
+   "name": "RSD_Light_DoubleArm",
+   "file": "roadside/RSD_Light_DoubleArm.glb",
+   "bytes": 16348,
+   "sha1": "b3775042ddc9a374d36d38c2ce63305eb861c4a6",
+   "tris": 246,
+   "materials": [
+    "MP_Concrete",
+    "MP_LampWarm",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Light_DoubleArm_Concrete",
+     "material": "MP_Concrete",
+     "tris": 10,
+     "size": [
+      2.679,
+      0.35,
+      2.679
+     ],
+     "centre": [
+      0.0,
+      0.175,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Light_DoubleArm_Lamp",
+     "material": "MP_LampWarm",
+     "tris": 56,
+     "size": [
+      0.9,
+      0.05,
+      12.386
+     ],
+     "centre": [
+      0.0,
+      25.611,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Light_DoubleArm_Steel",
+     "material": "MP_MetalDark",
+     "tris": 180,
+     "size": [
+      1.1,
+      25.865,
+      12.586
+     ],
+     "centre": [
+      0.0,
+      13.282,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -1.339,
+    0.0,
+    -6.293
+   ],
+   "bbox_max": [
+    1.339,
+    26.215,
+    6.293
+   ],
+   "size_studs": [
+    2.679,
+    26.215,
+    12.586
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Light",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "mesh CanCollide off; add an invisible 1x24x1 Part collider for the pole"
+  },
+  {
+   "name": "RSD_Light_SingleArm",
+   "file": "roadside/RSD_Light_SingleArm.glb",
+   "bytes": 10616,
+   "sha1": "9e9e686571b00eaedbf3649a1ac0ad400bfa50a0",
+   "tris": 134,
+   "materials": [
+    "MP_Concrete",
+    "MP_LampWarm",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Light_SingleArm_Concrete",
+     "material": "MP_Concrete",
+     "tris": 10,
+     "size": [
+      2.143,
+      0.35,
+      2.143
+     ],
+     "centre": [
+      0.0,
+      0.175,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Light_SingleArm_Lamp",
+     "material": "MP_LampWarm",
+     "tris": 28,
+     "size": [
+      0.9,
+      0.05,
+      1.8
+     ],
+     "centre": [
+      0.0,
+      20.354,
+      -4.221
+     ]
+    },
+    {
+     "name": "RSD_Light_SingleArm_Steel",
+     "material": "MP_MetalDark",
+     "tris": 96,
+     "size": [
+      1.1,
+      20.607,
+      5.541
+     ],
+     "centre": [
+      0.0,
+      10.654,
+      -2.451
+     ]
+    }
+   ],
+   "bbox_min": [
+    -1.071,
+    0.0,
+    -5.221
+   ],
+   "bbox_max": [
+    1.071,
+    20.957,
+    1.071
+   ],
+   "size_studs": [
+    2.143,
+    20.957,
+    6.293
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Light",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "mesh CanCollide off; pole collider Part"
+  },
+  {
+   "name": "RSD_Palm_A",
+   "file": "roadside/RSD_Palm_A.glb",
+   "bytes": 19576,
+   "sha1": "8a27593b8797510e6551b547d1b6063a4e8a0ac8",
+   "tris": 286,
+   "materials": [
+    "MP_Bark",
+    "MP_Foliage"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Palm_A_Bark",
+     "material": "MP_Bark",
+     "tris": 196,
+     "size": [
+      3.181,
+      21.486,
+      1.889
+     ],
+     "centre": [
+      0.854,
+      10.743,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Palm_A_Leaf",
+     "material": "MP_Foliage",
+     "tris": 90,
+     "size": [
+      19.708,
+      4.772,
+      16.747
+     ],
+     "centre": [
+      1.496,
+      20.363,
+      -0.492
+     ]
+    }
+   ],
+   "bbox_min": [
+    -8.358,
+    0.0,
+    -8.865
+   ],
+   "bbox_max": [
+    11.35,
+    22.749,
+    7.882
+   ],
+   "size_studs": [
+    19.708,
+    22.749,
+    16.747
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Palm",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+  },
+  {
+   "name": "RSD_Palm_B",
+   "file": "roadside/RSD_Palm_B.glb",
+   "bytes": 20844,
+   "sha1": "69adccaba8a63287a14ea5ee56ff6036d8d83ce5",
+   "tris": 306,
+   "materials": [
+    "MP_Bark",
+    "MP_Foliage"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Palm_B_Bark",
+     "material": "MP_Bark",
+     "tris": 196,
+     "size": [
+      4.481,
+      26.87,
+      1.889
+     ],
+     "centre": [
+      1.504,
+      13.435,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Palm_B_Leaf",
+     "material": "MP_Foliage",
+     "tris": 110,
+     "size": [
+      17.384,
+      5.372,
+      21.411
+     ],
+     "centre": [
+      2.736,
+      25.407,
+      0.397
+     ]
+    }
+   ],
+   "bbox_min": [
+    -5.956,
+    0.0,
+    -10.308
+   ],
+   "bbox_max": [
+    11.428,
+    28.093,
+    11.103
+   ],
+   "size_studs": [
+    17.384,
+    28.093,
+    21.411
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Palm",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+  },
+  {
+   "name": "RSD_Palm_C",
+   "file": "roadside/RSD_Palm_C.glb",
+   "bytes": 17612,
+   "sha1": "c1387801869c6ed0994222312c25377735734d21",
+   "tris": 258,
+   "materials": [
+    "MP_Bark",
+    "MP_Foliage"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Palm_C_Bark",
+     "material": "MP_Bark",
+     "tris": 188,
+     "size": [
+      2.281,
+      16.102,
+      1.889
+     ],
+     "centre": [
+      0.404,
+      8.051,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Palm_C_Leaf",
+     "material": "MP_Foliage",
+     "tris": 70,
+     "size": [
+      16.684,
+      3.967,
+      15.066
+     ],
+     "centre": [
+      0.736,
+      14.81,
+      -0.131
+     ]
+    }
+   ],
+   "bbox_min": [
+    -7.606,
+    0.0,
+    -7.664
+   ],
+   "bbox_max": [
+    9.078,
+    16.794,
+    7.402
+   ],
+   "size_studs": [
+    16.684,
+    16.794,
+    15.066
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Palm",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+  },
+  {
+   "name": "RSD_Pole_Utility",
+   "file": "roadside/RSD_Pole_Utility.glb",
+   "bytes": 22416,
+   "sha1": "a41de515f49442e89eb5f3c383a936ea522610ba",
+   "tris": 294,
+   "materials": [
+    "MP_Concrete",
+    "MP_MetalDark",
+    "MP_Rubber"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Pole_Utility_Concrete",
+     "material": "MP_Concrete",
+     "tris": 26,
+     "size": [
+      0.9,
+      24.107,
+      0.9
+     ],
+     "centre": [
+      0.0,
+      12.054,
+      0.4
+     ]
+    },
+    {
+     "name": "RSD_Pole_Utility_Rubber",
+     "material": "MP_Rubber",
+     "tris": 220,
+     "size": [
+      6.109,
+      9.29,
+      1.0
+     ],
+     "centre": [
+      0.0,
+      19.212,
+      0.4
+     ]
+    },
+    {
+     "name": "RSD_Pole_Utility_Steel",
+     "material": "MP_MetalDark",
+     "tris": 48,
+     "size": [
+      6.429,
+      11.234,
+      1.48
+     ],
+     "centre": [
+      0.0,
+      17.67,
+      -0.16
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.214,
+    0.0,
+    -0.9
+   ],
+   "bbox_max": [
+    3.214,
+    24.107,
+    0.9
+   ],
+   "size_studs": [
+    6.429,
+    24.107,
+    1.8
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Pole",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "mesh CanCollide off; pole collider Part"
+  },
+  {
+   "name": "RSD_Rail_Beach",
+   "file": "roadside/RSD_Rail_Beach.glb",
+   "bytes": 8544,
+   "sha1": "c42d5560ec55758e9dc37312ff3fc5eecca7f1ef",
+   "tris": 90,
+   "materials": [
+    "MP_Concrete",
+    "MP_Metal"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Rail_Beach_Concrete",
+     "material": "MP_Concrete",
+     "tris": 6,
+     "size": [
+      6.696,
+      0.5,
+      0.7
+     ],
+     "centre": [
+      0.0,
+      0.25,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Rail_Beach_Metal",
+     "material": "MP_Metal",
+     "tris": 84,
+     "size": [
+      6.696,
+      2.179,
+      0.36
+     ],
+     "centre": [
+      0.0,
+      1.589,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -3.348,
+    0.0,
+    -0.35
+   ],
+   "bbox_max": [
+    3.348,
+    2.679,
+    0.35
+   ],
+   "size_studs": [
+    6.696,
+    2.679,
+    0.7
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Rail",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": true,
+   "note": "tile along X every 6.7 studs, -Z toward the walkway"
+  },
+  {
+   "name": "RSD_Shelter_Bus",
+   "file": "roadside/RSD_Shelter_Bus.glb",
+   "bytes": 10776,
+   "sha1": "d95c2b3d6857c61faf3ee19e1e3a382a045b53d3",
+   "tris": 96,
+   "materials": [
+    "MP_Glass",
+    "MP_Metal",
+    "MP_MetalDark",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Shelter_Bus_Glass",
+     "material": "MP_Glass",
+     "tris": 12,
+     "size": [
+      9.814,
+      6.264,
+      0.16
+     ],
+     "centre": [
+      0.0,
+      3.632,
+      2.043
+     ]
+    },
+    {
+     "name": "RSD_Shelter_Bus_Metal",
+     "material": "MP_Metal",
+     "tris": 28,
+     "size": [
+      8.914,
+      1.205,
+      1.071
+     ],
+     "centre": [
+      -0.3,
+      0.603,
+      1.357
+     ]
+    },
+    {
+     "name": "RSD_Shelter_Bus_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      0.2,
+      6.364,
+      3.386
+     ],
+     "centre": [
+      5.057,
+      3.482,
+      0.35
+     ]
+    },
+    {
+     "name": "RSD_Shelter_Bus_Steel",
+     "material": "MP_MetalDark",
+     "tris": 44,
+     "size": [
+      10.714,
+      7.314,
+      4.686
+     ],
+     "centre": [
+      0.0,
+      3.657,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -5.357,
+    0.0,
+    -2.343
+   ],
+   "bbox_max": [
+    5.357,
+    7.314,
+    2.343
+   ],
+   "size_studs": [
+    10.714,
+    7.314,
+    4.686
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Shelter",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "PreciseConvexDecomposition",
+   "can_collide": true,
+   "note": "open front; decomposition keeps it walk-in"
+  },
+  {
+   "name": "RSD_Sign_Post",
+   "file": "roadside/RSD_Sign_Post.glb",
+   "bytes": 5196,
+   "sha1": "ee7e1ed9637c135aa8db0578949000e2e5dc77c3",
+   "tris": 44,
+   "materials": [
+    "MP_Metal",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Sign_Post_Metal",
+     "material": "MP_Metal",
+     "tris": 32,
+     "size": [
+      3.214,
+      7.5,
+      0.49
+     ],
+     "centre": [
+      0.0,
+      3.75,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Sign_Post_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      3.214,
+      2.411,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      6.195,
+      -0.22
+     ]
+    }
+   ],
+   "bbox_min": [
+    -1.607,
+    0.0,
+    -0.245
+   ],
+   "bbox_max": [
+    1.607,
+    7.5,
+    0.245
+   ],
+   "size_studs": [
+    3.214,
+    7.5,
+    0.49
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Sign",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "blank board, UV 0..1 for a decal/texture"
+  },
+  {
+   "name": "RSD_Signal_Housing",
+   "file": "roadside/RSD_Signal_Housing.glb",
+   "bytes": 12520,
+   "sha1": "26166621d5e954229a0b498ed4d8330267a7efdc",
+   "tris": 140,
+   "materials": [
+    "MP_MetalDark",
+    "MP_SignalLens",
+    "MP_Stripe"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Signal_Housing_Lens",
+     "material": "MP_SignalLens",
+     "tris": 84,
+     "size": [
+      0.96,
+      3.513,
+      0.06
+     ],
+     "centre": [
+      0.0,
+      2.3,
+      -0.23
+     ]
+    },
+    {
+     "name": "RSD_Signal_Housing_Steel",
+     "material": "MP_MetalDark",
+     "tris": 44,
+     "size": [
+      2.1,
+      4.6,
+      1.8
+     ],
+     "centre": [
+      0.0,
+      2.3,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Signal_Housing_Stripe",
+     "material": "MP_Stripe",
+     "tris": 12,
+     "size": [
+      2.1,
+      4.6,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      2.3,
+      0.825
+     ]
+    }
+   ],
+   "bbox_min": [
+    -1.05,
+    0.0,
+    -0.9
+   ],
+   "bbox_max": [
+    1.05,
+    4.6,
+    0.9
+   ],
+   "size_studs": [
+    2.1,
+    4.6,
+    1.8
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Signal",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "hang on a mast/gantry; lenses are one MeshPart (light by script)"
+  },
+  {
+   "name": "RSD_Signal_Mast",
+   "file": "roadside/RSD_Signal_Mast.glb",
+   "bytes": 25144,
+   "sha1": "a502d1592a2dd03074660c31f3ce161f3c1aefcf",
+   "tris": 316,
+   "materials": [
+    "MP_Concrete",
+    "MP_MetalDark",
+    "MP_SignalLens",
+    "MP_Stripe"
+   ],
+   "parts": [
+    {
+     "name": "RSD_Signal_Mast_Concrete",
+     "material": "MP_Concrete",
+     "tris": 10,
+     "size": [
+      2.411,
+      0.35,
+      2.411
+     ],
+     "centre": [
+      0.0,
+      0.175,
+      0.0
+     ]
+    },
+    {
+     "name": "RSD_Signal_Mast_Lens",
+     "material": "MP_SignalLens",
+     "tris": 168,
+     "size": [
+      13.453,
+      8.959,
+      0.51
+     ],
+     "centre": [
+      6.246,
+      11.687,
+      -0.755
+     ]
+    },
+    {
+     "name": "RSD_Signal_Mast_Steel",
+     "material": "MP_MetalDark",
+     "tris": 114,
+     "size": [
+      14.593,
+      17.061,
+      2.25
+     ],
+     "centre": [
+      6.246,
+      8.88,
+      -0.525
+     ]
+    },
+    {
+     "name": "RSD_Signal_Mast_Stripe",
+     "material": "MP_Stripe",
+     "tris": 24,
+     "size": [
+      14.593,
+      10.046,
+      0.5
+     ],
+     "centre": [
+      6.246,
+      11.688,
+      0.3
+     ]
+    }
+   ],
+   "bbox_min": [
+    -1.205,
+    0.0,
+    -1.65
+   ],
+   "bbox_max": [
+    13.543,
+    17.411,
+    1.205
+   ],
+   "size_studs": [
+    14.748,
+    17.411,
+    2.855
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "roadside",
+   "group": "Signal",
+   "kind": "prop",
+   "anchor": "pole",
+   "collision": "Box",
+   "can_collide": false,
+   "note": "mesh CanCollide off; pole collider Part"
+  },
+  {
+   "name": "RAC_Banner_Frame",
+   "file": "racing/RAC_Banner_Frame.glb",
+   "bytes": 6880,
+   "sha1": "465daf9f7fc221f26d34be5e218d13f6e1044a64",
+   "tris": 52,
+   "materials": [
+    "MP_Concrete",
+    "MP_MetalDark",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "RAC_Banner_Frame_Concrete",
+     "material": "MP_Concrete",
+     "tris": 20,
+     "size": [
+      17.871,
+      0.5,
+      3.2
+     ],
+     "centre": [
+      0.0,
+      0.25,
+      0.0
+     ]
+    },
+    {
+     "name": "RAC_Banner_Frame_Sign",
+     "material": "MP_Signboard",
+     "tris": 4,
+     "size": [
+      16.071,
+      5.357,
+      0.3
+     ],
+     "centre": [
+      0.0,
+      5.357,
+      0.0
+     ]
+    },
+    {
+     "name": "RAC_Banner_Frame_Steel",
+     "material": "MP_MetalDark",
+     "tris": 28,
+     "size": [
+      17.071,
+      8.336,
+      0.4
+     ],
+     "centre": [
+      0.0,
+      4.168,
+      0.0
+     ]
+    }
+   ],
+   "bbox_min": [
+    -8.936,
+    0.0,
+    -1.6
+   ],
+   "bbox_max": [
+    8.936,
+    8.336,
+    1.6
+   ],
+   "size_studs": [
+    17.871,
+    8.336,
+    3.2
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "racing",
+   "group": "Banner",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": true,
+   "note": "placeholder board both faces"
+  },
+  {
+   "name": "RAC_Gantry_Start",
+   "file": "racing/RAC_Gantry_Start.glb",
+   "bytes": 36612,
+   "sha1": "0041607f1c1d9d357649358f845f35cae27c2cf9",
+   "tris": 490,
+   "materials": [
+    "MP_MetalDark",
+    "MP_SignalLens",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "RAC_Gantry_Start_Lens",
+     "material": "MP_SignalLens",
+     "tris": 140,
+     "size": [
+      10.2,
+      1.331,
+      0.1
+     ],
+     "centre": [
+      0.0,
+      17.55,
+      -1.4
+     ]
+    },
+    {
+     "name": "RAC_Gantry_Start_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      24.0,
+      3.0,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      20.55,
+      -1.025
+     ]
+    },
+    {
+     "name": "RAC_Gantry_Start_Steel",
+     "material": "MP_MetalDark",
+     "tris": 338,
+     "size": [
+      41.9,
+      22.55,
+      2.8
+     ],
+     "centre": [
+      0.0,
+      11.275,
+      0.05
+     ]
+    }
+   ],
+   "bbox_min": [
+    -20.95,
+    0.0,
+    -1.45
+   ],
+   "bbox_max": [
+    20.95,
+    22.55,
+    1.45
+   ],
+   "size_studs": [
+    41.9,
+    22.55,
+    2.9
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "racing",
+   "group": "Gantry",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "PreciseConvexDecomposition",
+   "can_collide": true,
+   "note": "legs collide, the span is 18.75 studs up; or CanCollide off + 2 leg Parts"
+  },
+  {
+   "name": "RAC_Garage_Facade",
+   "file": "racing/RAC_Garage_Facade.glb",
+   "bytes": 12228,
+   "sha1": "32e15605e526e5612a7a917a22f4d51b87c4fb2e",
+   "tris": 116,
+   "materials": [
+    "MP_Shutter",
+    "MP_Signboard",
+    "MP_Wall",
+    "MP_WallAccent"
+   ],
+   "parts": [
+    {
+     "name": "RAC_Garage_Facade_Accent",
+     "material": "MP_WallAccent",
+     "tris": 30,
+     "size": [
+      16.071,
+      13.393,
+      0.6
+     ],
+     "centre": [
+      0.0,
+      6.696,
+      -1.1
+     ]
+    },
+    {
+     "name": "RAC_Garage_Facade_Shutter",
+     "material": "MP_Shutter",
+     "tris": 62,
+     "size": [
+      13.671,
+      10.179,
+      0.12
+     ],
+     "centre": [
+      0.0,
+      5.089,
+      -0.26
+     ]
+    },
+    {
+     "name": "RAC_Garage_Facade_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      13.271,
+      1.714,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      12.136,
+      -0.825
+     ]
+    },
+    {
+     "name": "RAC_Garage_Facade_Wall",
+     "material": "MP_Wall",
+     "tris": 12,
+     "size": [
+      16.071,
+      13.393,
+      0.6
+     ],
+     "centre": [
+      0.0,
+      6.696,
+      -0.5
+     ]
+    }
+   ],
+   "bbox_min": [
+    -8.036,
+    0.0,
+    -1.4
+   ],
+   "bbox_max": [
+    8.036,
+    13.393,
+    -0.2
+   ],
+   "size_studs": [
+    16.071,
+    13.393,
+    1.2
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "racing",
+   "group": "Garage",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "grid": {
+    "modules_w_studs": 16.0714
+   },
+   "collision": "Box",
+   "can_collide": true,
+   "note": "pit garage bay, tile along X"
+  },
+  {
+   "name": "RAC_Guardrail_Segment",
+   "file": "racing/RAC_Guardrail_Segment.glb",
+   "bytes": 8064,
+   "sha1": "26ed055ed972e35ccbe062fc97c8723fc60f0bce",
+   "tris": 82,
+   "materials": [
+    "MP_Metal",
+    "MP_MetalDark"
+   ],
+   "parts": [
+    {
+     "name": "RAC_Guardrail_Segment_Metal",
+     "material": "MP_Metal",
+     "tris": 16,
+     "size": [
+      10.714,
+      0.857,
+      0.41
+     ],
+     "centre": [
+      0.0,
+      1.607,
+      -0.395
+     ]
+    },
+    {
+     "name": "RAC_Guardrail_Segment_Steel",
+     "material": "MP_MetalDark",
+     "tris": 66,
+     "size": [
+      10.614,
+      2.236,
+      0.79
+     ],
+     "centre": [
+      0.0,
+      1.118,
+      0.205
+     ]
+    }
+   ],
+   "bbox_min": [
+    -5.357,
+    0.0,
+    -0.6
+   ],
+   "bbox_max": [
+    5.357,
+    2.236,
+    0.6
+   ],
+   "size_studs": [
+    10.714,
+    2.236,
+    1.2
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "racing",
+   "group": "Guardrail",
+   "kind": "prop",
+   "anchor": "base",
+   "collision": "Box",
+   "can_collide": true,
+   "note": "tile along X every 10.7 studs"
+  },
+  {
+   "name": "RAC_Pit_BoxFront",
+   "file": "racing/RAC_Pit_BoxFront.glb",
+   "bytes": 9816,
+   "sha1": "95bb9d7f799098fd01aabb4941220e32c20f1e4c",
+   "tris": 80,
+   "materials": [
+    "MP_Awning",
+    "MP_Concrete",
+    "MP_MetalDark",
+    "MP_Signboard"
+   ],
+   "parts": [
+    {
+     "name": "RAC_Pit_BoxFront_Awning",
+     "material": "MP_Awning",
+     "tris": 12,
+     "size": [
+      15.671,
+      0.05,
+      7.836
+     ],
+     "centre": [
+      0.0,
+      9.978,
+      -3.918
+     ]
+    },
+    {
+     "name": "RAC_Pit_BoxFront_Concrete",
+     "material": "MP_Concrete",
+     "tris": 20,
+     "size": [
+      14.071,
+      2.679,
+      0.8
+     ],
+     "centre": [
+      0.0,
+      1.339,
+      -7.436
+     ]
+    },
+    {
+     "name": "RAC_Pit_BoxFront_Sign",
+     "material": "MP_Signboard",
+     "tris": 12,
+     "size": [
+      14.871,
+      1.55,
+      0.05
+     ],
+     "centre": [
+      0.0,
+      8.818,
+      -8.021
+     ]
+    },
+    {
+     "name": "RAC_Pit_BoxFront_Steel",
+     "material": "MP_MetalDark",
+     "tris": 36,
+     "size": [
+      16.071,
+      9.993,
+      8.036
+     ],
+     "centre": [
+      0.0,
+      4.996,
+      -4.018
+     ]
+    }
+   ],
+   "bbox_min": [
+    -8.036,
+    0.0,
+    -8.046
+   ],
+   "bbox_max": [
+    8.036,
+    10.003,
+    0.0
+   ],
+   "size_studs": [
+    16.071,
+    10.003,
+    8.046
+   ],
+   "ok": true,
+   "fails": [],
+   "warnings": [],
+   "family": "racing",
+   "group": "Pit",
+   "kind": "kit_module",
+   "anchor": "mount",
+   "collision": "PreciseConvexDecomposition",
+   "can_collide": true,
+   "note": "snaps in front of RAC_Garage_Facade"
+  }
+ ]
+}
