@@ -6,3 +6,7 @@ art/**/log.jsonl
 art/cars3d/hy/
 # generated map outputs are rebuilt from data/osm/raw + config by tools/mapgen
 build/
+
+# Roblox place backups (keep locally, never in git)
+*.rbxl
+*.rbxlx
