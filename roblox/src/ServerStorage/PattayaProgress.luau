@@ -20,6 +20,12 @@ local function expToNext(level: number): number
 end
 Progress.expToNext = expToNext
 
+-- Free-form per-player data for other systems (garage cars, ...): Progress.GetData / SetData. Saved in the same record
+-- under "extra"; old records without it load as an empty table.
+local extra: {[Player]: {[string]: any}} = {}
+-- players whose saved record could not be read: never overwrite their record with session defaults
+local loadFailed: {[Player]: boolean} = {}
+
 local function stats(plr: Player)
 	return plr:FindFirstChild("leaderstats")
 end
@@ -42,27 +48,35 @@ local function setup(plr: Player)
 	title.Parent = ls
 	plr:SetAttribute("RoadFight", 0) -- bit k-1 set = Road Fight boss of order k beaten
 	ls.Parent = plr
+	extra[plr] = {}
 	if store then
 		local ok, data = pcall(function()
 			return (store :: any):GetAsync("p" .. plr.UserId)
 		end)
+		if not ok then
+			loadFailed[plr] = true
+		end
 		if ok and type(data) == "table" then
 			level.Value = data.level or 1
 			money.Value = data.money or 0
 			exp.Value = data.exp or 0
 			title.Value = data.title or ""
 			plr:SetAttribute("RoadFight", data.roadFight or 0)
+			if type(data.extra) == "table" then
+				extra[plr] = data.extra
+			end
 		end
 	end
+	plr:SetAttribute("ProgressLoaded", true) -- GetData is meaningful from here on
 end
 
 local function save(plr: Player)
 	local ls = stats(plr)
-	if not (store and ls) then
+	if not (store and ls and extra[plr]) or loadFailed[plr] then
 		return
 	end
 	local data = {level = ls.Level.Value, money = ls.Money.Value, exp = ls.EXP.Value, title = ls.Title.Value,
-		roadFight = plr:GetAttribute("RoadFight") or 0}
+		roadFight = plr:GetAttribute("RoadFight") or 0, extra = extra[plr]}
 	pcall(function()
 		(store :: any):SetAsync("p" .. plr.UserId, data)
 	end)
@@ -94,6 +108,22 @@ function Progress.SetTitle(plr: Player, title: string)
 	end
 end
 
+-- Value stored under `key` for this player (nil before the record has loaded: check attribute ProgressLoaded).
+-- Tables are returned by reference; call SetData after changing one.
+function Progress.GetData(plr: Player, key: string): any
+	local t = extra[plr]
+	return t and t[key]
+end
+
+-- Stores a DataStore-safe value (string/number/boolean/nil or a table of those with string keys or array form).
+-- Saved with the rest of the record when the player leaves or the server closes.
+function Progress.SetData(plr: Player, key: string, value: any)
+	local t = extra[plr]
+	if t then
+		t[key] = value
+	end
+end
+
 local started = false
 function Progress.Start()
 	if started then
@@ -104,7 +134,11 @@ function Progress.Start()
 		task.spawn(setup, p)
 	end
 	Players.PlayerAdded:Connect(setup)
-	Players.PlayerRemoving:Connect(save)
+	Players.PlayerRemoving:Connect(function(p)
+		save(p) -- builds the record before it yields
+		extra[p] = nil
+		loadFailed[p] = nil
+	end)
 	game:BindToClose(function()
 		for _, p in Players:GetPlayers() do
 			save(p)

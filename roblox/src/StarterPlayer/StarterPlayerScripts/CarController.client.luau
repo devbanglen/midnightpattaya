@@ -32,6 +32,22 @@ local CONFIG = {
 	nitroDriftRegen = 14,   -- extra per second while drifting above 40 studs/s
 }
 
+-- Per-car performance comes from ReplicatedStorage.CarSpecs (the car's CarId / UpgEngine / UpgGrip attributes);
+-- CONFIG above stays the fallback when the module or the car id is missing. Suspension values always come from
+-- CONFIG (RaceCarServer's parked spring uses the same numbers).
+-- Player attributes set by event servers (Night Run / Survival):
+--   Equalised = true  -> every car drives with CarSpecs.Equalised() (the stock starter hatch)
+--   SpeedCap = number -> caps both the top speed and the nitro top speed
+-- Both are client-trusted, like the rest of this controller; the race servers keep their own teleport checks.
+local okSpecs, CarSpecs = pcall(function()
+	return require(game:GetService("ReplicatedStorage"):WaitForChild("CarSpecs", 10))
+end)
+if not okSpecs then
+	CarSpecs = nil
+end
+
+local tune = CONFIG -- performance table of the car being driven (see pickTune)
+
 local state = {
 	nitro = false,
 	drift = false,
@@ -94,6 +110,18 @@ hint.TextStrokeTransparency = 0.5
 hint.TextXAlignment = Enum.TextXAlignment.Left
 hint.Text = "WASD drive  |  Shift nitro  |  Ctrl drift  |  R reset  |  Space exit"
 hint.Parent = gui
+local carLabel = Instance.new("TextLabel")
+carLabel.AnchorPoint = Vector2.new(1, 1)
+carLabel.Position = UDim2.new(1, -24, 1, -112)
+carLabel.Size = UDim2.fromOffset(300, 20)
+carLabel.BackgroundTransparency = 1
+carLabel.Font = Enum.Font.GothamBold
+carLabel.TextSize = 16
+carLabel.TextColor3 = Color3.new(1, 1, 1)
+carLabel.TextStrokeTransparency = 0.5
+carLabel.TextXAlignment = Enum.TextXAlignment.Right
+carLabel.Text = ""
+carLabel.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
 -- Actions (CAS also gives mobile buttons) ----------------------------------------
@@ -186,34 +214,42 @@ local function step(dt)
 	if grounded >= 2 then
 		local impulse = Vector3.zero
 		state.boosting = state.nitro and state.fuel > 0 and throttle > 0
-		local top = state.boosting and CONFIG.nitroSpeed or CONFIG.maxSpeed
+		local top = state.boosting and tune.nitroSpeed or tune.maxSpeed
+		local cap = player:GetAttribute("SpeedCap")
+		local capped = type(cap) == "number" and cap > 0
+		if capped then
+			top = math.min(top, cap)
+		end
 		local accel = 0
-		if throttle > 0 then
+		if capped and fs > top + 2 then
+			-- over the event's cap (e.g. it was just set): ease down to it
+			accel = -math.min(tune.brake, (fs - top) * 3)
+		elseif throttle > 0 then
 			if fs < -2 then
-				accel = CONFIG.brake
+				accel = tune.brake
 			elseif fs < top then
-				accel = (state.boosting and CONFIG.nitroAccel or CONFIG.accel) * throttle
+				accel = (state.boosting and tune.nitroAccel or tune.accel) * throttle
 			end
 		elseif throttle < 0 then
 			if fs > 2 then
-				accel = -CONFIG.brake
-			elseif fs > -CONFIG.reverseSpeed then
-				accel = CONFIG.accel * 0.6 * throttle
+				accel = -tune.brake
+			elseif fs > -tune.reverseSpeed then
+				accel = tune.accel * 0.6 * throttle
 			end
 		else
-			accel = -fs * CONFIG.coastDrag
+			accel = -fs * tune.coastDrag
 		end
 		impulse += fwd * accel * mass * dt
 
 		-- grip: kill sideways sliding (much less while the handbrake is on = drift)
-		local grip = state.drift and CONFIG.driftGrip or CONFIG.grip
+		local grip = state.drift and tune.driftGrip or tune.grip
 		impulse -= right * ls * mass * math.min(1, grip * dt)
 		chassis:ApplyImpulse(impulse)
 
 		-- steering: drive the yaw rate toward the target (scales in with speed, flips in reverse)
 		local speedFactor = math.clamp(math.abs(fs) / 35, 0, 1)
 		local dir = fs >= 0 and 1 or -1
-		local target = -steer * CONFIG.turnRate * speedFactor * dir * (state.drift and CONFIG.driftTurnBoost or 1)
+		local target = -steer * tune.turnRate * speedFactor * dir * (state.drift and tune.driftTurnBoost or 1)
 		local av = chassis.AssemblyAngularVelocity
 		local yaw = av:Dot(up)
 		local newYaw = yaw + (target - yaw) * math.min(1, 8 * dt)
@@ -227,21 +263,54 @@ local function step(dt)
 
 	-- nitro gauge
 	if state.boosting then
-		state.fuel -= CONFIG.nitroDrain * dt
+		state.fuel -= tune.nitroDrain * dt
 	else
-		local regen = CONFIG.nitroRegen
+		local regen = tune.nitroRegen
 		if state.drift and math.abs(fs) > 40 and grounded >= 2 then
-			regen += CONFIG.nitroDriftRegen
+			regen += tune.nitroDriftRegen
 		end
 		state.fuel += regen * dt
 	end
-	state.fuel = math.clamp(state.fuel, 0, CONFIG.nitroMax)
-	nitroFill.Size = UDim2.fromScale(state.fuel / CONFIG.nitroMax, 1)
+	state.fuel = math.clamp(state.fuel, 0, tune.nitroMax)
+	nitroFill.Size = UDim2.fromScale(state.fuel / tune.nitroMax, 1)
 	nitroFill.BackgroundColor3 = if state.boosting then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(0, 200, 255)
 	speedLabel.Text = string.format("%d km/h%s", math.floor(math.abs(fs) * 1.0 + 0.5), state.boosting and " NOS" or "")
 end
 
 -- Enter / exit ------------------------------------------------------------------
+local function pickTune()
+	if not current then
+		return
+	end
+	local model = current.seat.Parent
+	local equalised = player:GetAttribute("Equalised") == true
+	local base = model:GetAttribute("CarId")
+	if CarSpecs and equalised then
+		tune = CarSpecs.Equalised()
+	elseif CarSpecs and base and CarSpecs.Cars[base] then
+		tune = CarSpecs.ForModel(model)
+	else
+		tune = CONFIG
+	end
+	state.fuel = math.min(state.fuel, tune.nitroMax)
+	local text = ""
+	local spec = CarSpecs and base and CarSpecs.Cars[base]
+	if spec then
+		text = ("%s  ·  %s %d"):format(spec.name, model:GetAttribute("Class") or "", model:GetAttribute("PI") or 0)
+		carLabel.TextColor3 = CarSpecs.ClassColor(model:GetAttribute("Class") or "")
+	end
+	if equalised then
+		text ..= "  ·  EQUALISED"
+	end
+	local cap = player:GetAttribute("SpeedCap")
+	if type(cap) == "number" and cap > 0 then
+		text ..= ("  ·  CAP %d"):format(cap)
+	end
+	carLabel.Text = text
+end
+player:GetAttributeChangedSignal("Equalised"):Connect(pickTune)
+player:GetAttributeChangedSignal("SpeedCap"):Connect(pickTune)
+
 local function enter(seat)
 	local model = seat.Parent
 	local chassis = model:FindFirstChild("Chassis")
@@ -255,6 +324,7 @@ local function enter(seat)
 	end
 	params.FilterDescendantsInstances = {model, player.Character}
 	current = {seat = seat, chassis = chassis, mounts = mounts, welds = welds, radius = model:GetAttribute("WheelRadius") or CONFIG.wheelRadius}
+	pickTune()
 	bindActions()
 	gui.Enabled = true
 end
@@ -286,7 +356,7 @@ task.spawn(function()
 	local bonus = remotes and remotes:WaitForChild("NitroBonus", 60)
 	if bonus then
 		bonus.OnClientEvent:Connect(function(amount)
-			state.fuel = math.min(CONFIG.nitroMax, state.fuel + amount)
+			state.fuel = math.min(tune.nitroMax, state.fuel + amount)
 		end)
 	end
 end)

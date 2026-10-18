@@ -3,6 +3,16 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- per-car performance (PI, class); optional so a place without the module still spawns cars
+local okSpecs, CarSpecs = pcall(function()
+	return require(ReplicatedStorage:WaitForChild("CarSpecs", 10))
+end)
+if not okSpecs then
+	warn("RaceCarServer: ReplicatedStorage.CarSpecs missing, cars get no Class/PI", CarSpecs)
+	CarSpecs = nil
+end
 
 local GRID = workspace:WaitForChild("RaceMap"):WaitForChild("StartGrid")
 -- one car per grid slot; a body mesh in ServerStorage.CarBodies.<id> replaces the placeholder box
@@ -102,11 +112,25 @@ local function attachBody(model, chassis, id)
 	return true, layout
 end
 
-local function buildCar(cf, color, id)
+-- opts (optional, personal garage cars): {owner = userId, engine = tier, grip = tier, name = model name}
+local function buildCar(cf, color, id, opts)
+	opts = opts or {}
 	local model = Instance.new("Model")
-	model.Name = "RaceCar_" .. id
+	model.Name = opts.name or ("RaceCar_" .. id)
 	model:SetAttribute("RaceCar", true)
 	model:SetAttribute("CarId", id)
+	local engine, gripTier = opts.engine or 0, opts.grip or 0
+	model:SetAttribute("UpgEngine", engine)
+	model:SetAttribute("UpgGrip", gripTier)
+	if CarSpecs then
+		local d = CarSpecs.Describe(id, engine, gripTier)
+		model:SetAttribute("PI", d.pi)
+		model:SetAttribute("Class", d.class)
+	end
+	local owner = opts.owner
+	if owner then
+		model:SetAttribute("Owner", owner) -- only this UserId may drive it
+	end
 
 	local chassis = Instance.new("Part")
 	chassis.Name = "Chassis"
@@ -210,6 +234,20 @@ local function buildCar(cf, color, id)
 		local hum = seat.Occupant
 		local plr = hum and Players:GetPlayerFromCharacter(hum.Parent)
 		showDriver()
+		if owner and plr and plr.UserId ~= owner then
+			-- someone else's personal car: throw them out again
+			task.defer(function()
+				local sw = seat:FindFirstChild("SeatWeld")
+				if sw then sw:Destroy() end
+				if hum.Parent then
+					hum.Sit = false
+					hum.Jump = true
+				end
+			end)
+			plr:SetAttribute("GarageMsg", "That car belongs to someone else")
+			plr:SetAttribute("GarageMsgAt", workspace:GetServerTimeNow())
+			return
+		end
 		if plr then hideDriver(hum.Parent) end
 		if plr then
 			chassis:SetNetworkOwner(plr)
@@ -286,6 +324,14 @@ local function spawnAtSlot(grid, i, spec)
 		end
 	end)
 end
+
+-- PattayaGarageServer builds personal cars through the same path: BuildCar:Invoke(cframe, color, carId, opts)
+local factory = ServerStorage:FindFirstChild("BuildCar") or Instance.new("BindableFunction")
+factory.Name = "BuildCar"
+factory.OnInvoke = function(cf, color, id, opts)
+	return buildCar(cf, color, id, opts)
+end
+factory.Parent = ServerStorage
 
 for i, spec in ipairs(CARS) do
 	spawnAtSlot(GRID, i, spec)
