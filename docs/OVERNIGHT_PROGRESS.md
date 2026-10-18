@@ -26,6 +26,9 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 07:30 | Root cause of the see-through sign boards found in Studio: Roblox's glTF import bakes a 180-deg yaw into every mesh (RSD_Palm_A_Bark centre +0.969 x in the file loads at -0.97 x; MeshPart rotation reads 0). VisMeshBuilder now places kit parts with IMPORT_YAW (CFrame.Angles(0, pi, 0)) and puts sign labels on the Back face; it also requires a fresh VisAssetsManifest clone in Edit mode (stale ids made the new palms "unusable") | DONE / TESTED (ProbeMesh) | commits 8c4667c, 1e445cf |
 | 07:35 | Sample block rebuilt with the 8 fixed assets: 14 buildings 40 Parts + 1,612 MeshParts, 157 geometry palms (0 unusable), ProbeMesh all 0 | TESTED (probes) / captures PENDING_OWNER_TEST (Studio not in front) | docs/VISUAL_ACCEPTANCE.md §5 |
 
+| 07:50 | World map: compact HUD opens on CITY (verified in the emulator: "VIEW: CITY" after M); the VIEW button tap via the MCP mouse tool did not register (button sits in the top-inset band at y -16 inset-space) — real-finger tap untested | DONE (default) / PENDING_OWNER_TEST (tap) | commit 6182364 |
+| 08:00 | **SAFE PAUSE: usage limit reached.** Teams mesh-opt and textures still running on their branches; everything validated is committed and pushed on main | WAITING_FOR_MANUAL_RESUME | docs/state/OVERNIGHT_PAUSE.md |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
