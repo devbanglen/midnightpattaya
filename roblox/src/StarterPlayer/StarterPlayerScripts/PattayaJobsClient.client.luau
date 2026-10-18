@@ -27,6 +27,30 @@ local STOP_SPEED = 30
 local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
 local Style = if styleModule then require(styleModule) :: any else nil
 
+-- MIDNIGHT HUD (ui-core): Bus hook "missions.open" for the quick menu, and the legacy-hide flag (LocalPlayer attribute
+-- "MidnightHUD", client-local). While it is true the job strip is hidden and its text is published as the client-local
+-- attributes HUD_JobText / HUD_JobUrgent (<= 4 Hz) for MidnightHUD's BottomCenter, and job messages become Bus toasts.
+local uiFolder = ReplicatedStorage:FindFirstChild("MidnightUI")
+local function uiModule(name: string): any
+	local m = uiFolder and uiFolder:FindFirstChild(name)
+	return if m then require(m) :: any else nil
+end
+local Bus = uiModule("Bus")
+local function midnight(): boolean
+	return player:GetAttribute("MidnightHUD") == true
+end
+local lastPub: string? = nil
+local lastPubAt = 0
+local function publishJob(text: string?, urgent: boolean?)
+	local now = os.clock()
+	if text == lastPub or (text ~= nil and lastPub ~= nil and now - lastPubAt < 0.25) then
+		return
+	end
+	lastPub, lastPubAt = text, now
+	player:SetAttribute("HUD_JobText", text)
+	player:SetAttribute("HUD_JobUrgent", if text then urgent == true else nil)
+end
+
 -- HUD -------------------------------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "JobHUD"
@@ -72,6 +96,10 @@ note.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local function toast(text: string)
+	if midnight() and Bus then
+		Bus.fire("toast", {title = "JOB", body = text, kind = "info", icon = "missions"})
+		return
+	end
 	note.Text = text
 	note.Visible = true
 	local stamp = os.clock()
@@ -82,6 +110,9 @@ local function toast(text: string)
 end
 
 player:GetAttributeChangedSignal("NearMissAt"):Connect(function()
+	if midnight() then
+		return -- MidnightHUD shows the near-miss card itself
+	end
 	local combo = player:GetAttribute("NearMissCombo") or 1
 	toast(if combo > 1 then ("NEAR MISS  x%d"):format(combo) else "NEAR MISS")
 end)
@@ -95,6 +126,7 @@ local function clear()
 	if visuals then visuals:Destroy() end
 	visuals, arrow, job = nil, nil, nil
 	panel.Visible = false
+	publishJob(nil)
 end
 
 local function neon(size: Vector3, cf: CFrame, color: Color3, transparency: number?): Part
@@ -139,7 +171,7 @@ JobUpdate.OnClientEvent:Connect(function(kind, payload)
 			bumps = 0, title = payload.title, to = payload.to}
 		local color = if payload.kind == "delivery" then Color3.fromRGB(40, 210, 130) else GOLD
 		buildVisuals(payload.route, payload.dest, color)
-		panel.Visible = true
+		panel.Visible = not midnight()
 		toast(("%s: %s  →  %s  (%.1f km)"):format(payload.title, payload.from, payload.to, payload.length * 0.28 / 1000))
 	elseif kind == "bump" and job then
 		job.bumps = payload
@@ -235,4 +267,93 @@ RunService.RenderStepped:Connect(function()
 	panel.Text = ("%s → %s   %d m   %d s left   fare ฿%d%s"):format(job.title, job.to, math.floor(flat.Magnitude * 0.28),
 		math.max(0, math.ceil(left)), job.fare, if job.bumps > 0 then ("  (%d knocks)"):format(job.bumps) else "")
 	panel.TextColor3 = if left < 15 then Color3.fromRGB(255, 90, 80) else WHITE
+	if midnight() then
+		panel.Visible = false
+		publishJob(panel.Text, left < 15)
+	end
 end)
+
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(function()
+	panel.Visible = job ~= nil and not midnight()
+	if not midnight() then
+		publishJob(nil)
+	end
+end)
+
+-- quick menu (MidnightHUD TopRight "Missions"): the current job and the job stands this client knows about
+local Theme, C = uiModule("Theme"), uiModule("Components")
+if Bus and Theme and C then
+	local col = Theme.color
+	Bus.on("missions.open", function()
+		Bus.fire("modal.open", {title = "MISSIONS", width = 600, height = 540, build = function(body: Frame)
+			local status = C.label({parent = body, text = "", font = "bold", textSize = Theme.size.body, wrap = true,
+				vAlign = "top", size = UDim2.new(1, -150, 0, 64)})
+			local cancel = C.button({parent = body, text = "CANCEL JOB", style = "danger", anchor = Vector2.new(1, 0),
+				position = UDim2.fromScale(1, 0), size = UDim2.fromOffset(140, 44), onClick = function()
+					CancelJob:FireServer()
+					Bus.fire("modal.close")
+				end})
+			C.label({parent = body, position = UDim2.fromOffset(0, 70), size = UDim2.new(1, 0, 0, 20), font = "body",
+				textSize = Theme.size.label, color = col.textDim, fit = true, minSize = 10,
+				text = "รับงาน: จอดในวง Taxi (เหลือง) / Delivery (เขียว) แล้วกด E"})
+			C.divider({parent = body, position = UDim2.fromOffset(0, 100)})
+			local list = Instance.new("ScrollingFrame")
+			list.BackgroundTransparency = 1
+			list.BorderSizePixel = 0
+			list.Position = UDim2.fromOffset(0, 110)
+			list.Size = UDim2.new(1, 0, 1, -110)
+			list.CanvasSize = UDim2.new()
+			list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			list.ScrollBarThickness = 4
+			list.ScrollBarImageColor3 = col.cyan
+			list.Parent = body
+			local layout = Instance.new("UIListLayout")
+			layout.SortOrder = Enum.SortOrder.LayoutOrder
+			layout.Padding = UDim.new(0, 4)
+			layout.Parent = list
+			-- stands: the JobStands models streamed in on this client, nearest first
+			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local rows = {}
+			for _, m in (if standsFolder then standsFolder:GetChildren() else {}) do
+				local ring = m:FindFirstChild("Ring") :: BasePart?
+				local d = if ring and root then Vector3.new(ring.Position.X - root.Position.X, 0,
+					ring.Position.Z - root.Position.Z).Magnitude else math.huge
+				table.insert(rows, {label = m:GetAttribute("Label") or m.Name, kind = m:GetAttribute("Kind"), d = d})
+			end
+			table.sort(rows, function(a, b)
+				return a.d < b.d
+			end)
+			C.label({parent = list, layoutOrder = 0, text = ("JOB STANDS (%d)"):format(#rows), font = "bold",
+				textSize = Theme.size.caption, color = col.textDim})
+			for i, r in rows do
+				local row = Instance.new("Frame")
+				row.BackgroundTransparency = 1
+				row.Size = UDim2.new(1, -8, 0, 30)
+				row.LayoutOrder = i
+				row.Parent = list
+				local delivery = r.kind == "delivery"
+				C.pill({parent = row, text = if delivery then "DELIVERY" else "TAXI", textSize = Theme.size.caption,
+					textColor = if delivery then col.green else col.yellow, stroke = if delivery then col.green else col.yellow,
+					size = UDim2.fromOffset(96, 24), anchor = Vector2.new(0, 0.5), position = UDim2.fromScale(0, 0.5)})
+				C.label({parent = row, text = tostring(r.label), textSize = Theme.size.label, fit = true, minSize = 10,
+					position = UDim2.fromOffset(106, 0), size = UDim2.new(1, -196, 1, 0)})
+				C.label({parent = row, text = if r.d < math.huge then ("%.1f km"):format(r.d * 0.28 / 1000) else "",
+					font = "mono", textSize = Theme.size.label, color = col.textDim, align = "right",
+					anchor = Vector2.new(1, 0), position = UDim2.fromScale(1, 0), size = UDim2.new(0, 80, 1, 0)})
+			end
+			task.spawn(function()
+				while body.Parent do -- 1 Hz while the window is open
+					if job then
+						local left = job.timeLimit - (workspace:GetServerTimeNow() - job.start)
+						status.Text = ("%s  →  %s\nfare ฿%d  ·  %d s left%s"):format(job.title, job.to, job.fare,
+							math.max(0, math.ceil(left)), if job.bumps > 0 then ("  ·  %d knocks"):format(job.bumps) else "")
+					else
+						status.Text = "No job running."
+					end
+					cancel.Visible = job ~= nil
+					task.wait(1)
+				end
+			end)
+		end})
+	end)
+end
