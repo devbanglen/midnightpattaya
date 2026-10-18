@@ -1,0 +1,65 @@
+{
+  "name": "coast",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+  "crs": "EPSG:32647",
+  "graphs": ["build/central_pattaya/graph_game.json", "build/pattaya_wide/graph_game.json"],
+  "buildings": ["build/central_pattaya/buildings_game.json", "build/pattaya_wide/buildings_game.json"],
+  "layouts": ["build/central_pattaya/layout.json", "build/pattaya_wide/layout.json"],
+  "manifests": {"base": "build/central_pattaya/roblox/manifest.luau", "wide": "build/pattaya_wide/roblox/manifest.luau"},
+  "joints": ["build/pattaya_wide/roblox/joints.luau"],
+  "osm_raw": ["data/osm/raw/central_pattaya_2026-10-18.json", "data/osm/raw/pattaya_wide_north_2026-10-18.json",
+              "data/osm/raw/pattaya_wide_south_2026-10-18.json"],
+  "island_raw": "data/osm/raw/koh_larn_2026-10-19.json",
+  "dem_tiles": "data/dem/terrarium",
+  "dem_zoom": 13,
+  "out_dir": "build/coast",
+  "chunk_size_studs": 512,
+  "max_parts_per_chunk": 600,
+  "max_parts_total": 8000,
+  "batch_size": 8,
+
+  "other_teams": {
+    "_comment": "landmarks team owns these: no coast terrain writes or props within the buffer (studs)",
+    "ways": [{"id": 504916659, "what": "Bali Hai Pier", "buffer": 60},
+             {"id": 385837306, "what": "Dolphin Circle roundabout", "buffer": 120}]
+  },
+
+  "terrain": {
+    "_comment": "4-stud cells along the real coastline; signed distance d to the OSM coastline in studs (sea < 0)",
+    "cell": 4,
+    "band_studs": 64,
+    "shallow_studs": 16,
+    "mid_studs": 40,
+    "wet_studs": 8,
+    "landward_keep_cells": 2,
+    "road_clear_studs": 4,
+    "building_clear_studs": 4,
+    "tile_studs": 2048,
+    "wet_sand_color": [148, 126, 92],
+    "probe_samples": 240
+  },
+
+  "beach_fill": {
+    "_comment": "OPTIONAL, opt-in builder step: Ground -> Sand (top voxel) inside OSM natural=beach polygons landward of the strip",
+    "max_dist_studs": 260
+  },
+
+  "props": {
+    "beaches": [149698464, 1297672173],
+    "umbrella": {"rows_d": [20, 34], "step": 15, "jitter": 1.5, "clear": 3.0},
+    "lamp": {"step": 60, "out_of_sidewalk": 3.0, "palm_clear": 6.0, "light_clear": 20.0},
+    "lifeguard": {"step": 600, "d": 14},
+    "boats": {"per_beach": [12, 14], "d": [-70, -150], "min_gap": 60},
+    "huts": {"step": 520, "d": 40},
+    "kites": {"beach": 1297672173, "count": 4},
+    "roads_clear": 1.5,
+    "building_clear": 2.0
+  },
+
+  "island": {
+    "vertical_scale": 0.5,
+    "strip_studs": 420,
+    "min_height_studs": 24,
+    "base_y": -6
+  }
+}
