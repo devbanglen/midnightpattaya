@@ -56,7 +56,39 @@ Capacity 100.
 - leaderstats: Level, Money (฿), EXP. EXP needed per level = 100 + 60 × (level − 1).
 - A reward toast is shown on screen (`LastReward` attribute).
 - Data is saved with DataStoreService under `PattayaProgress_v1`. In Studio this needs "Enable Studio Access to
-  API Services". Without it the values last for the session only; the code handles that with a warning.
+  API Services". Without it the values last for the session only; the code warns once and carries on.
+- **Titles:** every earned title is kept in `extra.titles` (`Progress.GetData(plr, "titles")` =
+  `{["Survivor"] = true, ...}`). Systems call `Progress.GrantTitle(plr, name)`. The `Title` leaderstat shows the
+  best one by `Progress.TITLE_RANK`: Road King (3) > Road Fighter (2) > Survivor (1); unknown names rank 0.
+  Older records with only the `title` string load it into the set, and the saved RoadFight bits re-grant Road
+  Fighter (bosses 1-3) and Road King (boss 4).
+
+### Record format (key `p<UserId>`)
+
+```lua
+{
+  level = 5, money = 1234, exp = 40, roadFight = 3,
+  title = "Road Fighter",            -- best title, kept for older code; the set below is the truth
+  extra = {                          -- Progress.GetData / SetData keys
+    titles = {["Road Fighter"] = true, ["Survivor"] = true},
+    carsOwned = {...}, carSelected = "...", carUpgrades = {...},   -- garage (GARAGE_AND_CLASSES.md)
+  },
+  lock = {id = "<JobId or GUID>", at = 1760000000},   -- session lock (os.time); nil once released
+}
+```
+
+### Session lock and save timing
+
+- **Load** is one `UpdateAsync` that reads the record and writes `lock = {id = this server, at = now}`. If the
+  record holds another server's lock younger than 5 min, nothing is written: the load is retried (2, 4, 6 s), then
+  treated as load-failed (a warning; the session plays on defaults and never saves over the record).
+- **Saves** are `UpdateAsync` too and never overwrite a record locked by another live session. They refresh the
+  lock time. A player's saves never overlap.
+- **Autosave** every 120 s for every loaded player (so a crash loses at most 2 min, and live locks stay fresh).
+- **Leaving / BindToClose:** the final save clears the lock, so the next server loads at once. BindToClose saves
+  every player in parallel and waits up to 25 s.
+- A lock older than 5 min (the server died) is taken over. A player who left while their record was loading gets
+  the lock released again.
 
 ## 5. Taxi and delivery jobs (RayCity missions)
 Generator: `job_stands` in the `layout` config block. `gameplay_layout.py` snaps each OSM POI to the kerb lane of

@@ -482,11 +482,7 @@ local function runSurvival(title: string, r1, humans: {Player}, bots)
 	end
 	-- result
 	if winner and typeof(winner) == "Instance" and winner.Parent then
-		local ls = winner:FindFirstChild("leaderstats")
-		local current = ls and ls:FindFirstChild("Title") and ls.Title.Value or ""
-		if current == "" then
-			Progress.SetTitle(winner, C.title)
-		end
+		Progress.GrantTitle(winner, C.title) -- kept in the title set; the leaderstat shows the best earned title
 		Progress.Award(winner, C.winMoney + rounds * C.roundMoney, C.winExp + rounds * C.roundExp, title .. " winner")
 		msg(winner, "LAST DRIVER STANDING - you won SURVIVAL!")
 	end

@@ -209,12 +209,12 @@ local function onBossResult(p, race, reason: string?)
 		plr:SetAttribute("RoadFight", bit32.bor(plr:GetAttribute("RoadFight") or 0, bit32.lshift(1, d.order - 1)))
 		local money = math.floor(FIRST_MONEY[d.order] / (if first then 1 else 3))
 		local exp = math.floor(FIRST_EXP[d.order] / (if first then 1 else 3))
-		local ls = plr:FindFirstChild("leaderstats")
-		local title = ls and ls:FindFirstChild("Title") and ls.Title.Value or ""
+		-- titles are a kept set; the leaderstat shows the best (PattayaProgress.TITLE_RANK)
 		if d.order == 4 then
-			Progress.SetTitle(plr, "Road King")
-		elseif title == "" and beaten(plr, 1) and beaten(plr, 2) and beaten(plr, 3) then
-			Progress.SetTitle(plr, "Road Fighter")
+			Progress.GrantTitle(plr, "Road King")
+		end
+		if beaten(plr, 1) and beaten(plr, 2) and beaten(plr, 3) then
+			Progress.GrantTitle(plr, "Road Fighter")
 		end
 		Progress.Award(plr, money, exp, "Road Fight: beat " .. d.boss)
 		local nextBoss = byOrder[d.order + 1]
