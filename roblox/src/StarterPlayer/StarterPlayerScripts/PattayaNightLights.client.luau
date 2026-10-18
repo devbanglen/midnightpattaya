@@ -1,6 +1,6 @@
 -- Time of day on the client, driven by Lighting.ClockTime (set by PattayaTimeServer):
 --  1. Lighting presets dawn / day / dusk / night for a neon coastal city, blended by the clock (Lighting colours,
---     Atmosphere, Bloom, ColorCorrection). Client-side only, so the place's template Lighting is never saved
+--     Atmosphere, Bloom, ColorCorrection, the Sky's star count). Client-side only, so the place's template Lighting is never saved
 --     changed; the original values are kept and come back when the Lighting attribute PattayaLighting = false.
 --  2. Night mode for the Pattaya world: lit window tiles on facades (4x4-window night tile, so it is shown at 4x the
 --     day tile size), glowing street lamps with their SpotLights on.
@@ -42,6 +42,14 @@ local PRESETS = {
 		atmo = {Density = 0.26, Offset = 0.12, Color = C(90, 65, 140), Decay = C(40, 25, 70), Glare = 0, Haze = 1.1},
 		bloom = {Intensity = 1.0, Size = 24, Threshold = 0.92},
 		grade = {Brightness = 0.04, Contrast = 0.1, Saturation = 0.16, TintColor = C(232, 224, 255)},
+		-- night sky (owner, 2026-10-19: the sky stayed black). The skybox is unlit at 20:30-21:00 and exposure does
+		-- not lift a black sky, so the sky is coloured through the two things that do draw over it: the Atmosphere
+		-- (Decay = the sky hue away from the sun, which is the whole sky at night; Haze + Color = the band above the
+		-- horizon; a higher Offset lets that haze cover the far skyline like city light) and Sky.StarCount. These
+		-- values replace the atmo values above by the Lighting attribute NightSky (0..1, default 1; 0 = the plain
+		-- night preset above, with the template's star count).
+		skyAtmo = {Offset = 0.32, Color = C(200, 110, 210), Decay = C(70, 50, 150), Haze = 2.6},
+		sky = {StarCount = 3000},
 	},
 	dusk = {
 		Ambient = C(70, 50, 72), OutdoorAmbient = C(140, 92, 112), Brightness = 1.7, ExposureCompensation = 0,
@@ -108,6 +116,25 @@ end
 effect("atmo", "Atmosphere", "PattayaAtmosphere")
 effect("bloom", "BloomEffect", "PattayaBloom")
 effect("grade", "ColorCorrectionEffect", "PattayaGrade")
+-- the template Sky is only adjusted, never created (a new Sky would swap in Roblox's default skybox textures);
+-- its original values are saved the first time it is seen and restored by PattayaLighting = false
+local SKY_PROPS = {"StarCount"}
+local sky: any = nil
+local skySaved = {}
+local function findSky(): any
+	if sky and sky.Parent == Lighting then
+		return sky
+	end
+	local s = Lighting:FindFirstChildOfClass("Sky")
+	if s and s ~= sky then
+		sky = s
+		skySaved = {}
+		for _, prop in SKY_PROPS do
+			skySaved[prop] = (s :: any)[prop]
+		end
+	end
+	return s
+end
 
 local function presetAt(t: number)
 	for i = 1, #KEYS - 1 do
@@ -126,19 +153,38 @@ local function applyPreset()
 	for _, prop in LIGHTING_PROPS do
 		L[prop] = lerp(pa[prop], pb[prop], f)
 	end
+	-- how "night" the blend is: 1 in the night preset, ramping in and out across dusk and dawn
+	local w = (if pa == PRESETS.night then 1 - f else 0) + (if pb == PRESETS.night then f else 0)
 	-- live tuning knob: Lighting attribute NightExposure (e.g. 0.3 brighter, -0.3 darker) scaled by how "night" it is
 	local boost = Lighting:GetAttribute("NightExposure")
 	if type(boost) == "number" and boost ~= 0 then
-		local w = (if pa == PRESETS.night then 1 - f else 0) + (if pb == PRESETS.night then f else 0)
 		L.ExposureCompensation += boost * w
 	end
+	-- second knob: Lighting attribute NightSky (0..1, default 1) = how much of the night sky look is used
+	local skyKnob = Lighting:GetAttribute("NightSky")
+	local k = math.clamp(if type(skyKnob) == "number" then skyKnob else 1, 0, 1) * w
+	local skyAtmo = PRESETS.night.skyAtmo
 	for key, e in effects do
 		local inst = e.inst
 		if e.created and inst.Parent ~= Lighting then
 			inst.Parent = Lighting
 		end
 		for _, prop in EFFECT_PROPS[key] do
-			inst[prop] = lerp(pa[key][prop], pb[key][prop], f)
+			local v = lerp(pa[key][prop], pb[key][prop], f)
+			if key == "atmo" and k > 0 and skyAtmo[prop] ~= nil then
+				v = lerp(v, skyAtmo[prop], k)
+			end
+			inst[prop] = v
+		end
+	end
+	local s = findSky()
+	if s then
+		for _, prop in SKY_PROPS do
+			-- from the template value by day to the night value at night (whole numbers for StarCount)
+			local v = math.floor(lerp(skySaved[prop], PRESETS.night.sky[prop], k) + 0.5)
+			if s[prop] ~= v then
+				s[prop] = v
+			end
 		end
 	end
 	presetsOn = true
@@ -159,6 +205,11 @@ local function revertPreset()
 			for prop, v in e.saved do
 				inst[prop] = v
 			end
+		end
+	end
+	if sky and sky.Parent then
+		for prop, v in skySaved do
+			sky[prop] = v
 		end
 	end
 	presetsOn = false
