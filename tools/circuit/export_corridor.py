@@ -45,9 +45,50 @@ def main(cfg_path, city_build='build/central_pattaya'):
         city_edges = [e for e in city_edges if e.get('base')] + [e for e in city_edges if not e.get('base')]
     base_edges = [e for e in city_edges if e.get('base')] if wide else city_edges
     city_nodes = set(n for e in city_edges for n in (e['a'], e['b']))
+    nodes_xy = dict(city['nodes']); nodes_xy.update(cor['nodes'])
     cor_nodes = set(n for e in cor_edges for n in (e['a'], e['b']))
     joins = sorted(city_nodes & cor_nodes)
     print(f'corridor: {len(cor_edges)} edges, {len(cor_nodes)} nodes, joins with the city at {joins}')
+
+    # Wide world: the corridor's city-side stretch (Pattaya Klang, Sukhumvit) is already part of the wide graph.
+    # Drop corridor edges with both ends in the city graph; cut an edge that leaves the city graph where the city's
+    # own copy of that way ends (the wide graph stops a road at its bbox / pruning point, not at a corridor node).
+    if wide:
+        way_nodes = defaultdict(set)
+        for e in city_edges:
+            way_nodes[e['way']].update((e['a'], e['b']))
+        kept = []
+        for e in cor_edges:
+            a_in, b_in = e['a'] in city_nodes, e['b'] in city_nodes
+            if a_in and b_in:
+                continue
+            if a_in != b_in:
+                pts = np.array(e['pts'])
+                inside_end = e['a'] if a_in else e['b']
+                best = None   # (arc position, node) of the city node on this way that lies on the corridor polyline
+                for n in way_nodes.get(e['way'], ()):
+                    xy = np.array(nodes_xy[str(n)]) if str(n) in nodes_xy else None
+                    if xy is None:
+                        continue
+                    d = np.linalg.norm(pts - xy, axis=1)
+                    k = int(d.argmin())
+                    if d[k] < 3 and n != inside_end:
+                        arc = k if a_in else len(pts) - 1 - k
+                        if best is None or arc > best[0]:
+                            best = (arc, n, k)
+                if best:
+                    _, n, k = best
+                    if a_in:
+                        e['pts'] = [list(nodes_xy[str(n)])] + pts[k + 1:].tolist(); e['a'] = n
+                    else:
+                        e['pts'] = pts[:k].tolist() + [list(nodes_xy[str(n)])]; e['b'] = n
+                    print(f"  corridor edge {e['id']} cut at city node {n} (city already has the way up to there)")
+            kept.append(e)
+        dropped = len(cor_edges) - len(kept)
+        cor_edges = kept
+        cor_nodes = set(n for e in cor_edges for n in (e['a'], e['b']))
+        joins = sorted(city_nodes & cor_nodes)
+        print(f'  wide dedupe: dropped {dropped} corridor edges already in the city graph; corridor now {len(cor_edges)} edges, joins at {joins}')
 
     # junction discs: new ones where the combined degree reaches 3 and the city had none; seam ones keep the city radius
     deg, base_deg = defaultdict(int), defaultdict(int)
@@ -66,7 +107,6 @@ def main(cfg_path, city_build='build/central_pattaya'):
     touched = cor_nodes
     new_discs = {n: radius[n] for n in touched if deg[n] >= 3 and base_deg[n] < 3}
     seam_discs = {n: base_radius[n] for n in touched if base_deg[n] >= 3}
-    nodes_xy = dict(city['nodes']); nodes_xy.update(cor['nodes'])
 
     # dual carriageways (paired one-way edges, e.g. Thammasat Rd) sit so close at x0.5 that each one's sidewalk would lie
     # on the other's roadway (252 of 1,385 probes hit a sidewalk in Studio): corridor one-ways get no sidewalk
