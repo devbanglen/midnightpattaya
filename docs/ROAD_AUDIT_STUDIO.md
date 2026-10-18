@@ -85,3 +85,11 @@ Road parts now 19,568 incl. 5,862 RoadFill wedges (WedgeParts named Road with at
 | furniture solid parts touching road/sidewalk/disc | 0 | **1** (NameSignPost (21589, 5644) on a Thep Prasit sidewalk → dual pass 3) |
 | road-centre raycasts whose top hit is not road | 0 | **2** (fill wedges under shophouses osm 311941409 at (19062, 3225) and 311061457/311061340 at (24670, 640)) → dual pass 3 |
 | crossing bars | 4,906 | 4,321, all thin/non-solid |
+
+**Dual pass 2 installed (leader):** central chunk -2_6 + 21 wide chunks rebuilt, furniture folder replaced and rebuilt
+(282 chunks, 9,119 parts). Building orientation settled in Studio: a building part's X axis heading equals the data `yaw`
+(+yaw reading; osm 27486202 heading 57.4° = yaw 57.4, osm 146612219 −52.3° = yaw −52.33), so the exporters' +yaw checks
+are the right ones; the two "fill under a shophouse" raycast hits were bounding-box samples of WedgeParts (a wedge's
+bbox is larger than its triangle), not real fills under buildings. Drive regressions after the dual rebuild: Beach Road →
+Bira at 120 studs/s 522/522 probes on road, car up-vector min 0.92 (no roll; the earlier roll was at the same stretch
+before the rebuild), Central Loop 229/229 on road, lap completed.
