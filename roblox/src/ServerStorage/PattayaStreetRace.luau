@@ -100,7 +100,8 @@ local function botModel(name: string, carId: string?): Model?
 	local pool = {}
 	for _, m in workspace:GetChildren() do
 		local seat = m:FindFirstChild("DriveSeat")
-		if m:GetAttribute("RaceCar") and m.PrimaryPart and seat and not seat.Occupant then
+		-- shared grid cars only: never copy a player's personal garage car (attribute Owner)
+		if m:GetAttribute("RaceCar") and m:GetAttribute("Owner") == nil and m.PrimaryPart and seat and not seat.Occupant then
 			table.insert(pool, m)
 		end
 	end
