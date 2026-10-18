@@ -64,6 +64,11 @@ def main(cfg_path):
     seam_discs = {n: base_radius[n] for n in touched if base_deg[n] >= 3}
     nodes_xy = dict(city['nodes']); nodes_xy.update(cor['nodes'])
 
+    # dual carriageways (paired one-way edges, e.g. Thammasat Rd) sit so close at x0.5 that each one's sidewalk would lie
+    # on the other's roadway (252 of 1,385 probes hit a sidewalk in Studio): corridor one-ways get no sidewalk
+    for e in cor_edges:
+        if e['oneway']:
+            e['sidewalk'] = 0
     chunks = defaultdict(list)
     seg_total = 0
     for e in cor_edges:
