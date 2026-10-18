@@ -184,3 +184,12 @@ For RaceSessionService once its pending test is done. Nothing here is implemente
   with 2 s gaps. "SC IN THIS LAP" goes out on the next pass of `startFinish`. The data needs no new fields: the
   centreline, sectors and pit lane are enough. Optionally add `scLine1/scLine2` indices (the safety-car lines at the
   pit entry and exit) as data fields.
+
+## Rebuilt by the leader after the venue team's pass (2026-10-18)
+- `CircuitBuilder.Build(def)` (fresh clone): 6,161 parts in 2.2 s (Access 632, Arrival 142, Barriers 1,259, BrakeBoards 40,
+  Buildings 34, Curbs 864, Floodlights 306, Grid 16, Lines 1,160, PitLane 331, Runoff 981, Track 587).
+- Highest part in the venue is now a floodlight at y 122 (before the fix the 12 service roads sat ~2,900 studs up).
+- Track probes unchanged: 5,106 points, max error 0.29 studs, max step 0.66.
+- Transition road 34 points and paddock road 10 points all on their slabs (max error 0.04); the plaza (`Parking`)
+  surrounds the transition road at y 1 up to 26 studs either side; the paddock point sits on the `Apron` at y 1.
+- 57 `NightNeon` parts and 148 `FloodLight` parts carry their attributes for PattayaNightLights.
