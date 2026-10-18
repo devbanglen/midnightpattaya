@@ -36,7 +36,8 @@ Every non-crossing footprint keeps `kerb_margin_studs` beyond width/2 + sidewalk
 slice and the Bira corridor) and of every node disc, and stays clear of buildings, street lights, palms, signs,
 landmarks, corridor dressing and other furniture. Export-time shapely checks (assertions) repeat that on the final
 data; the road surface for the on-road checks is the BUILT one, read from the fixed chunk modules (after road_fix:
-cut / hidden slabs, fill triangles, discs) besides the graph corridors. Map data (c) OpenStreetMap contributors, ODbL 1.0.
+cut / hidden slabs, fill triangles, discs, and the built sidewalks: ground parts keep kerb_margin_studs from them)
+besides the graph corridors. Map data (c) OpenStreetMap contributors, ODbL 1.0.
 """
 import argparse, json, math, os, sys, zlib
 from collections import Counter, defaultdict
@@ -257,21 +258,23 @@ def load_inputs(cfg, broot):
     # fill triangles, junction / joint discs) and the chunk line of every edge (merged / hidden / cut flags)
     sys.path.insert(0, os.path.dirname(__file__))
     import road_check as rc
-    built_polys, built_edges = [], {}
+    built_polys, built_edges, built_walks = [], {}, []
     for sub in ((I['central'], 'roblox'), (I['wide'], 'roblox'), (I['corridor_roblox'],)):
         d = rd(*sub)
         if not os.path.exists(os.path.join(d, 'manifest.luau')):
             continue
-        es, dd, _ = rc.load_dataset(d)
+        es, dd, jr_ = rc.load_dataset(d)
         for e in es:
             built_edges.setdefault(e['id'], e)
             built_polys += rc.slab_rects(e)
+            built_walks += rc.sidewalk_rects(e, jr_)        # raised kerbs as built (merged slabs got theirs back)
         built_polys += [circ((x, z), r) for (x, z, r) in dd.values()]
     pp = rd('dual', 'plan.json')
     plan = jl(pp) if os.path.exists(pp) else {'groups': [], 'roles': {}}
     osm_base = {'central': central.get('osm_base'), 'wide': wide.get('osm_base')}
     return dict(city=city, cor=cor, nodes=nodes, central_nodes=central_nodes, blds=blds, props=props, discs=discs,
-                osm_base=osm_base, origin=wide['origin_utm'], built_polys=built_polys, built_edges=built_edges, plan=plan)
+                osm_base=osm_base, origin=wide['origin_utm'], built_polys=built_polys, built_edges=built_edges, plan=plan,
+                built_walks=built_walks)
 
 
 def load_osm(cfg, origin):
@@ -343,6 +346,12 @@ def build(cfg, broot):
     def on_built(g):
         near = [built[k] for k in T_built.query(g)]
         return bool(near) and unary_union(near).contains(g)
+    bkeep = built + D['built_walks']               # built road + built sidewalks: furniture keeps clear (ground parts by M)
+    T_bkeep = STRtree(bkeep)
+
+    def hits_built(g, margin=0.0):
+        gg = g.buffer(margin) if margin > 0 else g
+        return any(bkeep[k].intersects(gg) for k in T_bkeep.query(gg))
     blds, props = D['blds'], D['props']
     T_bld, T_prop = STRtree(blds), STRtree(props)
     placed = defaultdict(list)          # 64-stud grid -> [(poly, item key)]
@@ -361,6 +370,8 @@ def build(cfg, broot):
             if name in GROUND and hits(T_keep, keep, g):
                 return False
             if name not in OVER_ROAD and hits(T_slab, slabs, g):
+                return False
+            if name not in OVER_ROAD and hits_built(g, M if name in GROUND else 0.0):
                 return False
             gb = g.buffer(BC)
             if hits(T_bld, blds, gb):
@@ -812,6 +823,10 @@ def build(cfg, broot):
             chk['on_road_slab_sidewalk_or_disc'] += 1
         if name not in OVER_ROAD and hits(T_built, built, g):
             chk['on_built_road'] += 1
+        if name not in OVER_ROAD and hits_built(g):
+            chk['on_built_road_or_sidewalk'] += 1
+        if name in GROUND and hits_built(g, M):
+            chk['ground_part_inside_built_kerb_margin'] += 1
         if name in GROUND and hits(T_keep, keep, g):
             chk['ground_part_inside_kerb_margin'] += 1
         if hits(T_bld, blds, g):
@@ -831,7 +846,8 @@ def build(cfg, broot):
     assert not bad, f'furniture export check failed: {bad} {Counter((a, b, c) for a, b, c, _ in chk_ex)} {chk_ex[:5]}'
     stats.update({'check_' + k: 0 for k in ('on_road_slab_sidewalk_or_disc', 'ground_part_inside_kerb_margin', 'inside_building',
                                              'on_existing_prop', 'furniture_overlap', 'crossing_bar_off_slab',
-                                             'crossing_bar_off_built_road', 'on_built_road')})
+                                             'crossing_bar_off_built_road', 'on_built_road', 'on_built_road_or_sidewalk',
+                                             'ground_part_inside_built_kerb_margin')})
     return dict(rows=rows, stats=stats, total=total, D=D, furn_base=furn_base, cen=cen, chunk_parts=chunk_parts)
 
 

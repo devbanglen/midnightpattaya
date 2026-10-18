@@ -613,3 +613,30 @@ same_direction 26}, `g:688427427:w999` {opposite 3, same_direction 16}; the two-
 `g:375840698:w2720`, `g:936560638:w2938`, `g:1185423798:w3065`. Tried: `exclude_link_kinds: ["same_direction"]`
 gives 26 groups / 456 trims (the 42 frontage pairs become cut + fill). After a change rerun from road_graph.py
 (the whole chain, then furniture.py); empty lists = this build.
+
+### Dual pass 2 (after the leader's Studio rebuild and probes)
+Studio results of the dual build: markings on another road 0, kerb centres in another road 0, bare bends 0, slab
+overlaps 70 short ones (12-16 studs at junction throats, the `tee` class, accepted). Three leftovers fixed (data only):
+1. **Fill triangles under buildings** (osm 311941409, Chunk_-2_6; 311061457 + 311061340, Chunk_9_1): road_fix rule D
+   now clips every fill polygon to stay `dual.BUILDING_CLEAR` = 1 stud (+0.4 for the triangle simplification) away from
+   every building box of every chunk module (corridor dressing included), and asserts it at export
+   (`check_fill_triangles_at_buildings` 0; 1,459 studs^2 of fill clipped). **Yaw caveat:** the three reported fills only
+   touch those boxes when a box is rotated by -yaw; the exporters' shapely checks rotate by +yaw (under +yaw the fills
+   were 3 studs away). The clip uses both readings. If -yaw is what Studio builds, note that 1,187 Sidewalk strips
+   already touched buildings before the dual pass (7 under +yaw) - worth one Studio look at a building's CFrame.
+2. **Furniture on a kerb** (NameSignPost at (21,589, 5,644) on the merged Thep Prasit sidewalk): furniture.py now also
+   reads the BUILT sidewalks (road_check.sidewalk_rects on the fixed chunk modules); non-overhead parts may not touch the
+   built road or sidewalks, ground parts keep `kerb_margin_studs` from them; asserted checks `on_built_road_or_sidewalk`
+   and `ground_part_inside_built_kerb_margin` (both 0). No name sign is left within 15 studs of that spot.
+3. Changed modules against the place as rebuilt (list also in `docs/road_audit/dual_pass2_chunks.json`):
+   - central (`PattayaData`), 1: "-2_6"
+   - wide (`PattayaDataWide`), 21: "-1_14","-2_6","-3_9","-4_10","-4_9","-7_9","10_-5","10_-8","11_-7","1_9","2_19","3_-13","5_-6","5_23","6_-3","6_1","7_4","7_6","8_3","9_0","9_1"
+   - corridor: none. No graph / traffic / joints / manifest module changed.
+   - furniture (`PattayaDataFurniture`): manifest + 135 changed + 8 new chunk modules
+     (new: "f-1_10","f-2_10","f-6_6","f-6_7","f0_10","f10_-2","f3_-7","f5_-7"); 282 chunks, 9,119 parts, 438 crossings (0 off the road), 717 poles. The
+     sidewalk clearance moves name signs / poles, and the freed part budget refills the soi poles, so many furniture
+     chunks change: a full furniture rebuild (`F.Remove()`, batches f1..f36) is simplest.
+Checks after: audit parallel 1 / acute 0 / crossing 0 / visible conflicts 0; slab-overlap replica 0; road_check
+central 0 / 8 / 1, wide + corridor 0 / 2 / 2 (the new `none` is a centreline point now under a building where the fill
+was clipped); two runs (exports + road_fix + furniture) byte-identical.
+

@@ -103,6 +103,31 @@ def load(root=ROOT):
     return edges, discs, jrs, files, gaps
 
 
+def building_boxes(root=ROOT):
+    """every building box PattayaBuilder builds (the `buildings` rows x, z, w, d, h, yaw, palette, id of every chunk
+    module of the three datasets, corridor dressing included), as polygons in map-local studs (two per building: the
+    box rotated by +yaw and by -yaw)"""
+    from shapely import affinity
+    out = []
+    for _, rel in DATASETS:
+        d = os.path.join(root, rel)
+        for f in sorted(os.listdir(d)):
+            if not (f.startswith('chunk_') and f.endswith('.luau')):
+                continue
+            m = re.search(r'\n  buildings = \{([^}]*)\}', open(os.path.join(d, f), encoding='utf-8').read())
+            if not m or not m.group(1).strip():
+                continue
+            v = [float(t) for t in m.group(1).split(',')]
+            for k in range(0, len(v) - 7, 8):
+                x, z, w, dd, h, yaw = v[k:k + 6]
+                r = Polygon([(-w / 2, -dd / 2), (w / 2, -dd / 2), (w / 2, dd / 2), (-w / 2, dd / 2)])
+                # both yaw senses: the Studio probe found fills under boxes that only the -yaw reading overlaps,
+                # the exporters' shapely checks use +yaw - keep clear of both
+                out.append(affinity.translate(affinity.rotate(r, yaw), x, z))
+                out.append(affinity.translate(affinity.rotate(r, -yaw), x, z))
+    return out
+
+
 def end_trims(e, jr):
     """what PattayaBuilder.buildEdge trims markings by at end a / b: the junction disc radius, else the bend trim
     (at least the slab cut of rule D)"""
@@ -495,7 +520,13 @@ def main():
                 if L_.get('spawn'):
                     keep.append((L_['spawn']['x'], L_['spawn']['z'], 'spawn'))
         keep = sorted(set(keep))
-        dstats = dual.apply_chunk(edges, discs, plan, rc, smooth=smooth_kinks, keep_points=keep)
+        boxes = building_boxes(root)
+        dstats = dual.apply_chunk(edges, discs, plan, rc, smooth=smooth_kinks, keep_points=keep, blockers=boxes)
+        # export check (asserted): no fill triangle within dual.BUILDING_CLEAR - 0.05 studs of a building box
+        btree = STRtree([b.buffer(dual.BUILDING_CLEAR - 0.05, join_style=2) for b in boxes])
+        on_bld = sum(1 for e in edges for t in rc.fill_polys(e) if any(True for _ in btree.query(t, predicate='intersects')))
+        assert on_bld == 0, f'road_fix rule D: {on_bld} fill triangles touch a building'
+        dstats['check_fill_triangles_at_buildings'] = on_bld
         print(f'road_fix rule D: {dstats}')
 
     J = central_joints(edges, discs)
