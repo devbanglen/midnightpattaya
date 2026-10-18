@@ -437,6 +437,11 @@ ICONS.settings = function(p, c) -- gear: 4 bars = 8 teeth, disc, hole
 	box(p, 0.5, 0.5, 0.7, 0.7, c, 1)
 	box(p, 0.5, 0.5, 0.3, 0.3, col.navy, 1)
 end
+ICONS.menu = function(p, c) -- three bars (compact quick-menu button)
+	for i = 0, 2 do
+		box(p, 0.5, 0.26 + i * 0.24, 0.84, 0.13, c, 0.5)
+	end
+end
 ICONS.help = function(p, c) -- ? in a ring
 	local ring = box(p, 0.5, 0.5, 0.86, 0.86, c, 1)
 	ring.BackgroundTransparency = 1

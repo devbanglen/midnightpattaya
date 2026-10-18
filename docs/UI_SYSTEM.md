@@ -256,3 +256,52 @@ Compare RenderStepped/Heartbeat rates and `Instances` memory; repeat once with 3
   tile width minus 6 px and `minSize = 8`, so "Missions"/"Settings" fit at 88 px across HUD scale 0.62-1.3.
 - Player card: name/title were already `fit`; the level label ("LV. n", rich text) is `TextTruncate.None`.
 - `Components.label` adds no text stroke (unchanged).
+
+## Touch layout (compact; team5/ui-fix, written, not run in Studio)
+
+**When:** `Responsive.isCompact()` = touch input **or** viewport width < 1100 px (`Responsive.COMPACT_WIDTH`).
+MidnightHUD mirrors it as attribute `Compact` on its ScreenGui. MidnightActivity, MidnightSpeedo and
+PattayaMinimapClient read that attribute, and so does CircuitRaceClient for the tower. Desktop (not compact) keeps
+the exact v1 layout: every compact change is behind that flag. Desktop sizes are restored when the window grows back.
+
+**Rules**
+1. Nothing overlaps another HUD element or Roblox's touch controls. Roblox's own buttons (`PlayerGui.ContextActionGui`
+   and `TouchGui` GuiButtons up to 200 px, i.e. the CAS buttons and the jump button) are read at runtime: once a
+   second, on viewport changes and on gui AbsoluteSize changes (`placeAvoiding`). The speedometer slides left in
+   8 px steps until it is 8 px clear of them. The job strip / chips get the widest centred width that stays 8 px
+   clear in their rows. The thumbstick visual (bottom-left, bottom ~100 px) is kept clear by the layout itself
+   (nothing is placed there).
+2. Margin 12 screen px. Anchor sizes are design px x the HUD scale (`Responsive.scale()`, 0.62 on a phone).
+3. Player card 300 x 100: avatar, name (shrinks down to 8 px, never "..."), `LV. n` + the money (green, inside the
+   card, shrink-to-fit, the separate money pill is hidden), EXP bar. Title line and EXP numbers are hidden.
+4. Quick menu: one 72 x 72 menu button (>= 44 px on screen, red dot = any tile badge). It opens the 6 tiles
+   (88 x 84 each, >= 44 px) as a sheet left of the button. While the sheet is open TopCenter hides. A tile tap, the
+   button again, or 8 s untouched closes it. Gamepad hold-Select opens it too.
+5. TopCenter 660 x 190: no wordmark. Free roam is one line (`<district>  •  FREE ROAM` / `<job> JOB`) plus the
+   GPS / event pill. The racing title, strip, status, sectors and lights move up to y 0.
+6. Toasts: a top-centre column under TopCenter, 260 x 136, newest below, at most 2 on screen.
+7. Speedometer: the compact variant 242 x 113 (about 150 x 70) has big digits, KM/H (or LIMITED), nitro % and a
+   nitro bar, with no dial. Centred, bottom edge 90 px above the screen bottom, but never closer than 8 px under the
+   toast column.
+8. Minimap card: 150 x 120 screen px under the player card, header 22 px. There is no compass, rose or district
+   label. The OSM credit is kept (8 px). Zoom in / zoom out / expand are 36 px buttons in a column just right of the
+   card.
+9. Circuit timing tower: under the minimap card, scaled with the HUD, only the rows that fit above the bottom 100 px
+   (at least 3).
+10. Known exception: the big centre text (3-2-1-GO / VICTORY, a few seconds) sits under the strip and can cover the
+    toast column while it shows.
+
+**Expected rectangles at 830 x 439 (GuiInset 58, so the HUD gui is 830 x 381; scale 0.62), in gui px:**
+
+| element | x, y | w x h |
+|---|---|---|
+| TopLeft / player card | 12, 12 | 186 x 62 |
+| TopRight / menu button | 773.4, 12 | 44.6 x 44.6 |
+| quick-menu sheet (open only; TopCenter hidden) | 408.8, 8.3 | 359.6 x 59.5 (tiles 54.6 x 52.1) |
+| TopCenter (activity) | 210.4, 12 | 409.2 x 117.8 |
+| Toasts column (2 max) | 334.4, 135.8 | 161.2 x 84.3 |
+| BottomLeft anchor / minimap card | 12, 82 | 150 x 120 |
+| minimap buttons (+, -, expand) | 168, 82 / 124 / 166 | 36 x 36 each |
+| BottomRight / compact speedo | 339, 228 | 150 x 70 |
+| BottomCenter anchor | 222.8, 326.8 | 384.4 x 42.2 (job strip at its bottom, 21 px tall, <= 384 wide) |
+| circuit timing tower (session) | 12, 210 | 186 x 60.8 (5 rows) |

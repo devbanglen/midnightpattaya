@@ -6,7 +6,9 @@
 --   Responsive.isTouch() / isGamepad() / inputKind()  "keyboard" | "gamepad" | "touch"
 --   Responsive.safeInsets(gui?)     extra {top, left, bottom, right} px a gui with IgnoreGuiInset must keep clear
 --   Responsive.reducedMotion()      attribute LocalPlayer.ReducedMotion, else Roblox's own Reduce Motion setting
---   Responsive.onChange(fn)         fn(reason) with reason "scale" | "input" | "motion"
+--   Responsive.isCompact()          small-screen / touch layout: touch input OR viewport width < COMPACT_WIDTH
+--                                   (docs/UI_SYSTEM.md "Touch layout"); MidnightHUD mirrors it as gui attribute Compact
+--   Responsive.onChange(fn)         fn(reason) with reason "scale" | "input" | "motion" | "viewport" (any size change)
 -- Bus: fires "hud.scale" (effective scale, number) and "hud.reducedMotion" (bool) when they change.
 -- Viewport scale: the HUD is laid out for a 1600x900 reference; scale = min(w/1600, h/900) clamped to 0.5-1.3
 -- (touch devices never go below 0.62 so 76 px menu buttons stay >= 44 px). 1920x1080 -> 1.2, 1366x768 -> 0.85.
@@ -24,6 +26,7 @@ Responsive.MAX_SCALE = 1.3
 Responsive.TOUCH_MIN_SCALE = 0.62
 Responsive.HUD_SCALE_MIN = 0.7
 Responsive.HUD_SCALE_MAX = 1.4
+Responsive.COMPACT_WIDTH = 1100 -- viewport px: below this (or on touch) the compact layout is used
 Responsive.TOUCH_RESERVE = 180 -- px (screen space) kept clear right of BottomRight for the jump button / touch zone
 Responsive.ANCHORS = {"TopLeft", "TopCenter", "TopRight", "BottomLeft", "BottomCenter", "BottomRight", "Toasts"}
 
@@ -88,6 +91,11 @@ end
 function Responsive.isGamepad(): boolean
 	start()
 	return kind == "gamepad"
+end
+
+function Responsive.isCompact(): boolean
+	start()
+	return kind == "touch" or Responsive.viewport().X < Responsive.COMPACT_WIDTH
 end
 
 function Responsive.hudScale(): number
@@ -173,6 +181,7 @@ start = function()
 		if cam then
 			camConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
 				applyScale()
+				notify("viewport") -- compact positions depend on the size even when the scale is clamped
 			end)
 		end
 		applyScale()

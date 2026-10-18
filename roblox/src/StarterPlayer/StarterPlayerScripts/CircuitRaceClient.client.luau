@@ -14,7 +14,6 @@ local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ProximityPromptService = game:GetService("ProximityPromptService")
-local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("PattayaRemotes", 60)
@@ -228,9 +227,11 @@ player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
 applyLegacyHide()
 gui.Parent = player:WaitForChild("PlayerGui")
 
--- timing tower under the premium HUD (owner fix): while MidnightHUD == true it sits under the player card
--- (TopLeft anchor; on touch under the quick menu, TopRight, because the minimap takes the space under the card),
--- scaled with the HUD, in Theme colours and fonts. MidnightHUD false = the old look and place at (16, 268).
+-- timing tower under the premium HUD (owner fix): while MidnightHUD == true it sits 8 px under the player card
+-- (TopLeft anchor), scaled with the HUD, in Theme colours and fonts. Compact / touch layout (MidnightHUD gui attribute
+-- Compact, docs/UI_SYSTEM.md "Touch layout"): under the minimap card instead, with only as many rows as fit above
+-- the thumbstick zone (bottom 100 px), at least 3. MidnightHUD false = the old look and place at (16, 268).
+local towerRows = 12
 local towerScale = Instance.new("UIScale")
 towerScale.Parent = tower
 local towerStroke = Instance.new("UIStroke")
@@ -244,18 +245,29 @@ local function hudAnchor(name: string): GuiObject?
 end
 local function placeTower()
 	local styled = player:GetAttribute("MidnightHUD") == true and Theme ~= nil
-	local touch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-	local a = if styled then hudAnchor(if touch then "TopRight" else "TopLeft") else nil
-	if styled and a then
-		local sc = a:FindFirstChildOfClass("UIScale")
-		towerScale.Scale = if sc then sc.Scale else 1
-		local pos, size = a.AbsolutePosition, a.AbsoluteSize
-		if touch then
-			tower.AnchorPoint = Vector2.new(1, 0)
-			tower.Position = UDim2.fromOffset(pos.X + size.X, pos.Y + size.Y + 8)
-		else
-			tower.AnchorPoint = Vector2.new(0, 0)
-			tower.Position = UDim2.fromOffset(pos.X, pos.Y + size.Y + 8)
+	local topLeft = if styled then hudAnchor("TopLeft") else nil
+	local hudGui = topLeft and topLeft:FindFirstAncestorWhichIsA("ScreenGui")
+	local small = hudGui ~= nil and hudGui:GetAttribute("Compact") == true
+	local a: GuiObject? = topLeft
+	if small then
+		local bl = hudAnchor("BottomLeft")
+		local mc = bl and bl:FindFirstChild("MinimapCard")
+		if mc and mc:IsA("GuiObject") and mc.Visible then
+			a = mc
+		end
+	end
+	towerRows = 12
+	if styled and a and topLeft then
+		local sc = topLeft:FindFirstChildOfClass("UIScale")
+		local s = if sc then sc.Scale else 1
+		towerScale.Scale = s
+		local pos = a.AbsolutePosition - gui.AbsolutePosition -- the HUD's space -> this ScreenGui's space
+		local top = pos.Y + a.AbsoluteSize.Y + 8
+		tower.AnchorPoint = Vector2.new(0, 0)
+		tower.Position = UDim2.fromOffset(pos.X, top)
+		if small and hudGui then
+			local avail = (hudGui.AbsoluteSize.Y - 100) - top
+			towerRows = math.clamp(math.floor((avail / s - 8) / 18), 3, 12)
 		end
 		tower.BackgroundColor3 = Theme.color.surface
 		tower.BackgroundTransparency = Theme.alpha.panel
@@ -650,9 +662,10 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 	elseif kind == "tower" then
 		local rows = payload.rows or {}
 		local head = if payload.ranked then 1 else 0 -- a RANKED header line takes the first row
-		tower.Size = UDim2.fromOffset(300, 8 + (math.min(#rows, 12 - head) + head) * 18)
+		placeTower() -- position + rows that fit (compact)
+		tower.Size = UDim2.fromOffset(300, 8 + (math.min(#rows, towerRows - head) + head) * 18)
 		for i = 1, 12 do
-			local r = rows[i - head]
+			local r = if i <= towerRows then rows[i - head] else nil
 			towerLines[i].TextColor3 = if Theme and player:GetAttribute("MidnightHUD") == true then Theme.color.text else WHITE
 			if head == 1 and i == 1 then
 				towerLines[i].Text = "RANKED RACE"
@@ -668,7 +681,6 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 			end
 		end
 		tower:SetAttribute("Until", os.clock() + 3)
-		placeTower() -- follows the HUD scale / viewport (cheap: a few property writes per tower update)
 	elseif kind == "results" then
 		local ranked = payload.ranked == true
 		resultsTitle.Text = ("%s  -  %s  -  %d laps%s"):format(payload.name, payload.mode, payload.laps,
