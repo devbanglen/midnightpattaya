@@ -5,7 +5,8 @@
 --  2. Night mode for the Pattaya world: lit window tiles on facades (4x4-window night tile, so it is shown at 4x the
 --     day tile size), glowing street lamps with their SpotLights on.
 --  3. Floodlights: any BasePart with attribute FloodLight=true anywhere in workspace gets its SpotLight children
---     enabled at night (circuit poles).
+--     enabled at night (circuit poles, beam emitters, lamp posts). Any BasePart with NightNeon=true turns Neon with
+--     its NightColor attribute at night and back to SmoothPlastic + DayColor by day (circuit window bands, lamp heads).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
@@ -175,6 +176,25 @@ local function applyFlood(part: BasePart)
 		end
 	end
 end
+-- NightNeon=true parts (circuit window bands, lamp heads): Neon + NightColor at night, SmoothPlastic + DayColor by day
+local neons = setmetatable({}, {__mode = "k"})
+local function applyNeon(part: BasePart)
+	local col = part:GetAttribute(if night then "NightColor" else "DayColor")
+	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	if typeof(col) == "Color3" then part.Color = col end
+end
+local function track(d: Instance)
+	if d:IsA("BasePart") then
+		if d:GetAttribute("FloodLight") == true then
+			floods[d] = true
+			task.defer(applyFlood, d)
+		end
+		if d:GetAttribute("NightNeon") == true then
+			neons[d] = true
+			task.defer(applyNeon, d)
+		end
+	end
+end
 workspace.DescendantAdded:Connect(function(d)
 	if d:IsA("SpotLight") then
 		local p = d.Parent
@@ -182,23 +202,22 @@ workspace.DescendantAdded:Connect(function(d)
 			floods[p] = true
 			d.Enabled = night
 		end
-	elseif d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-		floods[d] = true
-		task.defer(applyFlood, d)
+	else
+		track(d)
 	end
 end)
 task.spawn(function()
 	for i, d in workspace:GetDescendants() do
-		if d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-			floods[d] = true
-			applyFlood(d)
-		end
+		track(d)
 		if i % 5000 == 0 then task.wait() end
 	end
 end)
 onNightChanged(function()
 	for p in floods do
 		if p.Parent then applyFlood(p) end
+	end
+	for p in neons do
+		if p.Parent then applyNeon(p) end
 	end
 end)
 

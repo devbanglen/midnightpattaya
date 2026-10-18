@@ -24,6 +24,12 @@ local MERGE_TOL = 0.08 -- studs: consecutive centreline points this close to a s
 local MERGE_MAX = 60 -- studs: longest merged part
 local POLE_H = 70
 local BATCH = 200 -- parts per task.wait()
+local SHOULDER_W = 16 -- studs: sloped plank from a road/plaza edge down to the verge (render_venue.py SHOULDER)
+local SHOULDER_DROP = 2.5 -- studs it falls over SHOULDER_W (about 9 degrees): a car that runs off rolls back up
+-- Roblox lights reach at most 60 studs, so a 70-stud pole head can't light the asphalt by itself: each pole also gets
+-- invisible beam emitters over the near track edge (FloodLight=true like the head, so the night script enables them)
+local BEAM_H = 32 -- emitter height above the track
+local BEAM_SPREAD = 70 -- studs between the emitters of one pole, along the track
 
 local COLORS: {[string]: Color3} = {
 	track = Color3.fromRGB(52, 53, 58),
@@ -45,7 +51,27 @@ local COLORS: {[string]: Color3} = {
 	pole = Color3.fromRGB(70, 72, 78),
 	lamp = Color3.fromRGB(255, 244, 214),
 	board = Color3.fromRGB(250, 250, 250),
+	verge = Color3.fromRGB(104, 146, 78),
+	bay = Color3.fromRGB(235, 235, 235),
+	roadSign = Color3.fromRGB(0, 105, 62),
+	pylon = Color3.fromRGB(24, 32, 64),
+	paddockSign = Color3.fromRGB(0, 150, 190),
+	tent = Color3.fromRGB(235, 236, 240),
+	glassDay = Color3.fromRGB(46, 58, 72), -- window bands by day; NightNeon turns them into warm light at night
+	glassNight = Color3.fromRGB(255, 214, 150),
+	lampDay = Color3.fromRGB(200, 200, 192),
 }
+local FLAG_COLORS = {Color3.fromRGB(220, 30, 40), Color3.fromRGB(245, 245, 245), Color3.fromRGB(20, 60, 160),
+	Color3.fromRGB(255, 200, 0)}
+
+-- NightNeon: PattayaNightLights sets Material = Neon and Color = NightColor at night, and SmoothPlastic + DayColor by
+-- day, for every BasePart with this attribute (window bands, lamp heads)
+local function nightNeon(p: BasePart, dayColor: Color3, nightColor: Color3)
+	p.Color = dayColor
+	p:SetAttribute("NightNeon", true)
+	p:SetAttribute("DayColor", dayColor)
+	p:SetAttribute("NightColor", nightColor)
+end
 
 local built = 0
 local function newPart(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, collide: boolean): Part
@@ -354,18 +380,20 @@ local function buildGrid(root: Instance, def: any)
 	end
 end
 
-local function sign(part: BasePart, text: string, face: Enum.NormalId)
+local function sign(part: BasePart, text: string, face: Enum.NormalId, textColor: Color3?, glow: boolean?)
 	local gui = Instance.new("SurfaceGui")
 	gui.Face = face
-	gui.CanvasSize = Vector2.new(200, 140)
+	gui.CanvasSize = Vector2.new(math.max(part.Size.X, 1) * 20, math.max(part.Size.Y, 1) * 20)
+	gui.LightInfluence = if glow then 0 else 1 -- glowing signs stay readable at night
 	gui.Parent = part
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.fromScale(1, 1)
+	label.Size = UDim2.fromScale(0.92, 0.84)
+	label.Position = UDim2.fromScale(0.04, 0.08)
 	label.BackgroundTransparency = 1
 	label.Text = text
 	label.TextScaled = true
 	label.Font = Enum.Font.GothamBold
-	label.TextColor3 = Color3.fromRGB(20, 20, 20)
+	label.TextColor3 = textColor or Color3.fromRGB(20, 20, 20)
 	label.Parent = gui
 end
 
@@ -376,7 +404,8 @@ local function buildBoards(root: Instance, def: any, c: {Vector3})
 		local i = b.index
 		local fwd = flat(c[i % n + 1] - c[i]).Unit
 		local base = Vector3.new(b.x, b.y, b.z)
-		newPart(boards, "Post", Vector3.new(0.6, 8, 0.6), CFrame.new(base + Vector3.new(0, 4, 0)), COLORS.pole, true)
+		-- the post reaches 2 studs under the track height: the run-off it stands on is 0.6 lower than the asphalt
+		newPart(boards, "Post", Vector3.new(0.6, 10, 0.6), CFrame.new(base + Vector3.new(0, 3, 0)), COLORS.pole, true)
 		local pos = base + Vector3.new(0, 8, 0)
 		local board = newPart(boards, "Board" .. b.dist, Vector3.new(7, 5, 0.4), CFrame.lookAt(pos, pos - fwd), COLORS.board, false)
 		board.CanQuery = false
@@ -395,6 +424,7 @@ local function buildLights(root: Instance, def: any)
 		lamp.CanQuery = false
 		lamp:SetAttribute("FloodLight", true) -- the night system enables the SpotLight in parts with this attribute
 		lamp:SetAttribute("Index", i)
+		nightNeon(lamp, COLORS.lampDay, COLORS.lamp) -- the lamp face glows at night
 		local spot = Instance.new("SpotLight")
 		spot.Face = Enum.NormalId.Front
 		spot.Angle = 100
@@ -404,6 +434,28 @@ local function buildLights(root: Instance, def: any)
 		spot.Shadows = false
 		spot.Enabled = false
 		spot.Parent = lamp
+		-- beam emitters over the near track edge (reach = pole to centreline, hw = half track width, from the data)
+		local dir = Vector3.new(f.dx, 0, f.dz).Unit
+		local along = Vector3.new(-dir.Z, 0, dir.X)
+		local edge = base + dir * ((f.reach or 60) - (f.hw or 21))
+		for k = -1, 1 do
+			local at = edge + along * k * BEAM_SPREAD + Vector3.new(0, BEAM_H, 0)
+			local target = at + dir * (f.hw or 21) - Vector3.new(0, BEAM_H, 0)
+			local beam = newPart(lights, "FloodBeam", Vector3.new(1, 1, 1), CFrame.lookAt(at, target), COLORS.lamp, false)
+			beam.Transparency = 1
+			beam.CanQuery = false
+			beam:SetAttribute("FloodLight", true)
+			beam:SetAttribute("Index", i)
+			local s = Instance.new("SpotLight")
+			s.Face = Enum.NormalId.Front
+			s.Angle = 110
+			s.Range = 60
+			s.Brightness = 1.6
+			s.Color = COLORS.lamp
+			s.Shadows = false
+			s.Enabled = false
+			s.Parent = beam
+		end
 	end
 end
 
@@ -411,6 +463,7 @@ local FOOTING = 14 -- buildings reach this far below their base so slopes never 
 
 local function buildBuildings(root: Instance, def: any, c: {Vector3})
 	local blds = model(root, "Buildings")
+	local pit = toV3(def.pitLane)
 	for _, b in def.buildings do
 		local rot = CFrame.Angles(0, -math.rad(b.yaw), 0)
 		local m = model(blds, b.kind)
@@ -445,11 +498,16 @@ local function buildBuildings(root: Instance, def: any, c: {Vector3})
 			wedge.Material = Enum.Material.SmoothPlastic
 			wedge.CastShadow = false
 			wedge.Parent = m
-			local roofCf = CFrame.lookAt(centre, centre + front) * CFrame.new(0, b.h + 10, depth / 4)
-			local roof = newPart(m, "Roof", Vector3.new(width + 4, 1, depth * 0.7), roofCf, COLORS.roof, false)
+			-- roof over the back 70% of the seats (local +Z is the back, away from the track), carried by columns that
+			-- stand on the ground just behind the back edge (they used to hang in the air 5% of the depth behind it)
+			local look = CFrame.lookAt(centre, centre + front)
+			local roofCf = look * CFrame.new(0, b.h + 10, depth * 0.15 + 1.5)
+			local roof = newPart(m, "Roof", Vector3.new(width + 4, 1, depth * 0.7 + 3), roofCf, COLORS.roof, false)
 			roof.CanQuery = false
-			for _, s in {-1, 1} do
-				newPart(m, "Column", Vector3.new(1.5, 10, 1.5), roofCf * CFrame.new(s * width / 2, -5.5, depth * 0.3), COLORS.pole, true)
+			local colH = b.h + 10 + FOOTING
+			for _, s in {-1, 0, 1} do
+				newPart(m, "Column", Vector3.new(1.5, colH, 1.5),
+					look * CFrame.new(s * (width / 2 - 1), b.h + 9.5 - colH / 2, depth / 2 + 1), COLORS.pole, true)
 			end
 		else
 			local color = COLORS[b.kind] or COLORS.pit_garage
@@ -457,12 +515,42 @@ local function buildBuildings(root: Instance, def: any, c: {Vector3})
 			newPart(m, "Body", Vector3.new(b.w, b.h + FOOTING, b.d), cf, color, true)
 			local roof = newPart(m, "Roof", Vector3.new(b.w + 2, 1, b.d + 2), CFrame.new(b.x, b.y + b.h + 0.5, b.z) * rot, COLORS.roof, false)
 			roof.CanQuery = false
+			local base = CFrame.new(b.x, b.y, b.z) * rot
+			local function band(name: string, s: number, y0: number, hgt: number, color: Color3): Part
+				local p = newPart(m, name, Vector3.new(b.w - 4, hgt, 0.2), base * CFrame.new(0, y0 + hgt / 2, s * (b.d / 2 + 0.1)), color, false)
+				p.CanQuery = false
+				return p
+			end
 			if b.kind == "pit_garage" then
-				-- a dark band of garage doors on both long sides
+				-- garage doors open toward the pit lane (or the track for a garage far from it, e.g. the kart pit);
+				-- an office window band above the doors and along the back, lit at night
+				local ctr = Vector3.new(b.x, 0, b.z)
+				local target, best = nil :: Vector3?, 150
+				for _, p in pit do
+					local dd = (flat(p) - ctr).Magnitude
+					if dd < best then target, best = flat(p), dd end
+				end
+				if not target then
+					local bd = math.huge
+					for _, p in c do
+						local dd = (flat(p) - ctr).Magnitude
+						if dd < bd then target, bd = flat(p), dd end
+					end
+				end
+				local v = rot * Vector3.zAxis
+				local s = if ((target :: Vector3) - ctr):Dot(v) > 0 then 1 else -1
+				m:SetAttribute("DoorSide", s)
+				band("Doors", s, 0, b.h * 0.55, Color3.fromRGB(60, 64, 72))
+				nightNeon(band("Windows", s, b.h * 0.66, b.h * 0.16, COLORS.glassDay), COLORS.glassDay, COLORS.glassNight)
+				nightNeon(band("Windows", -s, b.h * 0.5, b.h * 0.2, COLORS.glassDay), COLORS.glassDay, COLORS.glassNight)
+			elseif b.kind == "race_control" then
+				-- glazed control room on all four sides
 				for _, s in {-1, 1} do
-					local band = newPart(m, "Doors", Vector3.new(b.w - 4, b.h * 0.55, 0.2),
-						CFrame.new(b.x, b.y + b.h * 0.275, b.z) * rot * CFrame.new(0, 0, s * (b.d / 2 + 0.1)), Color3.fromRGB(60, 64, 72), false)
-					band.CanQuery = false
+					nightNeon(band("Windows", s, b.h * 0.55, b.h * 0.3, COLORS.glassDay), COLORS.glassDay, COLORS.glassNight)
+					local side = newPart(m, "Windows", Vector3.new(0.2, b.h * 0.3, b.d - 4),
+						base * CFrame.new(s * (b.w / 2 + 0.1), b.h * 0.7, 0), COLORS.glassDay, false)
+					side.CanQuery = false
+					nightNeon(side, COLORS.glassDay, COLORS.glassNight)
 				end
 			end
 		end
@@ -501,6 +589,134 @@ local function buildAccess(root: Instance, def: any)
 	local beam = newPart(access, "GateSign", Vector3.new(span + 2, 5, 1), CFrame.lookAt(beamPos, beamPos - fwd), COLORS.board, false)
 	beam.CanQuery = false
 	sign(beam, def.name, Enum.NormalId.Front)
+end
+
+local function yawCf(x: number, y: number, z: number, yaw: number): CFrame
+	return CFrame.new(x, y, z) * CFrame.Angles(0, -math.rad(yaw), 0)
+end
+
+-- sloped plank along an edge: its top runs from just under the edge (y - 0.05) down SHOULDER_DROP over SHOULDER_W,
+-- outward. A plain pitched Part (no WedgePart orientation to get wrong).
+local function shoulder(parent: Instance, sh: any)
+	local a = Vector3.new(sh.ax, sh.y - 0.05, sh.az)
+	local b = Vector3.new(sh.bx, sh.y - 0.05, sh.bz)
+	local len = (b - a).Magnitude
+	if len < 1 then return end
+	local o = Vector3.new(sh.ox, 0, sh.oz).Unit
+	local hi = (a + b) / 2 - o * 0.3
+	local lo = hi + o * SHOULDER_W - Vector3.new(0, SHOULDER_DROP, 0)
+	local dir = (lo - hi).Unit
+	local mid = (hi + lo) / 2
+	local cf = CFrame.lookAt(mid, mid + dir) * CFrame.new(0, -0.5, 0) -- top face through the hi -> lo line
+	newPart(parent, "Shoulder", Vector3.new(len + 2, 1, (lo - hi).Magnitude), cf, COLORS.verge, true)
+end
+
+-- arrival area (all gameplay): verge ground and shoulders, visitor paddock + service road, car park with bays,
+-- signs, flag poles, lamp posts. Every field is optional so older definitions still build.
+local function buildArrival(root: Instance, def: any)
+	local arr = model(root, "Arrival")
+	-- verge slabs: top 1 stud under the road, so a car that leaves the road edge rolls down the shoulder onto them
+	for _, v in def.verge or {} do
+		newPart(arr, "Verge", Vector3.new(v.w, SLAB, v.d), yawCf(v.x, v.y - SLAB / 2, v.z, v.yaw), COLORS.verge, true)
+	end
+	for _, sh in def.shoulders or {} do
+		shoulder(arr, sh)
+	end
+	local pd = def.paddock
+	if pd then
+		local pm = model(arr, "Paddock")
+		pm:SetAttribute("Verified", pd.verified)
+		local apron = newPart(pm, "Apron", Vector3.new(pd.w, SLAB, pd.d), yawCf(pd.x, pd.y + 0.01 - SLAB / 2, pd.z, pd.yaw), COLORS.paddock, true)
+		apron:SetAttribute("Paddock", true)
+		-- two team tents along the back edge; dx/dz is the paddock's front (toward the plaza road)
+		local base = yawCf(pd.x, pd.y, pd.z, pd.yaw)
+		local toBack = -Vector3.new(pd.dx, 0, pd.dz).Unit
+		for _, sx in {-0.25, 0.25} do
+			local tpos = Vector3.new(pd.x, pd.y, pd.z) + base.RightVector * sx * pd.w + toBack * (pd.d / 2 - 11)
+			local tc = CFrame.lookAt(tpos, tpos - toBack)
+			local roof = newPart(pm, "TentRoof", Vector3.new(30, 0.6, 20), tc * CFrame.new(0, 10, 0), COLORS.tent, false)
+			roof.CanQuery = false
+			for _, cx in {-14, 14} do
+				for _, cz in {-9, 9} do
+					newPart(pm, "TentPost", Vector3.new(0.5, 10, 0.5), tc * CFrame.new(cx, 5, cz), COLORS.pole, true)
+				end
+			end
+		end
+	end
+	if def.paddockRoad then
+		local pts = toV3(def.paddockRoad.pts)
+		if #pts >= 2 then
+			strip(arr, "PaddockRoad", pts, table.create(#pts, def.paddockRoad.width), SERVICE_DROP, SLAB, COLORS.road, true)
+		end
+	end
+	for _, cp in def.carPark or {} do
+		local cm = model(arr, "CarPark")
+		cm:SetAttribute("Bays", cp.bays)
+		newPart(cm, "CarPark", Vector3.new(cp.w, SLAB, cp.d), yawCf(cp.x, cp.y + 0.015 - SLAB / 2, cp.z, cp.yaw), COLORS.parking, true)
+		local base = yawCf(cp.x, cp.y + 0.04, cp.z, cp.yaw)
+		local nb = math.floor(cp.w / cp.bayW + 0.5)
+		for _, row in {-1, 1} do
+			local zc = row * (cp.d / 2 - cp.bayD / 2)
+			for k = 0, nb do
+				local line = newPart(cm, "BayLine", Vector3.new(0.5, 0.05, cp.bayD - 1), base * CFrame.new(-cp.w / 2 + k * cp.bayW, 0, zc), COLORS.bay, false)
+				line.CanQuery = false
+			end
+			local back = newPart(cm, "BayLine", Vector3.new(cp.w, 0.05, 0.5), base * CFrame.new(0, 0, row * (cp.d / 2 - 0.6)), COLORS.bay, false)
+			back.CanQuery = false
+		end
+	end
+	for _, s in def.signs or {} do
+		local at = Vector3.new(s.x, s.y, s.z)
+		local face = Vector3.new(s.dx, 0, s.dz).Unit
+		local right = Vector3.new(-face.Z, 0, face.X)
+		if s.kind == "pylon" then
+			-- destination marker: a tall double-sided column, readable from the corridor and from the plaza
+			local cf = CFrame.lookAt(at + Vector3.new(0, s.h / 2, 0), at + Vector3.new(0, s.h / 2, 0) + face)
+			local p = newPart(arr, "DestinationPylon", Vector3.new(s.w, s.h + 4, 3), cf * CFrame.new(0, -2, 0), COLORS.pylon, true)
+			sign(p, s.text, Enum.NormalId.Front, Color3.fromRGB(255, 255, 255), true)
+			sign(p, s.text, Enum.NormalId.Back, Color3.fromRGB(255, 255, 255), true)
+			local cap = newPart(arr, "PylonCap", Vector3.new(s.w + 1, 1.5, 3.6), cf * CFrame.new(0, s.h / 2 + 0.8, 0), COLORS.paddockSign, false)
+			cap.CanQuery = false
+			nightNeon(cap, COLORS.paddockSign, COLORS.paddockSign)
+		else
+			local color = if s.kind == "board" then COLORS.paddockSign else COLORS.roadSign
+			for _, sx in {-1, 1} do
+				newPart(arr, "SignPost", Vector3.new(0.5, s.post + s.h / 2 + 2, 0.5),
+					CFrame.new(at + right * sx * (s.w / 2 - 1) + Vector3.new(0, (s.post + s.h / 2 - 2) / 2, 0)), COLORS.pole, true)
+			end
+			local c0 = at + Vector3.new(0, s.post + s.h / 2, 0)
+			local board = newPart(arr, "Sign", Vector3.new(s.w, s.h, 0.4), CFrame.lookAt(c0, c0 + face), color, false)
+			board.CanQuery = false
+			sign(board, s.text, Enum.NormalId.Front, Color3.fromRGB(255, 255, 255), true)
+		end
+	end
+	for _, f in def.flagPoles or {} do
+		local at = Vector3.new(f.x, f.y, f.z)
+		newPart(arr, "FlagPole", Vector3.new(0.5, 32, 0.5), CFrame.new(at + Vector3.new(0, 15, 0)), COLORS.pole, true)
+		-- plain coloured flags (no logos), hung toward the road direction
+		local fl = newPart(arr, "Flag", Vector3.new(0.15, 5, 8), CFrame.new(at + Vector3.new(0, 27.5, 4.2)), FLAG_COLORS[(f.color or 0) % #FLAG_COLORS + 1], false)
+		fl.CanQuery = false
+	end
+	for i, l in def.lampPosts or {} do
+		local at = Vector3.new(l.x, l.y, l.z)
+		local inward = Vector3.new(l.dx, 0, l.dz).Unit
+		newPart(arr, "LampPost", Vector3.new(0.8, 26, 0.8), CFrame.new(at + Vector3.new(0, 12, 0)), COLORS.pole, true)
+		local hp = at + Vector3.new(0, 24.5, 0) + inward * 2
+		local head = newPart(arr, "LampHead", Vector3.new(3, 0.8, 4), CFrame.lookAt(hp, hp + inward), COLORS.lampDay, false)
+		head.CanQuery = false
+		head:SetAttribute("FloodLight", true)
+		head:SetAttribute("Index", i)
+		nightNeon(head, COLORS.lampDay, COLORS.lamp)
+		local s = Instance.new("SpotLight")
+		s.Face = Enum.NormalId.Bottom
+		s.Angle = 120
+		s.Range = 45
+		s.Brightness = 2
+		s.Color = COLORS.lamp
+		s.Shadows = false
+		s.Enabled = false
+		s.Parent = head
+	end
 end
 
 -- terrain under the venue: grass columns from ground.base up to each cell's height (the generator keeps cells under
@@ -567,6 +783,7 @@ function Builder.Build(def: any, opts: {terrain: boolean?, lights: boolean?}?): 
 	end
 	buildBuildings(root, def, c)
 	buildAccess(root, def)
+	buildArrival(root, def)
 	if options.terrain ~= false and def.ground then
 		buildTerrain(def)
 	end

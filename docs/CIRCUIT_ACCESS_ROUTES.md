@@ -90,3 +90,25 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
 - Not done: the corridor has no buildings, props or traffic; a return trip was routed (2,832 studs from
   mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated; the world-map UI
   (menu with a map icon for the circuit) is still pending, GPS is key-driven for now.
+
+## Entrance, parking and paddock (team2/venue, 2026-10-18; built in code, NOT run in Studio)
+Driving in from the corridor: at J the transition road starts. 40 studs later a green "BIRA CIRCUIT ->" road sign
+stands on the left verge, then the destination pylon at the plaza entry, then the "<- PADDOCK" and
+"P CAR PARK ->" signs. The plaza (30 × 40 m) is lined by 8 flag poles with plain coloured flags, and the gate arch
+is 10 studs past the plaza.
+- **Car park:** 120 × 64 studs, flush with the plaza's south side (right of the arrival direction), 24 marked bays
+  of 10 × 22 studs in two rows facing a 20-stud aisle (`carPark`).
+- **Paddock:** the pit garages and the apron behind them are in the infield, so every road there crosses the live
+  track (OSM: an at-grade crossing at the west hairpin or tunnel 132455224). The players' paddock (`paddock`,
+  130 × 80 studs, two team tents and a "PADDOCK" board) is therefore **outside the track, north of the plaza**.
+  A 20-stud service road (`paddockRoad`) 52 studs long joins it to the plaza. The paddock point is 153 studs from
+  the gate. The real service road 165168047 (gate → outside of T11 → grandstand) passes 100 studs east of it.
+- **Paddock ring:** CircuitServer now replaces the compiled `entrance` CFrame with `def.paddock` when the definition
+  has one. The ring/prompt, `Sessions.travel` and "moved to the paddock" all land there. `entrance` (the gate) stays
+  the map/GPS destination. The 9-line change is at the top of `CircuitServer.server.luau`; the leader may move it
+  into CircuitRegistry later.
+- **Edges:** the transition road, plaza, car park, paddock and paddock road have verge slabs (top 1 stud under the
+  road, 30 studs out) and 16-stud sloped shoulder planks on every edge, and the terrain is flattened to the same
+  level and blended back over 64 studs. A car that leaves the road rolls down at most 1 stud onto flat ground and can
+  drive back, instead of the 4-stud drop the leader found. The road tops are unchanged (still y = 1; plaza 1.02,
+  car park 1.015, paddock road 0.96, paddock 1.01).
