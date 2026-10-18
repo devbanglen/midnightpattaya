@@ -62,7 +62,7 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 local ANCHORS = {
 	TopLeft = {anchor = Vector2.new(0, 0), size = Vector2.new(600, 120)},
 	TopCenter = {anchor = Vector2.new(0.5, 0), size = Vector2.new(560, 260)},
-	TopRight = {anchor = Vector2.new(1, 0), size = Vector2.new(520, 96)},
+	TopRight = {anchor = Vector2.new(1, 0), size = Vector2.new(584, 96)}, -- 6 tiles x 88 + gaps (520 clipped the Garage tile at full screen, leader 2026-10-19)
 	BottomLeft = {anchor = Vector2.new(0, 1), size = Vector2.new(340, 300)},
 	BottomCenter = {anchor = Vector2.new(0.5, 1), size = Vector2.new(620, 100)},
 	BottomRight = {anchor = Vector2.new(1, 1), size = Vector2.new(440, 300)},
