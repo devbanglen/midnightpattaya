@@ -320,7 +320,7 @@ function StreetRace.startRace(parts, opts)
 	local right = Vector3.new(-d0.Z, 0, d0.X)
 	local now = workspace:GetServerTimeNow()
 	local race = {parts = parts, cps = r.cps, length = r.length, route = r.route, goAt = now + COUNTDOWN, standingsAt = 0,
-		opts = opts, data = opts.data, timeLimit = timeLimit}
+		opts = opts, data = opts.data, timeLimit = timeLimit, ended = false}
 	local rows = (#parts + 1) // 2
 	local names = {}
 	for i, p in parts do

@@ -524,7 +524,7 @@ local function runEvent(kind: string, lead: number?)
 	local startAt = workspace:GetServerTimeNow() + lead
 	setState({Phase = "gathering", Kind = kind, Title = title, StartAt = startAt, RingPos = ringPos, Entrants = 0,
 		Round = 0, Rounds = 0, Alive = 0, Color = color})
-	msgAll(("%s in %d s! Follow the beacon or press J to join"):format(title, lead))
+	msgAll(("%s in %d s! Follow the beacon or press J to join"):format(title, lead :: number))
 	local label = ring.PrimaryPart:FindFirstChildWhichIsA("BillboardGui"):FindFirstChild("Label") :: TextLabel
 	while workspace:GetServerTimeNow() < startAt do
 		for _, plr in Players:GetPlayers() do

@@ -454,7 +454,7 @@ local function buildTerrain(man: any)
 end
 
 function Builder.Build(opts: {terrain: boolean?}?)
-	local options = opts or {}
+	local options = (opts or {}) :: {terrain: boolean?}
 	local data = game:GetService("ServerStorage"):WaitForChild("PattayaData")
 	local man = require(data:WaitForChild("manifest")) :: any
 	local old = workspace:FindFirstChild("PattayaWorld")
@@ -560,7 +560,7 @@ end
 
 function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolean?, only: {string}?, batch: string?,
 	removeBaseConflicts: boolean?}?)
-	local options = opts or {}
+	local options = (opts or {}) :: any -- same fields as the annotation ({} alone does not unify with it)
 	local data = game:GetService("ServerStorage"):WaitForChild(options.folder or "PattayaDataWide")
 	local man = require(data:WaitForChild("manifest")) :: any
 	if options.batch then -- "seam", then the districts in man.batchOrder
