@@ -1,0 +1,24 @@
+# OVERNIGHT PROGRESS — MIDNIGHT PATTAYA (autonomous run, started 2026-10-19 night)
+
+Owner directive: "AUTONOMOUS OVERNIGHT DEVELOPMENT" + "AUTOMATIC LIMIT PROTECTION & RESUME" (2026-10-19). Project
+Director: the leader session (Fable 5.1). Teams: Opus 5.5 agents, disjoint files, own branches, no pushes by teams.
+Boundaries kept all night: no VIS-8, no Secondary UI implementation, no citywide rebuild, no publish, no .env to the
+GPU box, no bulk uploads without need, rollback kept, Studio installs that need a fresh owner .rbxl are deferred.
+
+Status words: DONE (committed), TESTED (ran offline or in Studio with evidence), UNVERIFIED (written, not run),
+BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FOR_OWNER (needs a decision).
+
+## Log (newest last)
+| Time (local) | Item | Status | Evidence |
+|---|---|---|---|
+| 05:00–06:10 | VIS-7.1 lighting + mesh sample installed, probed, captured; weak-table bug fixed | DONE / TESTED | docs/VISUAL_ACCEPTANCE.md §5, commits f1bf51b…116682f |
+| 06:20 | Focused render-FPS after the MeshPart swap (owner said "ready", viewport never reached ≥ 50 fps in 2 × 70 s polls) | PENDING_OWNER_TEST | render stayed 15–16 fps = unfocused; not counted |
+| 06:25 | Thai sign close-up: Thai glyphs render in Gotham and BuilderSans identically (engine fallback) → no font change; sign board mesh front face missing (kit bug) | TESTED (Edit captures) | docs/images/vis71_thai_gotham.jpg, vis71_thai_buildersans.jpg, vis71_mesh_after_shophouse_side_day.jpg |
+| 06:30 | team7/vis-kit2 started (Blender kit: sign board faces, awning shape, palm geometry; tools/blender only) | RUNNING | branch team7/vis-kit2 in D:\ROBLOXRACE-garage |
+
+## Priority queue (owner order)
+1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
+2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
+3. Visual refinement (palms, variety, window brightness, wet/dry, neon, Thai signs, ground-floor shops) — slice only.
+4. Automated tests that need no owner (Luau syntax, Python tests, asset validation, bounds, road collision, determinism, manifest consistency, rollback).
+5. Next-milestone prep (quality tiers, perf config, comparison tools, QA scripts; VIS-8 / Secondary UI as plans only).
