@@ -66,3 +66,22 @@ Clone() (now built into RebuildChunks/Extend `fresh`), or the old module is serv
 **Drive regression after pass 2 (Play):** Central Loop, physics autopilot at 120 studs/s over the rebuilt city chunks:
 13,290 studs in 115.5 s, 227/227 probes on road, up vector min 1.00, every gate counted (lap completed, 67 nitro
 bonuses), no script errors. Server probe of RacePath: 332/332 road.
+
+## Dual carriageways rebuilt (leader, 2026-10-19, Studio)
+
+Owner saved the place (+ a Save-As copy) first. Installed team4/dual: PattayaBuilder (hidden/cut/fill/merged),
+`PattayaData.graph_part_2`, `ReplicatedStorage.PattayaTraffic`, `PattayaDataWide.joints`, 28 + 214 + 5 chunk modules
+(old modules kept in `_prev_dual` folders), furniture data folder replaced (old folder renamed
+`PattayaDataFurniture_prev_dual`). Rebuilt with `RebuildChunks` (fresh): central 28 chunks 7,237 parts 0.9 s; wide 214
+chunks 27,100 parts 4.4 s; corridor 5 chunks 506 parts; furniture `Remove()` + f1..f35: 274 chunks 9,140 parts 5.2 s.
+Road parts now 19,568 incl. 5,862 RoadFill wedges (WedgeParts named Road with attribute RoadFill).
+
+| probe | before dual | after dual |
+|---|---|---|
+| slab-overlap pairs (different names, outside discs +6) | 92 (~2,300 studs) | **70 (1,096 studs)**, all 12–16-stud throats at junctions (tee class), no markings/kerbs on them |
+| markings on another road | 0 | **0** |
+| Sidewalk centres inside another road (real roads) | 0 | **0** |
+| bare bends 35–150° (RoadFill wedges excluded) | 0 | **0** |
+| furniture solid parts touching road/sidewalk/disc | 0 | **1** (NameSignPost (21589, 5644) on a Thep Prasit sidewalk → dual pass 3) |
+| road-centre raycasts whose top hit is not road | 0 | **2** (fill wedges under shophouses osm 311941409 at (19062, 3225) and 311061457/311061340 at (24670, 640)) → dual pass 3 |
+| crossing bars | 4,906 | 4,321, all thin/non-solid |
