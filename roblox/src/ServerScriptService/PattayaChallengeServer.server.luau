@@ -35,6 +35,7 @@ local invites = {} -- [target] = {from, expires}
 local lastRequest = {} -- [player] = time
 
 local msg = StreetRace.msg
+local fireClient = StreetRace.fireClient -- FireClient only to players still in the game
 local botModel = StreetRace.botModel
 local playerPart = StreetRace.playerPart
 local botPart = StreetRace.botPart
@@ -67,7 +68,7 @@ ChallengeRequest.OnServerEvent:Connect(function(plr: Player)
 	end
 	if target then
 		invites[target] = {from = plr, expires = now + INVITE_TIME}
-		ChallengeMsg:FireClient(target, "invite", plr.DisplayName, INVITE_TIME)
+		fireClient(ChallengeMsg, target, "invite", plr.DisplayName, INVITE_TIME)
 		msg(plr, ("Challenge sent to %s..."):format(target.DisplayName))
 		task.delay(INVITE_TIME + 0.5, function()
 			local inv = invites[target]
@@ -218,7 +219,7 @@ local function onBossResult(p, race, reason: string?)
 		end
 		Progress.Award(plr, money, exp, "Road Fight: beat " .. d.boss)
 		local nextBoss = byOrder[d.order + 1]
-		SprintUpdate:FireClient(plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
+		fireClient(SprintUpdate, plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
 			text = ("YOU BEAT %s!  %.2f s"):format(string.upper(d.boss), p.time)})
 		if first then
 			msg(plr, if nextBoss then ("Unlocked: %s - %s"):format(nextBoss.def.label, nextBoss.def.boss)
@@ -227,10 +228,10 @@ local function onBossResult(p, race, reason: string?)
 	elseif p.place then
 		local exp = math.floor(race.length / 80)
 		Progress.Award(plr, 0, exp, "Road Fight: lost to " .. d.boss)
-		SprintUpdate:FireClient(plr, "finish", {time = p.time, length = race.length, money = 0, exp = exp,
+		fireClient(SprintUpdate, plr, "finish", {time = p.time, length = race.length, money = 0, exp = exp,
 			text = ("%s wins. Come back faster."):format(d.boss)})
 	elseif not p.out then
-		SprintUpdate:FireClient(plr, "stop", reason or "Did not finish")
+		fireClient(SprintUpdate, plr, "stop", reason or "Did not finish")
 	end
 end
 

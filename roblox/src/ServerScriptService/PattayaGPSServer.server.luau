@@ -45,6 +45,10 @@ local function available()
 end
 
 local function send(plr: Player, dest)
+	if not plr.Parent then
+		active[plr] = nil
+		return
+	end
 	local chassis = Route.carOf(plr)
 	local pos = if chassis then chassis.Position else (plr.Character and plr.Character:GetPivot().Position)
 	if not pos then
@@ -65,7 +69,17 @@ local function send(plr: Player, dest)
 	GPSUpdate:FireClient(plr, "route", {id = dest.id, label = dest.label, route = r.route, length = r.length})
 end
 
+-- at most one GPSRequest per REQUEST_GAP s per player; extras are dropped (the route itself is computed by the
+-- Heartbeat below, one per frame, so a player never has two route searches running)
+local REQUEST_GAP = 0.5
+local lastRequest: {[Player]: number} = {}
+
 GPSRequest.OnServerEvent:Connect(function(plr: Player, id)
+	local clock = os.clock()
+	if clock - (lastRequest[plr] or -math.huge) < REQUEST_GAP then
+		return
+	end
+	lastRequest[plr] = clock
 	if id == "list" then
 		GPSUpdate:FireClient(plr, "list", available())
 		return
@@ -107,4 +121,5 @@ end)
 
 Players.PlayerRemoving:Connect(function(plr)
 	active[plr] = nil
+	lastRequest[plr] = nil
 end)

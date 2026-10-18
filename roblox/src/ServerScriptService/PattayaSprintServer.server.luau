@@ -35,21 +35,40 @@ local NitroBonus = remote("NitroBonus")
 
 local active = {} -- [player] = {cps = {Vector3}, dirs = {Vector3}, next, start, length}
 local carOf = Route.carOf
+-- request rate limit: at most one RequestSprint per REQUEST_GAP s per player (extras are dropped), and never a second
+-- route search while one is running for that player (pointToPoint runs a Dijkstra over the whole road graph)
+local REQUEST_GAP = 0.5
+local lastRequest: {[Player]: number} = {}
+local routing: {[Player]: boolean} = {}
 
 local function stop(plr: Player, reason: string)
 	if active[plr] then
 		active[plr] = nil
 		plr:SetAttribute("SprintActive", false)
-		SprintUpdate:FireClient(plr, "stop", reason)
+		if plr.Parent then -- the Heartbeat also stops runs of players who already left
+			SprintUpdate:FireClient(plr, "stop", reason)
+		end
 	end
 end
 
 RequestSprint.OnServerEvent:Connect(function(plr: Player)
+	local clock = os.clock()
+	if routing[plr] or clock - (lastRequest[plr] or -math.huge) < REQUEST_GAP then
+		return
+	end
+	lastRequest[plr] = clock
 	local chassis = carOf(plr)
 	if not chassis or active[plr] or Route.busy(plr) then
 		return
 	end
-	local r, why = Route.pointToPoint(chassis.Position, chassis.CFrame.LookVector, MIN_LEN, MAX_LEN, CP_SPACING)
+	routing[plr] = true
+	local okR, r, why = pcall(Route.pointToPoint, chassis.Position, chassis.CFrame.LookVector, MIN_LEN, MAX_LEN,
+		CP_SPACING)
+	routing[plr] = nil
+	if not okR then
+		warn("PattayaSprintServer: route search failed:", r)
+		return
+	end
 	if not r then
 		SprintUpdate:FireClient(plr, "stop", why)
 		return
@@ -113,4 +132,6 @@ end)
 
 Players.PlayerRemoving:Connect(function(plr)
 	active[plr] = nil
+	lastRequest[plr] = nil
+	routing[plr] = nil
 end)

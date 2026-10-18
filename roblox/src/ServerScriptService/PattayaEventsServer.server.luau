@@ -54,6 +54,7 @@ local EventJoin = remote("EventJoin") -- client -> server: join the announced ev
 local ChallengeMsg = StreetRace.ChallengeMsg
 local SprintUpdate = StreetRace.SprintUpdate
 local msg = StreetRace.msg
+local fireClient = StreetRace.fireClient -- FireClient only to players still in the game
 local ordinal = StreetRace.ordinal
 
 -- public state for clients (attributes replicate, so late joiners see the event too)
@@ -302,11 +303,11 @@ local function runNightRun(title: string, r, humans: {Player}, bots)
 				local money = math.floor(race.length / 25 + 20 * (n - place) + (C.podium[place] or 0) * (1 + 0.25 * (nh - 1)))
 				local exp = math.floor(race.length / 40 + 10 * (n - place))
 				Progress.Award(plr, money, exp, ("%s %s/%d"):format(title, ordinal(place), n))
-				SprintUpdate:FireClient(plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
+				fireClient(SprintUpdate, plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
 					text = if place == 1 then ("%s WINNER!  %.2f s"):format(title, p.time)
 						else ("%s place of %d  %.2f s"):format(ordinal(place), n, p.time)})
 			elseif not p.out then
-				SprintUpdate:FireClient(plr, "stop", reason or "Did not finish")
+				fireClient(SprintUpdate, plr, "stop", reason or "Did not finish")
 			end
 		end,
 		onEnd = function(race)
@@ -411,10 +412,10 @@ local function runSurvival(title: string, r1, humans: {Player}, bots)
 			gridAlongRoute = true,
 			onResult = function(p, race, reason)
 				if p.place then
-					SprintUpdate:FireClient(p.plr, "finish", {time = p.time, length = race.length, money = 0, exp = 0,
+					fireClient(SprintUpdate, p.plr, "finish", {time = p.time, length = race.length, money = 0, exp = 0,
 						text = ("Round %d: %s of %d  %.2f s"):format(round, ordinal(p.place), n, p.time)})
 				elseif not p.out then
-					SprintUpdate:FireClient(p.plr, "stop", reason or "Did not finish")
+					fireClient(SprintUpdate, p.plr, "stop", reason or "Did not finish")
 				end
 			end,
 			onEnd = function(race)

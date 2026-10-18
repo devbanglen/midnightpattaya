@@ -59,8 +59,17 @@ StreetRace.SprintUpdate = SprintUpdate
 local byPlayer = {} -- [player] = race
 local races = {}
 
+-- FireClient to a player who already left would throw inside the shared Heartbeat (aborting that pass for every
+-- race): every send to a player goes through this guard
+local function fireClient(r: RemoteEvent, plr: Player?, ...)
+	if plr and plr.Parent then
+		r:FireClient(plr, ...)
+	end
+end
+StreetRace.fireClient = fireClient
+
 local function msg(plr: Player, text: string)
-	ChallengeMsg:FireClient(plr, "msg", text)
+	fireClient(ChallengeMsg, plr, "msg", text)
 end
 StreetRace.msg = msg
 
@@ -238,11 +247,11 @@ local function challengeResult(p, race, reason: string?)
 			if q ~= p then table.insert(rivals, q.name) end
 		end
 		Progress.Award(p.plr, money, exp, if winner then "Challenge won" else ("Challenge %d/%d"):format(p.place, n))
-		SprintUpdate:FireClient(p.plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
+		fireClient(SprintUpdate, p.plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
 			text = if winner then ("YOU WIN!  %.2f s  vs %s"):format(p.time, table.concat(rivals, ", "))
 				else ("%s place  %.2f s"):format(ordinal(p.place), p.time)})
 	elseif not p.out then -- drivers already out were told when it happened
-		SprintUpdate:FireClient(p.plr, "stop", reason or "Did not finish")
+		fireClient(SprintUpdate, p.plr, "stop", reason or "Did not finish")
 	end
 end
 
@@ -378,10 +387,10 @@ function StreetRace.startRace(parts, opts)
 			for _, n in names do
 				if n ~= p.name then table.insert(rivals, n) end
 			end
-			SprintUpdate:FireClient(p.plr, "start", {checkpoints = r.cps, dirs = r.dirs, route = r.route, length = r.length,
+			fireClient(SprintUpdate, p.plr, "start", {checkpoints = r.cps, dirs = r.dirs, route = r.route, length = r.length,
 				start = race.goAt, timeLimit = timeLimit, title = opts.title or "CHALLENGE", rivals = rivals,
 				banner = opts.banner})
-			ChallengeMsg:FireClient(p.plr, "countdown", race.goAt)
+			fireClient(ChallengeMsg, p.plr, "countdown", race.goAt)
 		end
 	end
 	task.delay(race.goAt - workspace:GetServerTimeNow(), function()
@@ -412,7 +421,7 @@ end
 
 local function knockOut(p, reason: string)
 	p.out, p.outReason = true, reason
-	SprintUpdate:FireClient(p.plr, "stop", reason)
+	fireClient(SprintUpdate, p.plr, "stop", reason)
 	byPlayer[p.plr] = nil
 	p.plr:SetAttribute("SprintActive", false)
 end
@@ -456,7 +465,7 @@ RunService.Heartbeat:Connect(function(dt)
 						continue
 					end
 					-- catch-up: trailing drivers get more nitro per checkpoint
-					NitroBonus:FireClient(p.plr, if p.next < leaderNext then 30 else 20)
+					fireClient(NitroBonus, p.plr, if p.next < leaderNext then 30 else 20)
 				end
 				p.lastCpAt, p.lastCpPos = now, pos
 				if p.next == #race.cps then
@@ -470,7 +479,7 @@ RunService.Heartbeat:Connect(function(dt)
 				else
 					p.next += 1
 					if p.plr then
-						SprintUpdate:FireClient(p.plr, "next", p.next)
+						fireClient(SprintUpdate, p.plr, "next", p.next)
 					end
 				end
 			end
@@ -485,7 +494,7 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 			for place, p in order do
 				if p.plr and not p.out then
-					ChallengeMsg:FireClient(p.plr, "standings", names, place)
+					fireClient(ChallengeMsg, p.plr, "standings", names, place)
 				end
 			end
 		end
