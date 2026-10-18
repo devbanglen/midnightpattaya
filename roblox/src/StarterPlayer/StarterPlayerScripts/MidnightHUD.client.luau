@@ -430,7 +430,7 @@ local MENU = {
 local tiles: {[string]: TextButton} = {}
 for i, m in MENU do
 	tiles[m.id] = C.iconButton({parent = menuGroup, name = m.id, icon = m.icon, label = m.label,
-		hint = SHORTCUT_TEXT[m.id], size = UDim2.fromOffset(76, 84), layoutOrder = i, onClick = m.fire})
+		hint = SHORTCUT_TEXT[m.id], size = UDim2.fromOffset(88, 84), layoutOrder = i, onClick = m.fire}) -- 88 wide: "Missions" truncated at 76 (leader, first capture)
 end
 for i, m in MENU do -- gamepad: left/right walks the row, wraps at the ends
 	local t = tiles[m.id]
