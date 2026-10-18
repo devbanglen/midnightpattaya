@@ -217,6 +217,13 @@ ContextActionService:BindAction("StreetSprint", function(_, state)
 end, true, Enum.KeyCode.H, Enum.KeyCode.ButtonX)
 ContextActionService:SetTitle("StreetSprint", "SPRINT")
 ContextActionService:SetPosition("StreetSprint", UDim2.new(1, -200, 1, -240))
+-- compact touch layout (docs/UI_SYSTEM.md "Round 3: touch controls"): MidnightUI.TouchControls owns the button grid
+local function touchRegister(name: string, opts: {[string]: any})
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("MidnightUI")
+	m = m and m:FindFirstChild("TouchControls")
+	if m then (require(m) :: any).register(name, opts) end
+end
+touchRegister("StreetSprint", {slot = "sprint", title = "SPRINT", position = UDim2.new(1, -200, 1, -240)})
 
 RunService.RenderStepped:Connect(function()
 	local chassis = inCar()

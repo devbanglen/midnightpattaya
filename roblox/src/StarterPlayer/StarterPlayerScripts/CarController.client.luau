@@ -169,6 +169,12 @@ local function onReset(_, inputState)
 	return Enum.ContextActionResult.Sink
 end
 
+-- compact touch layout (docs/UI_SYSTEM.md "Round 3: touch controls"): MidnightUI.TouchControls owns the button grid
+local function touchRegister(name: string, opts: {[string]: any})
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("MidnightUI")
+	m = m and m:FindFirstChild("TouchControls")
+	if m then (require(m) :: any).register(name, opts) end
+end
 local function bindActions()
 	ContextActionService:BindAction("CarNitro", onNitro, true, Enum.KeyCode.LeftShift, Enum.KeyCode.ButtonR2)
 	ContextActionService:BindAction("CarDrift", onDrift, true, Enum.KeyCode.LeftControl, Enum.KeyCode.ButtonL2)
@@ -179,6 +185,9 @@ local function bindActions()
 	ContextActionService:SetPosition("CarNitro", UDim2.new(1, -110, 1, -200))
 	ContextActionService:SetPosition("CarDrift", UDim2.new(1, -200, 1, -150))
 	ContextActionService:SetPosition("CarReset", UDim2.new(1, -110, 1, -290))
+	touchRegister("CarNitro", {slot = "nitro", title = "NOS", position = UDim2.new(1, -110, 1, -200)})
+	touchRegister("CarDrift", {slot = "drift", title = "DRIFT", position = UDim2.new(1, -200, 1, -150)})
+	touchRegister("CarReset", {slot = "reset", title = "R", position = UDim2.new(1, -110, 1, -290)})
 end
 
 local function unbindActions()

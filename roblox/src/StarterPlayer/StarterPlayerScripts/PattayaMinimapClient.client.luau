@@ -118,9 +118,52 @@ local function text(parent: Instance, props): TextLabel
 	t.Parent = parent
 	return t
 end
+-- touch-safe feedback (ui-fix round 3): no AutoButtonColor; mouse hover (MouseMovement only, so a tap never leaves a
+-- stuck hover), pressed colour while the touch / click that began on the button is held. `target` = what is recoloured.
+local function pressFx(b: GuiButton, target: GuiObject?)
+	local t = target or b
+	local base: Color3? = nil
+	local hovering, pressing = false, false
+	local function render()
+		if not hovering and not pressing then
+			if base then
+				t.BackgroundColor3 = base
+				base = nil
+			end
+			return
+		end
+		base = base or t.BackgroundColor3
+		t.BackgroundColor3 = if pressing then C.cyan else C.line
+	end
+	b.InputBegan:Connect(function(input: InputObject)
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseMovement then
+			hovering = true
+			render()
+		elseif kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
+			pressing = true
+			render()
+			local c: RBXScriptConnection
+			c = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+				if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
+					c:Disconnect()
+					pressing = false
+					render()
+				end
+			end)
+		end
+	end)
+	b.InputEnded:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			hovering = false
+			render()
+		end
+	end)
+end
 local function button(parent: Instance, label: string, z: number?): TextButton
 	local b = Instance.new("TextButton")
-	b.AutoButtonColor = true
+	b.AutoButtonColor = false
+	pressFx(b)
 	b.BackgroundColor3 = C.surface2
 	b.BackgroundTransparency = Theme.alpha.panelDim
 	b.BorderSizePixel = 0
@@ -204,6 +247,38 @@ do
 	lim.MinTextSize = 10
 	lim.Parent = header
 end
+-- compact HUD only: GPS chip at the right end of the header; tap = the G key (next destination, then off) through
+-- Bus "gps.cycle" -> PattayaGPSClient (same GPSRequest flow). Replaces the removed GPS touch button (TouchControls).
+local gpsChip = Instance.new("TextButton")
+gpsChip.Name = "GPSChip"
+gpsChip.AnchorPoint = Vector2.new(1, 0)
+gpsChip.Position = UDim2.new(1, -2, 0, -8) -- hit area 48 x 30: the 22 px header + the 8 px gap above the card
+gpsChip.Size = UDim2.fromOffset(48, 30)
+gpsChip.BackgroundTransparency = 1
+gpsChip.AutoButtonColor = false
+gpsChip.Selectable = false
+gpsChip.Text = ""
+gpsChip.ZIndex = 23
+gpsChip.Visible = false
+gpsChip.Parent = card
+local gpsPill = text(gpsChip, {font = Theme.font.display, size = Theme.size.caption - 2, color = C.textDim, text = "GPS",
+	align = Enum.TextXAlignment.Center, z = 24})
+gpsPill.Name = "Pill"
+gpsPill.AnchorPoint = Vector2.new(0.5, 1)
+gpsPill.Position = UDim2.new(0.5, 0, 1, -3)
+gpsPill.Size = UDim2.fromOffset(44, 16)
+gpsPill.BackgroundColor3 = C.navy
+gpsPill.BackgroundTransparency = Theme.alpha.panelDim
+corner(gpsPill, Theme.radius.pill)
+local gpsPillStroke = strokeOf(gpsPill, C.line, Theme.stroke.thin)
+pressFx(gpsChip, gpsPill)
+gpsChip.Activated:Connect(function()
+	if Bus.count and Bus.count("gps.cycle") == 0 then
+		Bus.fire("toast", {title = "GPS", body = "GPS is not ready yet", kind = "warn"})
+		return
+	end
+	Bus.fire("gps.cycle")
+end)
 
 local compass = text(card, {font = Theme.font.display, size = Theme.size.label, color = C.text, text = "N",
 	align = Enum.TextXAlignment.Center})
@@ -491,7 +566,7 @@ local function badge(kind: string, x: number, z: number, labelText: string, size
 	label.Parent = b
 	scaled(label, 170, 14)
 	local entry = {badge = b, label = label, kind = kind, gpsId = nil :: string?, text = labelText}
-	b.MouseButton1Click:Connect(function()
+	b.Activated:Connect(function() -- Activated: mouse click and touch tap
 		if open then -- the minimap's markers are display-only
 			onMarkerClick(entry)
 		end
@@ -926,7 +1001,7 @@ local function rebuildDestinations()
 		b.Size = UDim2.new(1, -8, 0, TOUCH)
 		b.LayoutOrder = 10 + i
 		b:SetAttribute("DestId", d.id)
-		b.MouseButton1Click:Connect(function()
+		b.Activated:Connect(function()
 			pick(d.id)
 		end)
 		table.insert(destButtons, b)
@@ -935,7 +1010,7 @@ local function rebuildDestinations()
 	linkSelection()
 end
 linkSelection()
-clearBtn.MouseButton1Click:Connect(function()
+clearBtn.Activated:Connect(function()
 	pick(nil)
 end)
 
@@ -982,6 +1057,9 @@ local function updateHeader()
 		pin.BackgroundColor3 = C.textMuted
 		fGps.Text = if districtName then string.upper(districtName) else ""
 	end
+	local routed = type(lbl) == "string" and lbl ~= ""
+	gpsPill.TextColor3 = if routed then C.cyan else C.textDim
+	gpsPillStroke.Color = if routed then C.cyan else C.line
 end
 player:GetAttributeChangedSignal("GPS_Label"):Connect(updateHeader)
 player:GetAttributeChangedSignal("GPS_Km"):Connect(updateHeader)
@@ -1051,7 +1129,8 @@ local function layoutCard(on: boolean)
 	pin.Position = UDim2.fromOffset(pad + 2, hh / 2)
 	pin.Size = UDim2.fromOffset(if on then 8 else 12, if on then 8 else 12)
 	header.Position = UDim2.fromOffset(pad + (if on then 14 else 20), 0)
-	header.Size = UDim2.new(1, -(pad + (if on then 14 else 20)) - (if on then 4 else 40), 0, hh)
+	header.Size = UDim2.new(1, -(pad + (if on then 14 else 20)) - (if on then 52 else 40), 0, hh) -- compact: GPS chip
+	gpsChip.Visible = on
 	local lim = header:FindFirstChildOfClass("UITextSizeConstraint")
 	if lim then
 		lim.MaxTextSize = if on then Theme.size.caption else Theme.size.label
@@ -1267,14 +1346,23 @@ setOpen = function(on: boolean)
 	refreshCard()
 end
 
-ContextActionService:BindAction("WorldMap", function(_, state)
+local function worldMapAction(_, state)
 	if state == Enum.UserInputState.Begin then
 		setOpen(not open)
 	end
 	return Enum.ContextActionResult.Pass
-end, true, Enum.KeyCode.M, Enum.KeyCode.ButtonSelect)
+end
+ContextActionService:BindAction("WorldMap", worldMapAction, true, Enum.KeyCode.M, Enum.KeyCode.ButtonSelect)
 ContextActionService:SetTitle("WorldMap", "MAP")
 ContextActionService:SetPosition("WorldMap", UDim2.new(1, -410, 1, -240))
+-- compact touch layout (docs/UI_SYSTEM.md "Round 3: touch controls"): MidnightUI.TouchControls owns the button grid
+local function touchRegister(name: string, opts: {[string]: any})
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("MidnightUI")
+	m = m and m:FindFirstChild("TouchControls")
+	if m then (require(m) :: any).register(name, opts) end
+end
+touchRegister("WorldMap", {hide = true, handler = worldMapAction, keys = {Enum.KeyCode.M, Enum.KeyCode.ButtonSelect},
+	title = "MAP", position = UDim2.new(1, -410, 1, -240)})
 Bus.on("map.toggle", function(v)
 	if type(v) == "boolean" then
 		setOpen(v)
@@ -1282,17 +1370,17 @@ Bus.on("map.toggle", function(v)
 		setOpen(not open)
 	end
 end)
-expandBtn.MouseButton1Click:Connect(function()
+expandBtn.Activated:Connect(function()
 	setOpen(true)
 end)
-closeBtn.MouseButton1Click:Connect(function()
+closeBtn.Activated:Connect(function()
 	setOpen(false)
 end)
-dim.MouseButton1Click:Connect(function()
+dim.Activated:Connect(function()
 	setOpen(false)
 end)
 local VIEWS = {"ALL", "CITY", "NEAR"}
-viewBtn.MouseButton1Click:Connect(function()
+viewBtn.Activated:Connect(function()
 	local i = table.find(VIEWS, view) or 1
 	view = VIEWS[i % #VIEWS + 1]
 	applyView()
@@ -1306,10 +1394,10 @@ local function setZoom(i: number)
 	zoomInBtn.TextTransparency = if zoomIndex == #ZOOMS then 0.6 else 0
 	zoomOutBtn.TextTransparency = if zoomIndex == 1 then 0.6 else 0
 end
-zoomInBtn.MouseButton1Click:Connect(function()
+zoomInBtn.Activated:Connect(function()
 	setZoom(zoomIndex + 1)
 end)
-zoomOutBtn.MouseButton1Click:Connect(function()
+zoomOutBtn.Activated:Connect(function()
 	setZoom(zoomIndex - 1)
 end)
 setZoom(zoomIndex)

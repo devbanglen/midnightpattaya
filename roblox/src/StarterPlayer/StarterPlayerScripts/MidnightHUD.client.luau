@@ -102,9 +102,15 @@ local COMPACT = {
 	BottomLeft = Vector2.new(340, 300), -- minimap (the card sizes itself in screen px, see PattayaMinimapClient)
 	BottomCenter = Vector2.new(620, 68), -- chips (keyboard only) + job strip
 	BottomRight = Vector2.new(242, 113), -- compact speedometer (MidnightSpeedo)
-	Toasts = Vector2.new(260, 136), -- 2 toasts, top-centre column under the strip
+	Toasts = Vector2.new(260, 136), -- 2 toasts (fewer if they do not fit), centre column above the speedometer
 }
 local CM = 12 -- compact margin, screen px
+-- round 3 (touch): the compact big centre text (MidnightActivity BIG_COMPACT: 3-2-1-GO / VICTORY / PERSONAL BEST)
+-- ends at this design y inside TopCenter; the toast column starts 6 px below it and the speedometer 6 px below the
+-- toasts, so big text, toasts and speedometer never overlap (docs/UI_SYSTEM.md "Round 3: touch controls").
+local COMPACT_BIG_BOTTOM = 258
+local COMPACT_JOB_H = 34 -- the job strip pill at the bottom of BottomCenter (touch: no chips row)
+local compactToasts = 2 -- toasts on screen at once in compact (placeAvoiding: 2, or 1 on a very short screen)
 local compact = false
 gui:SetAttribute("Compact", false) -- read by MidnightActivity / MidnightSpeedo / PattayaMinimapClient
 local applyCompactWidgets: (boolean) -> () = function(_) end
@@ -114,11 +120,10 @@ local function layoutCompact(s: number)
 	for name, v in COMPACT do
 		anchors[name].Size = UDim2.fromOffset(v.X, v.Y)
 	end
-	local tcBottom = CM + COMPACT.TopCenter.Y * s
 	anchors.TopLeft.AnchorPoint, anchors.TopLeft.Position = Vector2.new(0, 0), UDim2.fromOffset(CM, CM)
 	anchors.TopCenter.AnchorPoint, anchors.TopCenter.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, CM)
 	anchors.TopRight.AnchorPoint, anchors.TopRight.Position = Vector2.new(1, 0), UDim2.new(1, -CM, 0, CM)
-	anchors.Toasts.AnchorPoint, anchors.Toasts.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, tcBottom + 6)
+	anchors.Toasts.AnchorPoint = Vector2.new(0.5, 0) -- position + size: placeAvoiding (between big text and speedo)
 	anchors.BottomLeft.AnchorPoint = Vector2.new(0, 0)
 	anchors.BottomLeft.Position = UDim2.fromOffset(CM, CM + math.floor(COMPACT.TopLeft.Y * s) + 8)
 	anchors.BottomCenter.AnchorPoint, anchors.BottomCenter.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -CM)
@@ -181,11 +186,31 @@ for i = 1, MAX_TOASTS do
 	card.GroupTransparency = 1
 	table.insert(slots, {card = card, busy = false, stamp = 0})
 end
+local release: (Slot, number) -> ()
+-- compact / touch: a tap on a toast dismisses it (transparent button over the card, shown only in compact so the
+-- desktop toasts stay click-through exactly as before)
+for _, slot in slots do
+	local hit = Instance.new("TextButton")
+	hit.Name = "Dismiss"
+	hit.Text = ""
+	hit.BackgroundTransparency = 1
+	hit.AutoButtonColor = false
+	hit.Selectable = false
+	hit.Size = UDim2.fromScale(1, 1)
+	hit.ZIndex = 10
+	hit.Visible = false
+	hit.Parent = slot.card
+	hit.Activated:Connect(function()
+		if slot.busy then
+			release(slot, slot.stamp)
+		end
+	end)
+end
 local queue: {ToastReq} = {}
 local order = 0
 local pump: () -> ()
 
-local function release(slot: Slot, stamp: number)
+release = function(slot: Slot, stamp: number)
 	if slot.stamp ~= stamp or not slot.busy then
 		return
 	end
@@ -225,7 +250,7 @@ pump = function()
 	while #queue > 0 do
 		local free = nil
 		for i, s in slots do
-			if not s.busy and (i <= 2 or not compact) then -- compact: at most 2 toasts on screen
+			if not s.busy and (i <= compactToasts or not compact) then -- compact: 2 (or 1) toasts on screen
 				free = s
 				break
 			end
@@ -1142,6 +1167,10 @@ applyCompactWidgets = function(on: boolean)
 	toastList.HorizontalAlignment = if on then Enum.HorizontalAlignment.Center else Enum.HorizontalAlignment.Right
 	for _, slot in slots do
 		slot.card.Size = UDim2.fromOffset(if on then COMPACT.Toasts.X else 280, 64)
+		local hit = slot.card:FindFirstChild("Dismiss")
+		if hit then
+			(hit :: GuiObject).Visible = on -- tap to dismiss (compact only)
+		end
 	end
 end
 
@@ -1186,9 +1215,11 @@ local function hitsAny(x: number, y: number, w: number, h: number, list: {Rect},
 	return false
 end
 
--- compact speedometer: centred, bottom edge 90 px above the screen bottom, never higher than 8 px under the toast
--- column; slides left in 8 px steps while it would come within 8 px of a touch button. Job strip / chips: the widest
--- centred width that keeps 8 px from the touch buttons in their rows.
+-- compact vertical stack in the centre column (round 3): strip (TopCenter) -> big centre text (ends at design y
+-- COMPACT_BIG_BOTTOM) -> 6 px -> toast column (2 cards, or 1 when 2 do not fit) -> 6 px -> speedometer, whose bottom
+-- stays 8 px above the job strip. Speedometer: bottom edge 90 px above the screen bottom when there is room, never
+-- higher than that stack allows; slides left in 8 px steps while it would come within 8 px of a touch button.
+-- Job strip / chips: the widest centred width that keeps 8 px from the touch buttons in their rows.
 placeAvoiding = function()
 	if not compact then
 		return
@@ -1196,9 +1227,19 @@ placeAvoiding = function()
 	local s = Responsive.scale()
 	local W, H = gui.AbsoluteSize.X, gui.AbsoluteSize.Y
 	local obstacles = touchObstacles()
-	local toastBottom = CM + COMPACT.TopCenter.Y * s + 6 + COMPACT.Toasts.Y * s
 	local sw, sh = COMPACT.BottomRight.X * s, COMPACT.BottomRight.Y * s
-	local top = math.max(toastBottom + 8, H - 90 - sh)
+	local toastTop = CM + COMPACT_BIG_BOTTOM * s + 6
+	local maxTop = H - CM - COMPACT_JOB_H * s - 8 - sh -- lowest speedometer top
+	local fit = math.clamp(math.floor((maxTop - 6 - toastTop + 8 * s) / (72 * s)), 1, 2)
+	if fit ~= compactToasts then
+		compactToasts = fit
+		task.defer(pump) -- more room: show a queued toast now
+	end
+	local toastH = fit * 64 + (fit - 1) * 8 -- design px
+	anchors.Toasts.Size = UDim2.fromOffset(COMPACT.Toasts.X, toastH)
+	anchors.Toasts.Position = UDim2.new(0.5, 0, 0, math.floor(toastTop))
+	local toastBottom = toastTop + toastH * s
+	local top = math.min(math.max(toastBottom + 6, H - 90 - sh), maxTop)
 	local x = W / 2 - sw / 2
 	while x > CM and hitsAny(x, top, sw, sh, obstacles, 8) do
 		x -= 8
