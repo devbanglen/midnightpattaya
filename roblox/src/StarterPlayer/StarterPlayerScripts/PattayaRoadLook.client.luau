@@ -50,7 +50,10 @@ end
 local mode = currentMode()
 
 type Rec = {saved: any, kind: string, styled: string?}
-local recs: {[BasePart]: Rec} = setmetatable({}, {__mode = "k"}) :: any
+-- strong keys (leader, VIS-7.1): a weak-keyed table loses Instance keys as soon as no Lua reference holds them
+-- (Studio test: 767 road parts -> 0 within 5 s), so a later look change found nothing to restyle. Entries are
+-- dropped on DescendantRemoving (streaming out) instead.
+local recs: {[BasePart]: Rec} = {}
 local queue: {BasePart} = {}
 local conn: RBXScriptConnection? = nil
 
@@ -168,6 +171,9 @@ if not world then
 	return
 end
 world.DescendantAdded:Connect(register)
+world.DescendantRemoving:Connect(function(d)
+	recs[d :: any] = nil
+end)
 for i, d in world:GetDescendants() do
 	register(d)
 	if i % SCAN_BATCH == 0 then

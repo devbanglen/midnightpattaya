@@ -556,7 +556,9 @@ local function styledColor(c: Color3, st: any): Color3
 	end
 	return c
 end
-local neons = setmetatable({}, {__mode = "k"})
+-- strong keys (leader, VIS-7.1): weak-keyed Instance tables are emptied by the GC while the parts still exist in
+-- the world, so a preset change restyled nothing already applied; entries are dropped on DescendantRemoving instead
+local neons: {[BasePart]: boolean} = {}
 local function applyNeon(part: BasePart)
 	local col = part:GetAttribute(if night then "NightColor" else "DayColor")
 	if night then
@@ -578,7 +580,7 @@ end
 -- always-Neon sign props (PattayaBuilder "NeonSign"): recoloured through the palette (plus the NightStyles.NeonSign
 -- value cap in the styled presets), original colour kept. A NeonSign that is also NightNeon (the vis-slice neon
 -- strips) belongs to applyNeon only: running both painted its day colour through the palette (bright cyan by day).
-local signOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
+local signOrig: {[BasePart]: Color3} = {}
 local function applySign(part: BasePart)
 	if part:GetAttribute("NightNeon") == true then
 		return
@@ -592,7 +594,7 @@ local function applySign(part: BasePart)
 	part.Color = if st then styledColor(orig, st) else neonColor(orig)
 end
 -- street-lamp heads (parts named Lamp): Neon in the preset's warm lamp colour at night, the builder colour by day
-local lampOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
+local lampOrig: {[BasePart]: Color3} = {}
 local function applyLamp(part: BasePart)
 	local orig = lampOrig[part]
 	if not orig then
@@ -603,6 +605,13 @@ local function applyLamp(part: BasePart)
 	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
 	part.Color = if night and lamp then lamp.part else orig
 end
+workspace.DescendantRemoving:Connect(function(d)
+	if d:IsA("BasePart") then
+		neons[d] = nil
+		signOrig[d] = nil
+		lampOrig[d] = nil
+	end
+end)
 workspace.DescendantAdded:Connect(function(d)
 	if d:IsA("SpotLight") then
 		local p = d.Parent
