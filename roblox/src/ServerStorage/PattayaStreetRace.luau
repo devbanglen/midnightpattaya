@@ -246,6 +246,17 @@ local function challengeResult(p, race, reason: string?)
 	end
 end
 
+-- un-anchors the car a driver was put on the grid with, even if they have left it since (it would stay frozen in
+-- the street for good: nothing else ever un-anchors a race car); the driver gets it back only if still seated in it
+local function releaseCar(p)
+	local chassis = p.chassis
+	if chassis and chassis.Parent and chassis.Anchored then
+		chassis.Anchored = false
+		local owner = if Route.carOf(p.plr) == chassis then p.plr else nil
+		pcall(function() chassis:SetNetworkOwner(owner) end)
+	end
+end
+
 local function endRace(race, reason: string?)
 	if race.ended then
 		return
@@ -257,11 +268,7 @@ local function endRace(race, reason: string?)
 		if p.plr then
 			byPlayer[p.plr] = nil
 			p.plr:SetAttribute("SprintActive", false)
-			local chassis = Route.carOf(p.plr)
-			if chassis and chassis.Anchored then
-				chassis.Anchored = false
-				pcall(function() chassis:SetNetworkOwner(p.plr) end)
-			end
+			releaseCar(p)
 			local ok, err = pcall(opts.onResult or challengeResult, p, race, reason)
 			if not ok then warn("StreetRace onResult: " .. tostring(err)) end
 		elseif p.model then
@@ -341,6 +348,7 @@ function StreetRace.startRace(parts, opts)
 		p.lastCpAt, p.lastCpPos = race.goAt, cf.Position
 		if p.plr then
 			local chassis = Route.carOf(p.plr) :: BasePart
+			p.chassis = chassis -- the car that is held on the grid (released at GO / at the end)
 			local car = chassis.Parent :: Model
 			car:PivotTo(cf * chassis.CFrame:ToObjectSpace(car:GetPivot())) -- chassis lands exactly on cf
 			chassis.AssemblyLinearVelocity = Vector3.zero
@@ -381,10 +389,8 @@ function StreetRace.startRace(parts, opts)
 			return
 		end
 		for _, p in parts do
-			local chassis = p.plr and Route.carOf(p.plr)
-			if chassis then
-				chassis.Anchored = false
-				pcall(function() chassis:SetNetworkOwner(p.plr) end)
+			if p.plr then
+				releaseCar(p)
 			end
 		end
 	end)

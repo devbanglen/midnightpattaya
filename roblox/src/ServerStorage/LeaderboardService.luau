@@ -81,7 +81,11 @@ function Leaderboard.submit(plr: Player, id: string, lap: number, sectors: {numb
 	all = if type(all) == "table" then all else {}
 	local old = all[id]
 	if not old or lap < old.lap then
-		all[id] = {lap = lap, s = sectors, car = carId, class = class, at = os.time()}
+		-- a lap that started mid-lap (race grid ahead of the line, armAt) has no sector 1 (or 2): an array with a hole
+		-- may not serialise, and this table is saved inside the whole progress record. Keep sectors only when complete.
+		local complete = type(sectors[1]) == "number" and type(sectors[2]) == "number" and type(sectors[3]) == "number"
+		all[id] = {lap = lap, s = if complete then {sectors[1], sectors[2], sectors[3]} else nil, car = carId,
+			class = class, at = os.time()}
 		if Progress then
 			Progress.SetData(plr, PB_KEY, all)
 		end
