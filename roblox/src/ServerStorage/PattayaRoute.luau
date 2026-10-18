@@ -243,15 +243,18 @@ function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen:
 end
 
 -- Route from a world position to a graph node (by OSM id or graph index): the polyline in world coordinates and its
--- length, or nil, reason. Used by the GPS (e.g. the way to the Bira Circuit).
-function Route.routeTo(pos: Vector3, look: Vector3?, target: number, isOsmId: boolean?)
+-- length, or nil, reason. Used by the GPS (e.g. the way to the Bira Circuit, and back from its paddock).
+function Route.routeTo(pos: Vector3, look: Vector3?, target: number, isOsmId: boolean?, maxSnap: number?)
 	local dst = if isOsmId then osmIndex[target] else target
 	if not dst then
 		return nil, "Unknown destination"
 	end
 	local p = Route.toLocal(pos)
 	local ei, q, d, s = Route.nearestEdge(p)
-	if not ei or d > 150 then
+	-- maxSnap (default 150): how far off the graph the start may be. The GPS passes more, because a venue's paddock is
+	-- off the graph (Bira paddock: 233 studs from the facility junction) and the route then begins with a straight
+	-- leg from the car to the nearest road.
+	if not ei or d > (maxSnap or 150) then
 		return nil, "No road nearby"
 	end
 	local e = graph.edges[ei]

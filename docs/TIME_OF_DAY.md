@@ -67,7 +67,12 @@ black** and does not change with the knob. The template `Sky` has `StarCount = 0
 far below the horizon, so the skybox is unlit. Exposure scales what is on screen, so a black sky stays black.
 
 ### Night sky (2026-10-19, team4/night-ui): written, not seen
-**Status: written, not seen.** Nobody has looked at this in Studio yet. The values are a first guess, and the owner
+**Seen once (leader, 2026-10-19):** `docs/images/night_sky_v1_corridor.jpg`, Play at ClockTime 21 on the corridor
+with `NightSky = 1` (default) and the baked exposure 0.95. The sky is a flat bright violet/magenta from horizon to
+zenith: no longer black, the road and HUD read clearly, but stars are not visible against it in the capture and it may
+be too bright/flat for a "midnight" look. The owner should try `NightSky = 0.5` and `0.3` and pick a default.
+
+**Status before that look: written, not seen.** Nobody had looked at this in Studio when it was written. The values are a first guess, and the owner
 tunes them by eye with the `NightSky` knob.
 
 Goal: a "neon coastal city at night" sky. Deep indigo/violet overhead instead of black, a lighter pink-violet glow

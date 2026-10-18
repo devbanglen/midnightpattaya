@@ -265,6 +265,16 @@ function S.publishCircuit(id: string): string
 	assert(mod, "no ServerStorage.CircuitRegistry")
 	local Registry = require(mod) :: any
 	local c = Registry.get(id)
+	if not c then
+		-- 2026-10-19: the Studio command/execute context got its own copy of the module (empty registry) even though
+		-- CircuitServer had loaded the circuits, so load them into this copy too (compile only; no world changes)
+		local defs = ServerStorage:FindFirstChild("PattayaData")
+		defs = defs and defs:FindFirstChild("circuits")
+		if defs then
+			Registry.load(defs)
+			c = Registry.get(id)
+		end
+	end
 	assert(c, "circuit not loaded: " .. tostring(id) .. " (is CircuitServer running?)")
 	local n = S.publishPath("Circuit_" .. id, c.pts, true)
 	local msg = ("TK_Circuit_%s: %d points, %.0f studs"):format(id, n, c.len)
@@ -288,7 +298,7 @@ function S.publishRouteTo(plr: Player, target, isOsm: boolean?): string
 		target, isOsm = DESTINATIONS[target], true
 		assert(target, "unknown destination (bira / central / OSM id / graph index)")
 	end
-	local r, why = Route.routeTo(pos, chassis and chassis.CFrame.LookVector, target, isOsm)
+	local r, why = Route.routeTo(pos, chassis and chassis.CFrame.LookVector, target, isOsm, 700) -- same snap as PattayaGPSServer
 	assert(r, "no route: " .. tostring(why))
 	local n = S.publishPath("Route", r.route, false)
 	return ("TK_Route: %d points, %.0f studs"):format(n, r.length)

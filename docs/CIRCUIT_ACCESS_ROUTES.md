@@ -87,9 +87,24 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
 - A straight line from the corridor's end to the ring (instead of the transition road) drops the car 4 studs onto
   terrain beside the road, from which the car cannot climb back (first attempt in the test). A low kerb or ground
   blending along the transition road would be a sensible later polish.
-- Not done: the corridor has no buildings or props other than the street lights and signs below (traffic: see below); a return trip was routed (2,832 studs from
-  mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated; the world-map UI
+- Not done: the corridor has no buildings or props other than the street lights and signs below (traffic: see below); the return trip was driven on 2026-10-19 (see "Tested: return trip" below); the Highway 36 alternative is not generated; the world-map UI
   (menu with a map icon for the circuit) is still pending, GPS is key-driven for now.
+
+## Tested: return trip from the paddock (leader, 2026-10-19, Studio Play)
+
+- **Bug found and fixed:** the GPS refused "back to Central" from the Bira paddock with "No road nearby". The
+  paddock (45002, 2796) is 233 studs from the nearest road-graph edge (the facility junction at 44791, 2893) and
+  `PattayaRoute.routeTo` only snapped within 150 studs. `routeTo` now takes a `maxSnap` argument (default 150, so
+  Street Sprint / Challenge / Road Fight are unchanged) and `PattayaGPSServer` passes `GPS_SNAP = 700`; the route then
+  starts with a straight leg from the car to the nearest road. `PattayaTestKitServer.publishRouteTo` uses the same 700.
+- **Drive:** physics-mode autopilot (horizontal velocity + yaw only) from the paddock to the Central start at
+  140 studs/s: route 243 points / 26,835 studs; server probe 1,074/1,074 road; drive 200.7 s, 393 probes, 387 road,
+  6 off (all in the first 3 s on the paddock apron / shoulder / verge while crossing to the transition road), then
+  road all the way; `GPSUpdate arrived "Central Pattaya (start)"`; Heartbeat 60.
+- **Known limit:** the straight first leg crosses the venue apron and a kerb; the car's up vector hit -1.00 once in
+  those 3 s (it rolled on the kerb and recovered). A proper fix is to prefix the GPS route with the venue's paddock
+  road polyline (CircuitBuilder knows it) instead of a straight line. Not done.
+- Screenshot of the corridor at night (new sky, HUD accents): `docs/images/night_sky_v1_corridor.jpg`.
 
 ## Entrance, parking and paddock (team2/venue, 2026-10-18; built in code, NOT run in Studio)
 Driving in from the corridor: at J the transition road starts. 40 studs later a green "BIRA CIRCUIT ->" road sign

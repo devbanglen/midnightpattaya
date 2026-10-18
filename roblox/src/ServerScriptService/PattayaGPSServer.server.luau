@@ -44,6 +44,10 @@ local function available()
 	return list
 end
 
+-- a GPS route may start this far from the nearest road (a venue paddock or car park is off the road graph; the Bira
+-- paddock is 233 studs from the facility junction). Street races keep PattayaRoute's default 150.
+local GPS_SNAP = 700
+
 local function send(plr: Player, dest)
 	if not plr.Parent then
 		active[plr] = nil
@@ -54,7 +58,7 @@ local function send(plr: Player, dest)
 	if not pos then
 		return
 	end
-	local r, why = Route.routeTo(pos, chassis and chassis.CFrame.LookVector or nil, dest.osm, true)
+	local r, why = Route.routeTo(pos, chassis and chassis.CFrame.LookVector or nil, dest.osm, true, GPS_SNAP)
 	if not r then
 		GPSUpdate:FireClient(plr, "clear", why)
 		active[plr] = nil
