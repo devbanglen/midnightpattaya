@@ -127,13 +127,13 @@ local function setup(plr: Player)
 		for attempt = 1, LOAD_TRIES do -- a single transient DataStore error used to disable saving for the session
 			busy = false
 			ok, err = pcall(function()
-				(store :: any):UpdateAsync("p" .. plr.UserId, function(old)
+				(store :: any):UpdateAsync("p" .. plr.UserId, function(old: any): any
 					data = old
 					busy = lockedElsewhere(old)
 					if busy then
 						return nil -- cancel: no write
 					end
-					local rec = if type(old) == "table" then old else {}
+					local rec: any = if type(old) == "table" then old else {}
 					rec.lock = {id = SESSION_ID, at = os.time()}
 					return rec
 				end)
@@ -150,11 +150,11 @@ local function setup(plr: Player)
 			if ok and not busy then
 				-- we claimed the record: give the lock back so the player's next server can load it at once
 				pcall(function()
-					(store :: any):UpdateAsync("p" .. plr.UserId, function(old)
+					(store :: any):UpdateAsync("p" .. plr.UserId, function(old: any): any
 						if type(old) ~= "table" or type(old.lock) ~= "table" or old.lock.id ~= SESSION_ID then
 							return nil
 						end
-						old.lock = nil
+						(old :: any).lock = nil
 						return old
 					end)
 				end)
@@ -188,7 +188,7 @@ local function setup(plr: Player)
 	if type(data) == "table" and type(data.title) == "string" and data.title ~= "" then
 		titles[data.title] = true
 	end
-	local rf = plr:GetAttribute("RoadFight") or 0
+	local rf = tonumber(plr:GetAttribute("RoadFight")) or 0
 	if bit32.band(rf, 7) == 7 then
 		titles["Road Fighter"] = true
 	end
@@ -236,7 +236,7 @@ local function save(plr: Player, release: boolean?)
 	local stolen = false
 	saving[plr] = true
 	local ok, err = pcall(function()
-		(store :: any):UpdateAsync("p" .. plr.UserId, function(old)
+		(store :: any):UpdateAsync("p" .. plr.UserId, function(old: any): any
 			stolen = lockedElsewhere(old)
 			if stolen then
 				return nil -- another live session took the record over (our lock went stale): never overwrite it

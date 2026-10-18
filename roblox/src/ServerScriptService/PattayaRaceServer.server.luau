@@ -26,9 +26,9 @@ local function busy(plr: Player): boolean
 	if not routeBusy then
 		local data = ServerStorage:FindFirstChild("PattayaData")
 		if data and data:FindFirstChild("graph") then
-			local ok, Route = pcall(require, ServerStorage:WaitForChild("PattayaRoute")) :: any
+			local ok, Route = pcall(require, ServerStorage:WaitForChild("PattayaRoute"))
 			if ok then
-				routeBusy = Route.busy
+				routeBusy = (Route :: any).busy
 			end
 		end
 	end
