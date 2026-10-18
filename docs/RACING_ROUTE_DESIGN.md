@@ -362,6 +362,22 @@ and the boss reset.
   - Not checked: how the boss stands look (the screenshot of the 3D view came back white; only the HUD rendered),
     and whether a human can actually beat the King without nitro. Its top speed of 172 is above the car's 160, so
     nitro is needed on straights.
+- **Events on the shared engine (leader, 2026-10-18, after merging team/events):**
+  - Regression after the `PattayaStreetRace` refactor: Road Fight South gave the same course (1,974 studs, 8 gates),
+    the same messages and pay (+300 ฿ / +150 EXP, "Unlocked: … Beach Road Baron"); Central was still locked before
+    South. Street Challenge vs AI: 2,465 studs, "YOU WIN! 17.60 s", 264 ฿ (= 2,465/15 + 100).
+  - **Night Run** (clock locked at 21, `StartEvent:Fire("nightrun", 14)`): banner "NIGHT RUN in 0:06 - ring 67 m -
+    J to join"; the join remote answered "You're in!"; 5 AI filled the grid; 3,431 studs, 12 checkpoints, won in
+    24.26 s: "NIGHT RUN WINNER!" +437 ฿ / +135 EXP, server-wide "NIGHT RUN won by …". `EventActive` and
+    `SprintActive` cleared afterwards.
+  - A join sent while the car was outside the 1,500-stud ring radius (first Survival attempt) was ignored and the
+    event was cancelled with "nobody joined", as designed. The client shows "Too far away" only when in a car.
+  - **Survival** (`Fire("survival", 30)`, joined inside the ring): 4 rounds of 1,497 / 1,356 / 1,125 / 1,428 studs;
+    during each round `Equalised=true`, `SpeedCap=150`, `EventActive=true`; one AI eliminated per round (6 → 3);
+    "LAST DRIVER STANDING - you won SURVIVAL!"; +760 ฿ (600 + 4 × 40), title "Survivor"; attributes cleared and the
+    event back to idle.
+  - Not tested: a real second player in an event; the 15-minute scheduler (only forced starts); the near-miss x2
+    during events; the Day Run variant by name only (clock was night).
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
   race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.
