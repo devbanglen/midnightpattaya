@@ -64,6 +64,24 @@ hint.Visible = false
 hint.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- Legacy hide (docs/UI_CONTRACT.md, docs/UI_RACE_HUD.md): while LocalPlayer attribute MidnightHUD == true (set locally
+-- by ui-core) the new MidnightActivity strip draws the sprint / challenge / event line (CP, distance, time, position)
+-- and ui-core's key prompts show H, so the HUD line and the H hint move into a container that hides (the
+-- centre toast with rewards and race messages stays). Everything keeps updating underneath and the
+-- attribute going false shows it again; remotes, bindings and world effects are unchanged.
+local legacy = Instance.new("Frame")
+legacy.Name = "LegacyHidden"
+legacy.BackgroundTransparency = 1
+legacy.Size = UDim2.fromScale(1, 1)
+legacy.Parent = gui
+panel.Parent = legacy
+hint.Parent = legacy
+local function applyLegacyHide()
+	legacy.Visible = player:GetAttribute("MidnightHUD") ~= true
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
+applyLegacyHide()
+
 local function showToast(text: string, seconds: number)
 	toast.Text = text
 	toast.Visible = true

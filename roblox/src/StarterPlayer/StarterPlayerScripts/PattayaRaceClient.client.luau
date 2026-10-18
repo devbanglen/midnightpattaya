@@ -56,6 +56,16 @@ line.TextColor3 = Color3.new(1, 1, 1)
 line.Parent = panel
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- Legacy hide (docs/UI_CONTRACT.md, docs/UI_RACE_HUD.md): while LocalPlayer attribute MidnightHUD == true (set locally
+-- by ui-core) the new MidnightActivity strip draws the loop race name, LAP / CP / TIME and the finish line, so the whole RaceHUD panel steps aside (the gold
+-- next-gate posts stay). Everything keeps updating underneath and the
+-- attribute going false shows it again; remotes, bindings and world effects are unchanged.
+local function applyLegacyHide()
+	gui.Enabled = player:GetAttribute("MidnightHUD") ~= true
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
+applyLegacyHide()
+
 local function fmt(t: number): string
 	return string.format("%d:%05.2f", t // 60, t % 60)
 end
