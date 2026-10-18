@@ -29,6 +29,7 @@ $scripts += Entries 'roblox/src/ServerStorage' 'ServerStorage'
 $scripts += Entries 'roblox/src/ReplicatedStorage' 'ReplicatedStorage'
 $scripts += Entries 'roblox/src/ReplicatedStorage/MidnightUI' 'ReplicatedStorage/MidnightUI'   # UI modules (Folder MidnightUI)
 $scripts += Entries 'roblox/src/ReplicatedFirst' 'ReplicatedFirst'
+$scripts += @{ Key = 'ReplicatedStorage/VisMeshPalmLOD'; Value = (Join-Path $root 'roblox/src/ServerStorage/VisMeshPalmLOD.luau') }   # client copy of the palm LOD module (VIS-7.1)
 $scripts += Entries 'roblox/src/StarterPlayer/StarterPlayerScripts' 'StarterPlayerScripts'
 Bundle 'scripts' $scripts
 
