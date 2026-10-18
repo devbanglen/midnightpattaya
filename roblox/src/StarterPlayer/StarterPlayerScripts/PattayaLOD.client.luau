@@ -24,7 +24,10 @@ local HYSTERESIS = 40 -- studs: hide beyond range + this, show again inside rang
 local PROP_NAMES = {PalmTrunk = true, PalmFrond = true, NeonSign = true, SignFrame = true,
 	-- street furniture layer (PattayaFurnitureBuilder, 2026-10-19): small parts hidden beyond LOD_PropRange too
 	SignalArm = true, SignalHead = true, SignalLamp = true, NameSignBoard = true, BusSign = true, TaxiSign = true,
-	TaxiVest = true, TaxiCanopy = true, ShelterRoof = true, PoleArm = true, PoleWire = true, ZebraStripe = true}
+	TaxiVest = true, TaxiCanopy = true, ShelterRoof = true, PoleArm = true, PoleWire = true, ZebraStripe = true,
+	-- coast layer (PattayaCoastBuilder): beach props
+	UmbrellaCanopy = true, UmbrellaPole = true, Lounger = true, BoatHull = true, BoatBow = true, BoatEngine = true,
+	BoatConsole = true, TowerFlag = true, TowerFlagPole = true, ParasailLine = true}
 
 local function knob(name: string): number
 	local v = workspace:GetAttribute(name)
