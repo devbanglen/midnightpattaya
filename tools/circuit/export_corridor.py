@@ -232,11 +232,8 @@ return {{
     for e in cor_edges:
         q = douglas_peucker(np.array(e['pts']), 6.0)
         cm.append(f'    {{ tier = {1 if e["tier"] == "express" else 2}, name = {lua_str(e["name_en"] or e["name"] or "")}, pts = {{{",".join(f"{x + 20000:.0f},{z:.0f}" for x, z in q)}}} }},')
-    cm.append('  },
-}')
-    open(os.path.join(out_dir, 'corridormap.luau'), 'w', encoding='utf-8').write('
-'.join(cm) + '
-')
+    cm.append('  },\n}')
+    open(os.path.join(out_dir, 'corridormap.luau'), 'w', encoding='utf-8').write('\n'.join(cm) + '\n')
     print(f'graph: base {len(base_ids)} nodes / {len(base_edges)} edges, wide {len(wide_ids)} nodes, corridor {len(extra_ids)} nodes, {len(parts)} part modules')
     print(f'{len(chunks)} corridor chunks, {seg_total} segments, {len(new_discs)} new discs, {len(seam_discs)} seam discs, '
           f'{len(rects)} ground rects; graph: {len(base_ids)}+{len(extra_ids)} nodes, {len(city_edges)}+{len(cor_edges)} edges')
