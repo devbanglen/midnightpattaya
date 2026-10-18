@@ -44,3 +44,21 @@ chunks (16,915 parts), corridor 7 chunks; WideJunctions unchanged at 2,500. Prob
 | slab-overlap pairs (geometry) | 92 | unchanged by design (the fix hides overlaps: no markings/kerbs on them; dual carriageways were not pulled apart) |
 
 Short Road parts (< 6 studs): 86 after (fillet pieces), 9 before.
+
+## After pass 2 (leader, 2026-10-19, Studio)
+
+Pass 2 (commit a3b8daa) changed only the three `joints` modules (+407 vertex discs: central 54, wide 346, corridor 7)
+and the builder (`fresh = true`: chunk/joints modules required from a Clone(), duplicate checks). The 58 stale kerbs
+were old parts that pass 1's wide rebuild had taken from Studio's require cache (the replaced module Source was not
+what `require` returned), not a data gap: the fresh rebuild of the same 130 wide + 7 corridor chunks removed them.
+Junctions 441 → 495, WideJunctions 2,500 → 2,853; Road parts 15,005 (438 short fillet pieces).
+
+| probe | before any fix | after pass 1 | **after pass 2** |
+|---|---|---|---|
+| marking parts on another road outside discs | 1,331 (offline) | 0 | **0** |
+| Sidewalk centres inside another road's slab | – | 58 | **0** |
+| Road joints 35–150° with no disc (parts ≥ 6 studs) | 345 (looser rule) | 90 | **0** |
+| slab-overlap pairs (geometry; hidden, not removed) | 92 | 92 | 92 |
+
+Lesson for the install procedure: after replacing a ModuleScript's Source in Edit mode, builders must require a
+Clone() (now built into RebuildChunks/Extend `fresh`), or the old module is served silently.
