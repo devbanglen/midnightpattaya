@@ -30,3 +30,17 @@ sidewalk problems (covered by the worldfix sidewalk probe). The pipeline audit c
 
 Luau (Edit mode, command bar): the probe is the `_G.RA` block in the session log; it runs in a `task.spawn` and is
 polled with `_G.RA.state`, `_G.RA.findings`.
+
+## After the team4/roadfix rebuild (leader, 2026-10-19, Studio)
+
+Rebuilt with `PattayaBuilder.RebuildChunks`: central 49 chunks (+129 joint discs, Junctions 312 → 441), wide 130
+chunks (16,915 parts), corridor 7 chunks; WideJunctions unchanged at 2,500. Probes after:
+
+| probe | before | after |
+|---|---|---|
+| marking parts (Lane/Dash/…) lying on another road outside discs | not measured in Studio (offline: 1,331) | **0** |
+| Sidewalk parts whose centre lies inside another road's slab | not measured | **58** (Thepprasit kerb inside Thep Prasit 22, Porn Prapa Nimit kerb in Sukhumvit 10, Thappraya 7, Jomtien Second Rd x links 11, misc 8) → pass 2 requested |
+| end-to-end Road joints with 35–150° heading change and no disc (parts ≥ 6 studs, ends within 1.5) | 345 (looser rule: any length, 3 studs) | **90**, all wide-world residential sois at 60–77° → pass 2 requested |
+| slab-overlap pairs (geometry) | 92 | unchanged by design (the fix hides overlaps: no markings/kerbs on them; dual carriageways were not pulled apart) |
+
+Short Road parts (< 6 studs): 86 after (fillet pieces), 9 before.
