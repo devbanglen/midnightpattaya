@@ -276,3 +276,78 @@ added). Running the probe once BEFORE step 3 gives the Studio "before" numbers.
   `road_fix.py` is run again (it is deterministic, so the same modules come back).
 - The main repo's build/ is not updated by this branch (build/ is gitignored): after merging, run `road_fix.py` in the
   main checkout too, or copy the modules from the worktree.
+
+## Pass 2 (after the leader's Studio probes, docs/ROAD_AUDIT_STUDIO.md)
+New tool `tools/mapgen/studio_probes.py`: offline replicas of the two Studio probes on the exported modules (kerb =
+Sidewalk Part centre > 1 stud inside another edge's Road Part, outside every disc + 2; kink = Road Parts >= 6 studs
+meeting end to end within 1.5 studs at 35-150 deg with no disc within r + 2).
+
+| replica | before road_fix (exports as imported) | after pass 1 (= Studio now) | after pass 2 | Studio after pass 1 |
+|---|---|---|---|---|
+| kerb parts inside another road | 99 | **0** | 0 | 58 |
+| kinks without a disc | 134 | 78 | **0** | 90 |
+
+### (1) The 58 Studio kerbs are not in the data
+None of the 58 exists in the current modules (nor in the pass-1 input): the nearest Sidewalk Part the data builds
+is 34-118 studs away from each listed spot. They match, to the stud and the part length, the sidewalks of the
+ORIGINAL wide export before the team2 worldfix dropped them (e.g. (21293, 5761) len 47 = `1181954458:w3056`
+side -1, (23559, 5496) len 79 = `1181954458:w3064`, (24790, 12807) len 68 = `375975908:w2736`, (18849, 7369) len 25 =
+`948070138:w2999`). These edges have had `sidewalk = 0` since the worldfix and still do. So the places hold stale
+Sidewalk Parts, most likely a second (old) `Chunk_<id>` model or a second (old) `chunk_<id>` ModuleScript next to the
+new one (`WaitForChild`/`FindFirstChild` then picks either). Affected chunks per the listed spots: wide `2_11`, `7_10`,
+`9_0`, `-3_12`, `9_25`, `-3_14` (and wherever the other spots are). If the whole worldfix were missing, the replica
+would count 540, so only some chunks are stale. Nothing to change in the data; diagnose and rebuild:
+```lua
+-- which models hold the stale kerbs, and are there duplicate chunk models / modules?
+local W = workspace.PattayaWorld
+local want = {["1181954458:w3055"] = true, ["1181954458:w3056"] = true, ["1181954458:w3057"] = true,
+	["1181954458:w3064"] = true, ["375975908:w2736"] = true, ["146447446:w2419"] = true, ["948070138:w2999"] = true}
+for _, m in W:GetDescendants() do
+	if m:IsA("Model") and want[m:GetAttribute("EdgeId")] then
+		local sw = 0
+		for _, p in m:GetChildren() do if p.Name == "Sidewalk" then sw += 1 end end
+		print(m:GetAttribute("EdgeId"), m:GetFullName(), "Sidewalk parts:", sw) -- data says 0 for all of these
+	end
+end
+for _, f in {W.Chunks, W.WideChunks} do
+	local seen = {}
+	for _, c in f:GetChildren() do
+		if seen[c.Name] then print("DUPLICATE model", f.Name, c.Name) end
+		seen[c.Name] = true
+	end
+end
+for _, n in {"PattayaData", "PattayaDataWide", "PattayaDataCorridor"} do
+	local seen = {}
+	for _, c in game.ServerStorage[n]:GetChildren() do
+		if seen[c.Name] then print("DUPLICATE module", n, c.Name) end
+		seen[c.Name] = true
+	end
+end
+print(game.ServerStorage.PattayaDataWide.chunk_2_11.Source:match('id = "1181954458:w3056".-sidewalk = %d+'))
+```
+Then delete the duplicates (keep the module whose Source matches `build/pattaya_wide/roblox/chunk_<id>.luau`) and
+`B.RebuildChunks({<those ids>}, {folder = "PattayaDataWide"})`. The builder now refuses to rebuild when a data folder
+holds two modules of one name or two `Chunk_<id>` models exist, and `RebuildChunks` passes `fresh = true` to `Extend`
+(chunk and joints modules required from a `Clone()`, never from the require cache).
+
+### (2) The 90 kinks: interior vertices next to short parts
+All checked spots are interior vertices of one edge (not degree-2 nodes, not chunk splits): (a) next to the pass-1
+fillet pieces (segments 0.6-3 studs; the probe skips parts < 6 studs, so the long parts on both sides meet with the
+whole 60-77 deg turn), (b) 29-33 deg vertices next to a 5.9-6.0-stud segment (the probe skips it and sees two turns
+as one ~60 deg turn). Rule V (road_fix.py): a joint disc (synthetic negative id, radius = road half-width, on the
+centreline) wherever Road Parts >= 5 studs meet within 3 studs at 30-150 deg with no disc - looser than the probe so
+small replica differences are covered. 407 discs: central 54, wide 346, corridor 7. They change only the `joints`
+modules; every chunk module is byte-identical to pass 1 (checked with `diff -rq`).
+
+### Changed modules in pass 2 (no chunk modules)
+`PattayaData.joints` (183 rows), `PattayaDataWide.joints` (1,450), `PattayaDataCorridor.joints` (20); builder
+(`fresh` option, duplicate checks).
+
+Rebuild: replace `PattayaBuilder` (require a Clone) and the three `joints` modules (new instances), then
+- `B.RebuildChunks({})` - base: adds the 54 new joint discs to `PattayaWorld.Junctions` (441 -> 495);
+- `B.Extend({folder = "PattayaDataWide", terrain = false, only = {}, fresh = true})` - adds 346 to `WideJunctions`;
+- `B.Extend({folder = "PattayaDataCorridor", terrain = false, only = {}, fresh = true})` - adds 7 (WideJunctions
+  2,500 -> 2,853);
+- fix the stale kerb chunks as above.
+Expected Studio counts after pass 2: kink probe ~0 (replica 0; the replica found 78 where Studio found 90, so a few
+Studio-only cases may remain - send their coordinates); kerb probe 0 once the stale parts are gone (replica 0).

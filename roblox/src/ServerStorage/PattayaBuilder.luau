@@ -782,7 +782,7 @@ local function extendTerrain(man: any, rects: {any})
 end
 
 function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolean?, only: {string}?, batch: string?,
-	removeBaseConflicts: boolean?, groundKey: string?}?)
+	removeBaseConflicts: boolean?, groundKey: string?, fresh: boolean?}?)
 	local options = (opts or {}) :: any -- same fields as the annotation ({} alone does not unify with it)
 	local data = game:GetService("ServerStorage"):WaitForChild(options.folder or "PattayaDataWide")
 	local man = require(data:WaitForChild("manifest")) :: any
@@ -837,7 +837,7 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 		end
 		local jointsModule = data:FindFirstChild("joints")
 		if jointsModule then
-			local rows = require(jointsModule) :: any
+			local rows = require(if options.fresh then jointsModule:Clone() else jointsModule) :: any
 			for i = 1, #rows, 4 do
 				disc("Joint", rows[i], rows[i + 1], rows[i + 2], rows[i + 3])
 			end
@@ -864,7 +864,7 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 		end
 		for _, id in man.chunks do
 			if (options.only == nil or wanted[id]) and not (folder :: Instance):FindFirstChild("Chunk_" .. id) then
-				local chunkData = require(data:WaitForChild("chunk_" .. id)) :: any
+				local chunkData = require(if options.fresh then data:WaitForChild("chunk_" .. id):Clone() else data:WaitForChild("chunk_" .. id)) :: any
 				local chunk = Instance.new("Model")
 				chunk.Name = "Chunk_" .. id
 				chunk.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
@@ -937,6 +937,21 @@ function Builder.RebuildChunks(ids: {string}, opts: {folder: string?}?): string
 	local folderName = (opts and opts.folder) or "PattayaData"
 	local world = workspace:FindFirstChild("PattayaWorld")
 	assert(world, "PattayaBuilder.RebuildChunks: no workspace.PattayaWorld")
+	-- two modules (or two chunk models) with the same name: WaitForChild/FindFirstChild would pick either one
+	local dataFolder = game:GetService("ServerStorage"):WaitForChild(folderName)
+	local seenNames: {[string]: boolean} = {}
+	for _, m in dataFolder:GetChildren() do
+		assert(not seenNames[m.Name], ("RebuildChunks: %s holds two modules named %s - delete the old one first"):format(folderName, m.Name))
+		seenNames[m.Name] = true
+	end
+	local target = world:FindFirstChild(if folderName == "PattayaData" then "Chunks" else "WideChunks")
+	for _, id in ids do
+		local n = 0
+		for _, c in (if target then target:GetChildren() else {}) do
+			if c.Name == "Chunk_" .. id then n += 1 end
+		end
+		assert(n <= 1, ("RebuildChunks: %d models named Chunk_%s - delete the extra ones first"):format(n, id))
+	end
 	if folderName ~= "PattayaData" then
 		local wide = world:FindFirstChild("WideChunks")
 		local removed = 0
@@ -947,7 +962,9 @@ function Builder.RebuildChunks(ids: {string}, opts: {folder: string?}?): string
 				removed += 1
 			end
 		end
-		return ("%d old chunks removed; "):format(removed) .. Builder.Extend({folder = folderName, terrain = false, only = ids})
+		-- fresh: chunk and joints modules are required from a Clone(), so a just-replaced module is never served from
+		-- Edit mode's require cache
+		return ("%d old chunks removed; "):format(removed) .. Builder.Extend({folder = folderName, terrain = false, only = ids, fresh = true})
 	end
 	local ServerStorage = game:GetService("ServerStorage")
 	local data = ServerStorage:WaitForChild("PattayaData")

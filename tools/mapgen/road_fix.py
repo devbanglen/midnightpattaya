@@ -192,6 +192,14 @@ class World:
             n = k[1] if isinstance(k, tuple) else k
             self.slabs.append(Point(x, z).buffer(r, 32)); self.slab_edge.append(-1); self.disc_nodes.append(n)
         self.n_edge_slabs = len(self.slabs) - len(self.disc_nodes)
+        # bend discs at interior vertices (rule V, negative synthetic ids) belong to the edge(s) passing through them
+        lines = [LineString(e['pts']) for e in self.edges]
+        ltree = STRtree(lines)
+        self.disc_owner = {}
+        for d, n in enumerate(self.disc_nodes):
+            if n < 0:
+                c = self.slabs[self.n_edge_slabs + d].centroid
+                self.disc_owner[d] = {int(j) for j in ltree.query(c.buffer(1.0)) if lines[j].distance(c) < 1.0}
         self.tree = STRtree(self.slabs)
         self.inner = [s.buffer(-MARK_SHRINK) for s in self.slabs]
         self.inner_tree = STRtree(self.inner)
@@ -202,7 +210,10 @@ class World:
         e = self.edges[i]
         j = self.slab_edge[k]
         if j < 0:
-            return self.disc_nodes[k - self.n_edge_slabs] not in (e['a'], e['b'])
+            d = k - self.n_edge_slabs
+            if self.disc_nodes[d] < 0:
+                return i not in self.disc_owner.get(d, ())
+            return self.disc_nodes[d] not in (e['a'], e['b'])
         if j == i:
             return False
         o = self.edges[j]
@@ -464,6 +475,27 @@ def main():
         e['noMarks'] = mark_ranges(W, i, jrs[e['ds']])
         n_marks += bool(e['noMarks'])
 
+    # V: bend discs where Road Parts still meet end to end at a sharp angle with no disc (pass 2: the Studio kink
+    # probe found them next to short fillet pieces and next to 5-6 stud segments, all interior vertices of one edge).
+    # A joint disc (synthetic negative id) of the wider road's half-width at the meeting point fills the wedge; it
+    # changes only the joints modules, never a chunk line. Looser than the Studio probe (parts >= 5 studs, ends within
+    # 3 studs, 30-150 deg) so small differences between the replica and Studio are covered too.
+    import zlib
+    import studio_probes as sp
+    _, vk = sp.probes(edges, discs, jrs, min_len=5.0, end_tol=3.0, turn_lo=30.0, turn_hi=150.0)
+    n_vdisc = 0
+    for k in vk:
+        A, B = edges[k['a']], edges[k['b']]
+        if k['a'] == k['b']:                              # inside one edge: put the disc on its centreline
+            ln = LineString(A['pts'])
+            q = ln.interpolate(ln.project(Point(k['x'], k['z'])))
+            k = dict(k, x=q.x, z=q.y)
+        vid = -(zlib.crc32(f"{A['id']}|{B['id']}|{k['x']:.1f}|{k['z']:.1f}".encode()) + 1)
+        key = (A['ds'], ('joint', vid))
+        if key not in discs:
+            discs[key] = (round(k['x'], 2), round(k['z'], 2), max(A['width'], B['width']) / 2)
+            n_vdisc += 1
+
     # write
     changes = {ds: {'chunks': [], 'edges': {}} for ds, _ in DATASETS}
     new_files = {}
@@ -489,7 +521,7 @@ def main():
             changes[ds]['chunks'].append(f[6:-5])
     os.makedirs(state_dir, exist_ok=True)
     stats = {'kink_edges': n_kink, 'kerb_sides_dropped': n_side, 'edges_with_noMarks': n_marks, 'central_joint_discs': len(J),
-             'bend_joints': len(bends), 'bend_discs_widened': n_bend_disc,
+             'bend_joints': len(bends), 'vertex_bend_discs': n_vdisc, 'bend_discs_widened': n_bend_disc,
              'edges_with_bend_trim': sum(1 for e in edges if e.get('jA') or e.get('jB'))}
     json.dump({'stats': stats, 'changes': changes}, open(os.path.join(state_dir, 'changes.json'), 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
     print(f'road_fix: {stats}')
