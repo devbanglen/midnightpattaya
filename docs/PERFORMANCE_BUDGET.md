@@ -222,3 +222,11 @@ be an optional config flag, off by default, sampling node heights from the tiles
   visible 444, **hidden by LOD 2,200**; SpotLights streamed 71, **on 9** (all within 350 studs; the cap of 60 was
   not reached); traffic models 46; memory: BaseParts 213 MB, GraphicsTexture 115 MB, Terrain 36 MB.
 - Not measured: render FPS with Studio focused, the wide districts at night, mobile.
+
+## Streaming settings check (2026-10-18, owner set MinRadius 512 / TargetRadius 1280 / ModelStreamingBehavior Improved)
+- Physics-driven GPS run from the start grid toward Bira at a constant 200 studs/s (above the 160 top speed, nitro
+  territory): 22,566 studs covered before the test driver left the road on a bend; 240 of 245 road probes under the
+  car hit road, the 5 misses are the moment it went off. No "no road yet" events: streaming kept ahead of the car at
+  200 studs/s the whole way. (The crash itself is the test autopilot's yaw rate on a fast bend, not geometry: the
+  only collidable parts near the spot are the road, its sidewalks and light poles on the sidewalks.)
+- With Studio focused during that run the probe reported render 60 FPS on the corridor.
