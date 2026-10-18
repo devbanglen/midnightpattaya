@@ -20,6 +20,9 @@ Inputs (copies of the main build, read-only): build/central_pattaya (graph, buil
 built in Studio), build/landmarks, build/furniture, build/coast. Output: build/vis_slice/roblox/manifest.luau +
 chunk_v<cx>_<cz>[_k].luau (ServerStorage.PattayaDataVisSlice), build/vis_slice/vis_slice.json (report),
 build/vis_slice/vis_slice_check.png.
+VIS-7.1: building variety (palette variant, mid module per floor band, top module, AC / signboard density; all seeded by
+the OSM id, nothing changes a box) and tools/mapgen/VisMesh.py (kit MeshParts for vismesh.sample_block + mesh palms):
+build/vis_slice/roblox/vismesh.luau, field `mesh` on the sample buildings, build/vis_slice/mesh_sample.json.
 """
 import glob, json, math, os, re, sys
 from collections import Counter, defaultdict
@@ -67,6 +70,14 @@ def lit_hash(osm, face, mod, k, j, pi, mod_n):
     return (osm % mod_n) * 7919 + face * 104729 + mod * 1009 + k * 131 + j * 31 + pi * 7
 
 
+def seeded(osm, salt, n):
+    """deterministic choice 0..n-1 from the OSM id (Python only: the result is exported, the builder never re-derives it)"""
+    x = (int(osm) * 2654435761 + int(salt) * 40503) & 0xffffffff
+    x ^= x >> 13
+    x = (x * 1274126177) & 0xffffffff
+    return (x ^ (x >> 16)) % n
+
+
 def read_rows(path, key, stride):
     s = open(path, encoding='utf-8').read()
     m = re.search(key + r' = \{([^}]*)\}', s)
@@ -111,6 +122,8 @@ class Kit:
                     continue
                 if (sp.get('text') or sp.get('neon')) and (flags & 2):
                     continue
+                if sp.get('dens') == 'sign' and lit_hash(b['osm'], face, mi, k, 0, pi + 50, self.lit_cfg['hash_mod']) % 100 >= b['sgp']:
+                    continue                                   # seeded signboard density (per module instance)
                 rep = sp['rep']
                 cells = [(u0, span)] if rep == 0 else [(u0 + j * bw, bw) for j in range(nb)] if rep == 1 else \
                     [(u0 + j * bw, bw) for j in range(nb + 1)]
@@ -131,6 +144,8 @@ class Kit:
                         n0 = max(sp['nh'][0], -ins)
                     if ub - ua < 0.1 or vbb - va < 0.05 or n1 - n0 < 0.05:
                         continue
+                    if sp.get('dens') == 'ac' and                             lit_hash(b['osm'], face, mi, k, j, pi + 50, self.lit_cfg['hash_mod']) % 100 >= b['acp']:
+                        continue                               # seeded AC density (per bay)
                     lit = False
                     if sp.get('lit'):
                         pct = style['lit_' + sp['lit']]
@@ -208,7 +223,9 @@ def main(cfg_path):
         for r in read_rows(f, 'buildings', 8):
             rows.append({'src': cid, 'x': r[0], 'z': r[1], 'w': r[2], 'd': r[3], 'h': r[4], 'yaw': r[5],
                          'palette': PALETTES[int(r[6]) - 1], 'osm': int(r[7])})
-        props['palms'] += read_rows(f, 'palms', 2)
+        pr = read_rows(f, 'palms', 2)
+        props['palms'] += pr
+        props.setdefault('palm_src', []).extend([cid] * len(pr))
         props['lights'] += read_rows(f, 'lights', 4)
         props['signs'] += read_rows(f, 'signs', 8)
     rows_by_osm = {r['osm']: r for r in rows}
@@ -424,6 +441,27 @@ def main(cfg_path):
         G = min(G0, b['h'])
         fl = (b['h'] - G) / (b['levels'] - 1) if b['levels'] > 1 else L
         osm = b['osm']
+        # --- variety (VIS-7.1): palette variant, AC / signboard density, top module, mid module per floor band ------
+        va = cfg['variety']
+        style_name = cats[b['cat']]
+        pal = seeded(osm, 1, len(cfg['palettes'][style_name])) + 1
+        sp_ = va['density_spread']
+        b['acp'] = max(0, min(100, st['ac_pct'] + seeded(osm, 2, 2 * sp_ + 1) - sp_))
+        b['sgp'] = max(0, min(100, st['sign_pct'] + seeded(osm, 3, 2 * sp_ + 1) - sp_))
+        tops = [t for t, min_lev in st['tops'] if b['levels'] >= min_lev]
+        top = tops[seeded(osm, 4, len(tops))] if tops else None
+        mid_choices = st['mid'] + st.get('mid_alt', [])
+        bands = []                                             # (first mid floor 0-based, floors, module)
+        if b['levels'] > 1:
+            lo, hi = va['band_floors']
+            f0, bi, nmid = 0, 0, b['levels'] - 1
+            while f0 < nmid:
+                nf = min(nmid - f0, lo + seeded(osm, 10 + bi, hi - lo + 1))
+                if nmid - f0 - nf < lo:                        # no thin last band
+                    nf = nmid - f0
+                bands.append((f0, nf, mid_choices[seeded(osm, 20 + bi, len(mid_choices))]))
+                f0 += nf
+                bi += 1
         neon_on = 0
         if st['neon_pct'] and b['cat'] in st.get('neon_cats', st['cats']) and (osm * 2654435761) % 100 < st['neon_pct'] \
                 and neon_left > 0:
@@ -456,11 +494,13 @@ def main(cfg_path):
                     for wname, wbay in st['whole']:
                         nbw = 1 if wbay == 0 else max(1, round(span / (wbay * bay_scale)))
                         pls.append([f, kit.mods.index(wname) + 1, u0, u1, nbw, G, midh, 1, 0.0, flags])
-                    for mname in st['mid']:
+                    for f0, nf, mname in bands:
                         mb = max(1, round(span / (st['mid_bay'] * bay_scale)))
-                        pls.append([f, kit.mods.index(mname) + 1, u0, u1, mb, G, fl, b['levels'] - 1, fl, flags])
-                if st['parapet'] and b['h'] >= 10:
-                    pls.append([f, kit.mods.index('parapet_a') + 1, u0, u1, 1, b['h'] - 1.2, 1.2, 1, 0.0, flags])
+                        pls.append([f, kit.mods.index(mname) + 1, u0, u1, mb, G + f0 * fl, fl, nf, fl, flags])
+                if top and b['h'] >= 10:
+                    th = cfg['top_heights'][top]
+                    tb = max(1, round(span / (st['mid_bay'] * bay_scale)))
+                    pls.append([f, kit.mods.index(top) + 1, u0, u1, tb, b['h'] - th, th, 1, 0.0, flags])
             # roof modules on the core top, placed along the local x axis
             cw = b['w'] - ins[0] - ins[1]
             cd = b['d'] - ins[2] - ins[3]
@@ -518,7 +558,8 @@ def main(cfg_path):
         if tkey:
             lst = texts_cfg[tkey]
             txt = text_index[(tkey, lst[(osm // 3) % len(lst)])]
-        built.append({'b': b, 'style': cats[b['cat']], 'ins': ins, 'pls': pls, 'roofs': roofs, 'parts': parts,
+        built.append({'b': b, 'style': cats[b['cat']], 'ins': ins, 'pls': pls, 'roofs': roofs, 'parts': parts, 'pal': pal,
+                      'top': top, 'bands': bands,
                       'n': n_parts, 'faces': [fi['face'] for fi in faces], 'G': G, 'fl': fl, 'neon': neon_on,
                       'acc': osm % len(cfg['accents']) + 1, 'sc': (osm // 11) % len(cfg['sign_combos']) + 1, 'txt': txt,
                       'bd': bd})
@@ -561,6 +602,56 @@ def main(cfg_path):
         total_parts += B['n']
     bad = {k: v for k, v in checks.items() if v}
 
+    # --- VisMesh sample block + palms (VIS-7.1) -----------------------------------------------------------------------
+    def check_inst(bd, p):
+        """the Part checks above for one mesh instance (pseudo part); returns the failing class or None"""
+        fp, (y0, y1) = part_footprint(bd, p)
+        if not fp.within(hulls[bd['idx']].buffer(0.02, join_style=2)):
+            return 'outside own box'
+        if not p.get('roof') and not p.get('above') and (y1 > bd['h'] + p.get('tol', 0.0) + 1e-6 or y0 < -1e-6):
+            return 'above own box (facade, not roof)'
+        for cls, tree in otrees.items():
+            for j in tree.query(fp):
+                if obst[cls][j].intersects(fp) and obst[cls][j].intersection(fp).area > 1e-6:
+                    return cls
+        for j in htree.query(fp):
+            if j != bd['idx'] and hulls[j].intersects(fp) and hulls[j].intersection(fp).area > 1e-6 \
+                    and rows[j]['osm'] not in replaced and y0 < rows[j]['h'] - 1e-6:
+                return 'other building box'
+        return None
+
+    import VisMesh
+    vm_cfg = cfg['vismesh']
+    env = {'root': ROOT, 'kit': kit, 'FACES': FACES, 'ADJ': ADJ, 'L': L, 'G0': G0, 'seeded': seeded, 'lit_hash': lit_hash,
+           'lit_cfg': cfg['lit'], 'check': check_inst, 'area_bounds': area.bounds, 'props': props}
+    mesh = VisMesh.Mesh(cfg, env)
+    sb = vm_cfg['sample_block']
+    sample = sorted([B for B in built if math.hypot(B['b']['x'] - sb['centre'][0], B['b']['z'] - sb['centre'][1]) <= sb['radius']],
+                    key=lambda B: B['b']['osm'])
+    mesh_out, mesh_rep = {}, []
+    for B in sample:
+        o, r = mesh.building(B)
+        mesh_out[B['b']['osm']] = o
+        mesh_rep.append(r)
+    palm_rows, palm_rep = VisMesh.palms(cfg, env, mesh)
+    # before/after camera: from the sea side of Beach Road, looking at the block centre
+    cx = sum(B['b']['x'] for B in sample) / len(sample)
+    cz = sum(B['b']['z'] for B in sample) / len(sample)
+    beach = unary_union([LineString(e['pts']) for e in g['edges'] if e.get('name_en') == sb['camera_road']])
+    pr = beach.interpolate(beach.project(Point(cx, cz)))
+    dx, dz = pr.x - cx, pr.y - cz
+    dl = math.hypot(dx, dz) or 1.0
+    cam = (pr.x + dx / dl * sb['camera_back_studs'] + 20000, sb['camera_height_studs'], pr.y + dz / dl * sb['camera_back_studs'])
+    look = (cx + 20000, sb['look_height_studs'], cz)
+    camera = {'position': [round(v, 1) for v in cam], 'look_at': [round(v, 1) for v in look],
+              'cframe_lua': 'CFrame.lookAt(Vector3.new(%.1f, %.1f, %.1f), Vector3.new(%.1f, %.1f, %.1f))' % (cam + look)}
+    cam2 = (pr.x + dx / dl * sb['aerial_back_studs'] + 20000, sb['aerial_height_studs'], pr.y + dz / dl * sb['aerial_back_studs'])
+    look2 = (cx + 20000, sb['aerial_look_height_studs'], cz)
+    camera['aerial'] = {'position': [round(v, 1) for v in cam2], 'look_at': [round(v, 1) for v in look2],
+                        'cframe_lua': 'CFrame.lookAt(Vector3.new(%.1f, %.1f, %.1f), Vector3.new(%.1f, %.1f, %.1f))' % (cam2 + look2)}
+    cam_pt = Point(cam[0] - 20000, cam[2])
+    camera['street_camera_inside_a_box'] = any(hulls[j].contains(cam_pt) for j in htree.query(cam_pt))
+
     # --- chunks + batches ----------------------------------------------------------------------------------------------
     by_src = defaultdict(list)
     for B in built:
@@ -599,9 +690,12 @@ def main(cfg_path):
             b = B['b']
             blds.append({'osm': b['osm'], 'x': b['x'], 'z': b['z'], 'w': b['w'], 'd': b['d'], 'h': b['h'], 'yaw': b['yaw'],
                          'style': style_names.index(B['style']) + 1, 'cat': b['cat'], 'ins': B['ins'], 'acc': B['acc'],
-                         'sc': B['sc'], 'txt': B['txt'], 'neon': B['neon'], 'parts': B['n'],
+                         'sc': B['sc'], 'txt': B['txt'], 'neon': B['neon'], 'parts': B['n'], 'pal': B['pal'],
+                         'acp': b['acp'], 'sgp': b['sgp'],
                          'p': [v for pl in B['pls'] for v in pl],
                          'r': [v for rr in B['roofs'] for v in rr]})
+            if b['osm'] in mesh_out:
+                blds[-1]['mesh'] = mesh_out[b['osm']]
         body = (head + f'-- vis slice chunk {c["id"]}: {len(blds)} buildings, {c["parts"]} Parts (map-local studs; the builder adds '
                 'the ORIGIN). Placement rows p (10 numbers): face, module, u0, u1, bays, v0, height, count, step, flags (1 neon, '
                 '2 no own signboard: a city neon sign hangs there). Roof rows r (3): module, x, z.\n'
@@ -622,7 +716,21 @@ def main(cfg_path):
         'chunkParts': {c['id']: c['parts'] for c in chunks},
         'lit': cfg['lit'], 'colors': cfg['colors'], 'accents': cfg['accents'], 'signCombos': cfg['sign_combos'],
         'texts': text_list, 'materials': cfg['materials'], 'styles': style_out, 'modules': mods_out, 'roofModules': roof_out,
+        'palettes': [cfg['palettes'][s] for s in style_names], 'paletteWallMix': cfg['variety']['palette_wall_mix'],
     }
+    vm_data = {'assets': mesh.assets_out(), 'sample': [B['b']['osm'] for B in sample],
+               'sampleChunks': sorted({c['id'] for c in chunks for B in c['items'] if B['b']['osm'] in mesh_out}),
+               'moduleW': VisMesh.MW, 'camera': camera, 'palmAssets': vm_cfg['palms']['assets'],
+               'palmFullRange': vm_cfg['palms']['full_range'], 'palmCollider': vm_cfg['palms']['collider'],
+               'palms': [[r['x'], r['z'], r['v'], r['yaw'], r['h']] for r in palm_rows],
+               'palmSrc': [r['src'] for r in palm_rows], 'castShadowMinHeight': vm_cfg['cast_shadow_min_height'],
+               'expected': {'parts': sum(o['parts'] for o in mesh_out.values()),
+                            'meshParts': sum(o['meshParts'] for o in mesh_out.values())}}
+    open(os.path.join(rb_dir, 'vismesh.luau'), 'w', encoding='utf-8', newline='\n').write(
+        head + '-- ServerStorage.PattayaDataVisSlice.vismesh: VIS-7.1 kit assets (manifest sizes / centres, MP material -> colour '
+        'key + MaterialLibrary name), the sample block ids, the before/after camera and the palm rows {x, z, variant, yaw, old '
+        'trunk h} (map-local). Mesh placements per sample building are in the chunk modules (field mesh).\nreturn ' +
+        lua(vm_data) + '\n')
     open(os.path.join(rb_dir, 'manifest.luau'), 'w', encoding='utf-8', newline='\n').write(
         head + '-- ServerStorage.PattayaDataVisSlice.manifest: the facade KIT (module definitions; the builder makes every Part '
         'from these), colours, materials (MaterialLibrary name -> fallback Enum.Material), sign texts (generic, no brands), '
@@ -653,6 +761,23 @@ def main(cfg_path):
     }
     json.dump(report, open(os.path.join(out_dir, 'vis_slice.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     check_image(os.path.join(out_dir, 'vis_slice_check.png'), g, area, core_area, rows, built)
+    tot_b = sum(r['before']['parts'] for r in mesh_rep)
+    tot_p = sum(r['after']['parts'] for r in mesh_rep)
+    tot_m = sum(r['after']['meshparts'] for r in mesh_rep)
+    sb_rep = {'attribution': attribution, 'written_not_built': 'counts are what the exporter expects the builder to make; '
+              'nothing here was measured in Studio',
+              'sample_block': {'centre_map_local_xz': sb['centre'], 'centre_world_xz': [sb['centre'][0] + 20000, sb['centre'][1]],
+                               'radius_studs': sb['radius'], 'buildings': len(sample),
+                               'categories': dict(Counter(B['b']['cat'] for B in sample).most_common()),
+                               'chunks': vm_data['sampleChunks'], 'osm_ids': vm_data['sample']},
+              'camera_world': camera,
+              'totals': {'before': {'parts': tot_b, 'meshparts': 0},
+                         'after': {'parts': tot_p, 'meshparts': tot_m, 'total': tot_p + tot_m},
+                         'asset_instances': dict(sum((Counter(r['asset_instances']) for r in mesh_rep), Counter()).most_common()),
+                         'kept_parts_reasons': dict(sum((Counter(r['kept_parts_reasons']) for r in mesh_rep), Counter()).most_common())},
+              'buildings': mesh_rep, 'palms': palm_rep,
+              'assets_used': [a['name'] for a in vm_data['assets']]}
+    json.dump(sb_rep, open(os.path.join(out_dir, 'mesh_sample.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
 
     print(f'slice area bounds x {bounds[0]:.0f}..{bounds[2]:.0f}, z {bounds[1]:.0f}..{bounds[3]:.0f} (map-local)')
     print(f'buildings upgraded {len(built)}: ' + ', '.join(f'{k} {v}' for k, v in cat_counts.most_common()))
@@ -662,6 +787,8 @@ def main(cfg_path):
     print(f'{len(chunks)} chunks (max {max(c["parts"] for c in chunks)} parts), {len(order)} batches: ' +
           ', '.join(f'{k}={report["batches"][k]["parts"]}' for k in order))
     print('checks: ' + ', '.join(f'{k} {v}' for k, v in checks.items()))
+    print(f'vismesh sample block: {len(sample)} buildings ' + str(dict(Counter(B["b"]["cat"] for B in sample))) +
+          f'; Parts {tot_b} -> {tot_p} Parts + {tot_m} MeshParts; palms {len(palm_rows)}; camera {camera["cframe_lua"]}')
     if bad or over or total_parts > cfg['part_budget']:
         print('FAILED:', bad, over, total_parts)
         sys.exit(1)

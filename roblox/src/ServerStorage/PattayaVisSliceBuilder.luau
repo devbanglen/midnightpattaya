@@ -3,7 +3,7 @@
 -- Pattaya Tai (Beach Road .. Second Road + frontage) IN PLACE with modular facades, at edit time in Studio.
 -- Data: ServerStorage.PattayaDataVisSlice (manifest + chunk_v<cx>_<cz>[_k] modules written by tools/mapgen/vis_slice.py
 -- into build/vis_slice/roblox). Map data (c) OpenStreetMap contributors, ODbL 1.0.
--- WRITTEN, NOT BUILT IN STUDIO YET.
+-- VIS-4 Part build: built in Studio 2026-10-19 (22,953 parts). VIS-7.1 changes (variety, mesh hooks): WRITTEN, NOT BUILT IN STUDIO.
 --
 -- Per building (all inside the original box, which never moves):
 --   VisHull  invisible Part with exactly the original box size/CFrame: CanCollide + CanQuery like the original, so
@@ -29,7 +29,15 @@
 --   V.RemoveReplaced()               -- (Build does this for its chunks) move the boxes of built chunks to ServerStorage
 --   V.RestoreReplaced()              -- put every moved box back
 --   V.Probe()                        -- checks (expected: 0 touching roads, 0 outside the box, hull = original box)
---   V.Remove()                       -- undo: destroys PattayaWorld.VisSliceChunks and restores the boxes
+--   V.Remove()                       -- undo: RemoveMesh(), destroys PattayaWorld.VisSliceChunks, restores the boxes
+-- VIS-7.1 kit MeshParts (ServerStorage.VisMeshBuilder, data module PattayaDataVisSlice.vismesh):
+--   V.BuildMesh()                    -- sample block: Part modules -> uploaded kit MeshParts (+ mesh palms); Build first
+--   V.BuildMesh({only = {1209261453}, palms = false})   -- some sample buildings only (OSM ids or chunk ids)
+--   V.ProbeMesh()                    -- MeshParts inside their box, 0 touching roads, sizes = manifest x scale
+--   V.RemoveMesh()                   -- the Part buildings and the Part palms come back from ServerStorage.VisMeshRemoved
+-- Variety (VIS-7.1): per building a palette variant (b.pal: plaster mixed into the city wall colour, trim, glass
+-- tint), seeded AC / signboard density (b.acp / b.sgp: kit parts with dens = "ac" | "sign"), the mid module per
+-- floor band and the top module are chosen by the exporter (they are plain placement rows here).
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -258,13 +266,24 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 	hull:SetAttribute("VisSlice", true)
 	count += 1
 
-	-- colours of this building
+	-- colours of this building: city box colour, mixed toward the building's palette variant (plaster / trim / glass)
 	local wall = if original then original.Color else Color3.fromRGB(205, 200, 190)
 	local cols = ctx.colors
+	local pals = man.palettes and man.palettes[b.style]
+	local pal = if pals and b.pal then pals[b.pal] else nil
+	local trim: Color3? = nil
+	local glass: Color3? = nil
+	if pal then
+		wall = wall:Lerp(rgb(pal.plaster), man.paletteWallMix or 0.75)
+		trim = rgb(pal.trim)
+		glass = rgb(pal.glass)
+	end
 	local function colour(key: string): Color3
 		if key == "wall" then return wall end
 		if key == "wallDark" then return wall:Lerp(Color3.new(0, 0, 0), 0.25) end
-		if key == "wallTrim" then return wall:Lerp(Color3.new(1, 1, 1), 0.45) end
+		if key == "wallTrim" then return trim or wall:Lerp(Color3.new(1, 1, 1), 0.45) end
+		if key == "trim" and trim then return trim end
+		if key == "glass" and glass then return glass end
 		if key == "accent" then return rgb(man.accents[b.acc]) end
 		if key == "signBoard" then return rgb(man.signCombos[b.sc].board) end
 		return cols[key] or wall
@@ -359,6 +378,10 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 				local pi = pi0 - 1
 				if sp.neon and not neonOk then continue end
 				if (sp.text or sp.neon) and noText then continue end
+				-- seeded signboard density (twin of Kit.face_parts in vis_slice.py)
+				if sp.dens == "sign" and Builder.litHash(b.osm, f, mi, k, 0, pi + 50, litCfg.hash_mod) % 100 >= (b.sgp or 100) then
+					continue
+				end
 				local rep = sp.rep
 				local cells = if rep == 0 then 1 elseif rep == 1 then nb else nb + 1
 				for j = 0, cells - 1 do
@@ -383,6 +406,9 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 						n0 = math.max(sp.nh[1], -inset)
 					end
 					if ub - ua < 0.1 or vtop - va < 0.05 or n1 - n0 < 0.05 then continue end
+					if sp.dens == "ac" and Builder.litHash(b.osm, f, mi, k, j, pi + 50, litCfg.hash_mod) % 100 >= (b.acp or 100) then
+						continue -- seeded AC density (per bay)
+					end
 					local lit, hsh = false, 0
 					if sp.lit then
 						local pct = if sp.lit == "win" then style.litWin else style.litShop
@@ -395,7 +421,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 					local pos = face.n * nm + face.u * um + Vector3.new(0, vm, 0)
 					local cf = base * CFrame.fromMatrix(pos, face.u, Vector3.yAxis, -face.n)
 					local p = newPart(model, sp.k, Vector3.new(ub - ua, vtop - va, n1 - n0), cf, sp.shape)
-					local upper = upperStyle and v0 > 0 and nv > 1 and k >= nv // 2
+					local upper = upperStyle and v0 > 0 and vb + vh / 2 > b.h / 2 -- upper half of the building
 					finish(p, sp, mod.slot, ("%d:%d:%d"):format(pIndex, k, j), lit, hsh, upper)
 					count += 1
 				end
@@ -423,7 +449,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 		end
 	end
 	model.Parent = parent
-	return model, count
+	return model, count, colour
 end
 
 -- public API ---------------------------------------------------------------------------------------------------------
@@ -453,6 +479,31 @@ local function wantedIds(man: any, opts: any): ({string}, {[string]: boolean}?)
 		w[id] = true
 	end
 	return man.chunks, w
+end
+
+-- internals shared with ServerStorage.VisMeshBuilder (VIS-7.1 kit MeshParts); not a public API
+Builder._internal = {
+	FACE = FACE, BASE_Y = BASE_Y, DATA = DATA, ROOT_NAME = ROOT_NAME, BACKUP = BACKUP, rgb = rgb, load = load,
+	dataFolder = dataFolder, context = context, buildBuilding = buildBuilding, styleWithLibrary = styleWithLibrary,
+	addSign = addSign, originalsIn = originalsIn, cityChunk = cityChunk, backupChunk = backupChunk,
+}
+
+local function meshBuilder(): any
+	local m = script.Parent:FindFirstChild("VisMeshBuilder")
+	assert(m and m:IsA("ModuleScript"), "PattayaVisSliceBuilder: no ServerStorage.VisMeshBuilder")
+	return load(m)
+end
+
+function Builder.BuildMesh(opts: any?): string
+	return meshBuilder().BuildMesh(Builder, opts or {})
+end
+
+function Builder.RemoveMesh(opts: any?): string
+	return meshBuilder().RemoveMesh(Builder, opts or {})
+end
+
+function Builder.ProbeMesh(opts: any?): string
+	return meshBuilder().ProbeMesh(Builder, opts or {})
 end
 
 function Builder.Build(opts: {only: {string}?, batch: string?, folder: string?, replace: boolean?, signs: boolean?,
@@ -580,12 +631,17 @@ function Builder.RestoreReplaced(): string
 end
 
 function Builder.Remove(): string
+	local meshMsg = "no VisMeshBuilder"
+	if script.Parent:FindFirstChild("VisMeshBuilder") then
+		local ok, r = pcall(Builder.RemoveMesh)
+		meshMsg = if ok then tostring(r) else "RemoveMesh failed: " .. tostring(r)
+	end
 	local world = workspace:FindFirstChild("PattayaWorld")
 	local root = world and world:FindFirstChild(ROOT_NAME)
-	local msg = "no VisSliceChunks"
+	local msg = meshMsg .. "; no VisSliceChunks"
 	if root then
 		root:Destroy()
-		msg = "VisSliceChunks removed"
+		msg = meshMsg .. "; VisSliceChunks removed"
 	end
 	return msg .. "; " .. Builder.RestoreReplaced()
 end
@@ -630,6 +686,10 @@ function Builder.Probe(opts: {folder: string?, roads: boolean?}?): string
 		for _, m in chunk:GetChildren() do
 			local osm = m:GetAttribute("OsmBuilding") :: number
 			local hull = m:FindFirstChild("VisHull") :: BasePart?
+			local isMesh = m:GetAttribute("VisMesh") == true
+			if isMesh then -- a VIS-7.1 kit building: counts as its Part build here; V.ProbeMesh() checks its MeshParts
+				inChunk += (m:GetAttribute("PartBuildParts") :: number?) or 0
+			end
 			if cityMaps[src][osm] then
 				dup += 1
 			end
@@ -647,14 +707,15 @@ function Builder.Probe(opts: {folder: string?, roads: boolean?}?): string
 			for _, p in m:GetChildren() do
 				if not p:IsA("BasePart") then continue end
 				nParts += 1
-				inChunk += 1
+				if not isMesh then inChunk += 1 end
 				if p:GetAttribute("NightNeon") == true then neon += 1 end
 				if p:FindFirstChildOfClass("SurfaceGui") then signsN += 1 end
 				if p == hull or not hull then continue end
 				-- inside the hull: all 8 corners in the hull's local frame (roof parts may stand above the top)
 				local h = hull :: BasePart
-				local half = h.Size / 2 + Vector3.new(0.02, 0.02, 0.02)
-				local roofPart = string.sub(p:GetAttribute("SlotInst") or "", 1, 1) == "r"
+				local tol = if p:IsA("MeshPart") then 0.06 else 0.02 -- kit rows on a 20.1 box end at 20.142
+				local half = h.Size / 2 + Vector3.new(tol, tol, tol)
+				local roofPart = string.sub(p:GetAttribute("SlotInst") or "", 1, 1) == "r" or p:GetAttribute("AboveRoof") == true
 				local out = false
 				for corner = 0, 7 do
 					local sgn = Vector3.new(if corner % 2 == 0 then -1 else 1, if (corner // 2) % 2 == 0 then -1 else 1,

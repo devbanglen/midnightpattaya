@@ -74,6 +74,8 @@ window_row_a (industrial / house): one window per 10-stud bay
 | Module | Parts | Notes |
 |---|---|---|
 | `parapet_a` | 1 cornice band per decorated face, 1.2 studs, top = box top | in the inset band, never above the box |
+| `cornice_a` (VIS-7.1) | projecting lip 0.4 + band recessed 0.35, 1.6 studs | alternative top, seeded |
+| `crown_a` (VIS-7.1) | band recessed 0.5 + fins per bay, 3.4 studs | alternative top for >= 8 levels |
 | `roof_plant_a` | 2 AC condensers + plant/stair room (4 × 3.2 × 4) | hotels, condos, commercial; needs a 10 × 12 roof |
 | `water_tank_a` | stand + vertical cylinder tank (blue) | shophouses and condos; needs 5 × 5 |
 | `ac_pair_a` | 2 AC condensers | industrial |
@@ -121,10 +123,32 @@ MaterialLibrary hook (`PattayaVisSliceBuilder.styleWithLibrary`):
 Names vis-lighting needs to provide (or map): the nine above. `DarkGlass`, `LitWindow`, `ConcreteSidewalk`,
 `PaintedMetal` and `NeonSurface` come from the brief; the other four are ours.
 
-### MeshPart swap later (vis-blender)
-- Every part has `MeshSlot` = module name and `SlotInst` = `"<placement>:<floor>:<bay>"`. Roof parts use `"r<n>"`.
-- To swap a module for a MeshPart, group the parts of one building model by (`MeshSlot`, `SlotInst`) and use their combined bounding box as the target frame.
-- A later builder option can then create one MeshPart per group from an asset-id manifest keyed by slot name. The slots are the 17 module names above plus `core_<style>`.
+### Building variety (VIS-7.1; footprints, hulls and collisions unchanged)
+All choices are seeded by the OSM id in `vis_slice.py` and exported as plain data, so the build is deterministic.
+- **Palette variants** (`palettes`, 3–4 per style): plaster (the VisCore wall = city box colour lerped 75 % toward it),
+  trim (`wallTrim` / `trim`: sills, slabs, canopies, cornices) and glass (day tint of `glass`). Shophouses: cream,
+  terracotta, mint, sand; hotels: white, warm grey, pale blue, beige; condos, commercial, industrial, houses likewise.
+- **Mid module per floor band**: the mid floors split into bands of 3–7 floors (`variety.band_floors`), each band picks
+  one of `mid` + `mid_alt` (shophouse window_pair_ac_a / window_row_a, hotel balcony_row_a / balcony_grid_a, condo the
+  reverse, commercial transom_a / window_row_a).
+- **Tops** (`tops`): parapet_a (1.2 studs), cornice_a (1.6: projecting lip + recessed band) or crown_a (3.4: recessed
+  band + fins per bay, only on >= 8 levels), one per building.
+- **AC / signboard density**: kit parts with `dens` (window_pair_ac_a ACUnit, the SignFrame of the three ground
+  modules) appear only where `litHash(osm, face, module, floor, bay, part + 50) % 100` is below the building's
+  `acp` / `sgp` (style `ac_pct` / `sign_pct` ± 20, seeded).
+- Upper-floor lit tone (hotel / condo): the upper half of the building, not of each placement.
+
+### Kit MeshParts (VIS-7.1, sample block; vis-mesh)
+- Every Part has `MeshSlot` = module name and `SlotInst` = `"<placement>:<floor>:<bay>"` (roof `"r<n>"`).
+- `PattayaVisSliceBuilder.BuildMesh()` (code in `ServerStorage.VisMeshBuilder`) swaps the Part modules of the sample
+  block (`vismesh.sample_block`) for the uploaded Blender kit: slot → asset map, insets, grid rules, fallbacks and the
+  expected counts are in `docs/VISUAL_ACCEPTANCE.md` section 4 and `build/vis_slice/mesh_sample.json`.
+- MeshParts keep `Mat` (MaterialLibrary name from the asset material: MP_Wall / MP_WallAccent → PaintedPlaster, MP_Glass →
+  DarkGlass or LitWindow, MP_Metal / MP_MetalDark / MP_Shutter → PaintedMetal, MP_Awning → AwningFabric, MP_Signboard →
+  SignPanel, MP_Neon* → NeonSurface, MP_Concrete → RoofConcrete) and are tinted from the same per-building colours
+  as the Parts (wall, trim, glass, accent, sign board). Lit kit glass and LED strips are NightNeon.
+- Palms: `RSD_Palm_A/B/C` replace the Part palms in the slice (same foot and yaw), with a 2-part impostor for the
+  client `VisMeshPalmLOD` switch at 400 studs.
 
 ## 3. Vehicle camera (VIS-5) — `StarterPlayerScripts.MidnightCamera`
 **On/off:**
