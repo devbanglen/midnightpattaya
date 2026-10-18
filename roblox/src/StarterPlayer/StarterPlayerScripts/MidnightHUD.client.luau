@@ -91,11 +91,60 @@ modal.Visible = false
 modal.ZIndex = 50
 modal.Parent = gui
 
+-- Compact / touch layout (docs/UI_SYSTEM.md "Touch layout"): Responsive.isCompact() (touch, or viewport < 1100 px).
+-- Design sizes below are multiplied by the anchors' UIScale (Responsive.scale()); margins are screen px. The widgets
+-- inside the anchors switch in applyCompactWidgets, the positions that avoid Roblox's touch buttons in
+-- placeAvoiding (both defined further down, once the widgets exist). Desktop (not compact) is unchanged.
+local COMPACT = {
+	TopLeft = Vector2.new(300, 100), -- compact player card: avatar, name, LV + money, EXP bar
+	TopCenter = Vector2.new(660, 190), -- activity strip without the wordmark
+	TopRight = Vector2.new(72, 72), -- the menu button (opens the 6 tiles as a sheet)
+	BottomLeft = Vector2.new(340, 300), -- minimap (the card sizes itself in screen px, see PattayaMinimapClient)
+	BottomCenter = Vector2.new(620, 68), -- chips (keyboard only) + job strip
+	BottomRight = Vector2.new(242, 113), -- compact speedometer (MidnightSpeedo)
+	Toasts = Vector2.new(260, 136), -- 2 toasts, top-centre column under the strip
+}
+local CM = 12 -- compact margin, screen px
+local compact = false
+gui:SetAttribute("Compact", false) -- read by MidnightActivity / MidnightSpeedo / PattayaMinimapClient
+local applyCompactWidgets: (boolean) -> () = function(_) end
+local placeAvoiding: () -> () = function() end
+
+local function layoutCompact(s: number)
+	for name, v in COMPACT do
+		anchors[name].Size = UDim2.fromOffset(v.X, v.Y)
+	end
+	local tcBottom = CM + COMPACT.TopCenter.Y * s
+	anchors.TopLeft.AnchorPoint, anchors.TopLeft.Position = Vector2.new(0, 0), UDim2.fromOffset(CM, CM)
+	anchors.TopCenter.AnchorPoint, anchors.TopCenter.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, CM)
+	anchors.TopRight.AnchorPoint, anchors.TopRight.Position = Vector2.new(1, 0), UDim2.new(1, -CM, 0, CM)
+	anchors.Toasts.AnchorPoint, anchors.Toasts.Position = Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, tcBottom + 6)
+	anchors.BottomLeft.AnchorPoint = Vector2.new(0, 0)
+	anchors.BottomLeft.Position = UDim2.fromOffset(CM, CM + math.floor(COMPACT.TopLeft.Y * s) + 8)
+	anchors.BottomCenter.AnchorPoint, anchors.BottomCenter.Position = Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -CM)
+	anchors.BottomRight.AnchorPoint = Vector2.new(0, 0) -- position: placeAvoiding (needs the touch buttons)
+	placeAvoiding()
+end
+
 -- positions depend on the scale (Toasts sit above the scaled BottomRight) and on touch (reserve for the jump button)
 local function layout()
 	local s = Responsive.scale()
 	local touch = Responsive.isTouch()
 	local reserve = if touch then Responsive.TOUCH_RESERVE else 0
+	local nowCompact = Responsive.isCompact()
+	if nowCompact ~= compact then
+		compact = nowCompact
+		gui:SetAttribute("Compact", compact)
+		applyCompactWidgets(compact)
+	end
+	if compact then
+		layoutCompact(s)
+		return
+	end
+	for name, def in ANCHORS do -- desktop: the original anchor sizes / pivots (a no-op unless compact ran before)
+		anchors[name].AnchorPoint = def.anchor
+		anchors[name].Size = UDim2.fromOffset(def.size.X, def.size.Y)
+	end
 	anchors.TopLeft.Position = UDim2.fromOffset(MARGIN, MARGIN)
 	anchors.TopCenter.Position = UDim2.new(0.5, 0, 0, MARGIN)
 	anchors.TopRight.Position = UDim2.new(1, -MARGIN, 0, MARGIN)
@@ -175,8 +224,8 @@ end
 pump = function()
 	while #queue > 0 do
 		local free = nil
-		for _, s in slots do
-			if not s.busy then
+		for i, s in slots do
+			if not s.busy and (i <= 2 or not compact) then -- compact: at most 2 toasts on screen
 				free = s
 				break
 			end
@@ -357,11 +406,24 @@ moneyMin.MinSize = Vector2.new(150, 52)
 moneyMin.MaxSize = Vector2.new(208, 52) -- fits up to 9,999,999,999 at 28 px; leaves TopCenter free
 moneyMin.Parent = moneyPill
 local moneyStroke = moneyPill:FindFirstChildOfClass("UIStroke") :: UIStroke
+-- compact card: the money sits inside the card, on the LV line (no separate pill), shrinks instead of "..."
+local moneyCompact = C.label({parent = cardPanel, name = "MoneyCompact", text = "฿ 0", font = "display",
+	textSize = Theme.size.title + 2, color = col.green, align = "right", position = UDim2.fromOffset(172, 40),
+	size = UDim2.fromOffset(116, 26), fit = true, minSize = 8})
+moneyCompact.Visible = false
+local function setMoney(t: string)
+	C.setPill(moneyPill, t)
+	moneyCompact.Text = "฿ " .. t
+end
 
+local currentTitle = ""
 local function setTitle(t: string)
+	currentTitle = t
 	titleLabel.Text = t
-	titleLabel.Visible = t ~= ""
-	nameLabel.Position = if t ~= "" then UDim2.fromOffset(112, 12) else UDim2.fromOffset(112, 22)
+	titleLabel.Visible = t ~= "" and not compact -- compact card: avatar + name + LV + money + EXP only
+	if not compact then
+		nameLabel.Position = if t ~= "" then UDim2.fromOffset(112, 12) else UDim2.fromOffset(112, 22)
+	end
 end
 setTitle("")
 
@@ -428,10 +490,42 @@ local MENU = {
 	{id = "settings", label = "Settings", icon = "settings", fire = function() Bus.fire("settings.open") end},
 	{id = "help", label = "Help", icon = "help", fire = function() Bus.fire("help.open") end},
 }
+-- compact: the 6 tiles become a sheet opened by one menu button (>= 44 px) in TopRight; while the sheet is open the
+-- activity strip (TopCenter) hides so nothing overlaps. Desktop: the row as before, the button hidden.
+local hudHidden = false
+local sheetOpen = false
+local sheetStamp = 0
+local menuBtn = C.iconButton({parent = anchors.TopRight, name = "MenuButton", icon = "menu",
+	size = UDim2.fromOffset(72, 72), anchor = Vector2.new(1, 0), position = UDim2.fromScale(1, 0)})
+menuBtn.Visible = false
+local function setSheet(on: boolean)
+	on = on and compact
+	if on == sheetOpen and menuGroup.Visible == ((not compact) or on) then
+		return
+	end
+	sheetOpen = on
+	sheetStamp += 1
+	menuGroup.Visible = (not compact) or on
+	anchors.TopCenter.Visible = not hudHidden and not on
+	if on then
+		local stamp = sheetStamp
+		task.delay(8, function() -- an untouched sheet closes by itself
+			if sheetStamp == stamp then
+				setSheet(false)
+			end
+		end)
+	end
+end
+menuBtn.Activated:Connect(function()
+	setSheet(not sheetOpen)
+end)
 local tiles: {[string]: TextButton} = {}
 for i, m in MENU do
 	tiles[m.id] = C.iconButton({parent = menuGroup, name = m.id, icon = m.icon, label = m.label,
-		hint = SHORTCUT_TEXT[m.id], size = UDim2.fromOffset(88, 84), layoutOrder = i, onClick = m.fire}) -- 88 wide: "Missions" truncated at 76 (leader, first capture)
+		hint = SHORTCUT_TEXT[m.id], size = UDim2.fromOffset(88, 84), layoutOrder = i, onClick = function()
+			setSheet(false) -- compact: a tile tap closes the sheet (no-op on desktop)
+			m.fire()
+		end}) -- 88 wide: "Missions" truncated at 76 (leader, first capture)
 end
 for i, m in MENU do -- gamepad: left/right walks the row, wraps at the ends
 	local t = tiles[m.id]
@@ -479,6 +573,7 @@ ContextActionService:BindActionAtPriority("MidnightQuickMenu", function(_, state
 				Enum.KeyCode.ButtonSelect) then
 				selectOpened = true
 				if gui.Enabled and anchors.TopRight.Visible then
+					setSheet(true)
 					GuiService.SelectedObject = tiles.garage
 				end
 			end
@@ -678,7 +773,7 @@ end)
 -- Progression (leaderstats) ---------------------------------------------------------------------------------------------
 local moneyValue = Instance.new("NumberValue") -- tweened for the count-up; the label follows it
 moneyValue.Changed:Connect(function(v)
-	C.setPill(moneyPill, commas(v))
+	setMoney(commas(v))
 end)
 local progressReady = false
 local lastLevel = 0
@@ -705,7 +800,7 @@ local function hookStats(ls: Instance)
 		return
 	end
 	moneyValue.Value = money.Value
-	C.setPill(moneyPill, commas(money.Value))
+	setMoney(commas(money.Value))
 	lastLevel = level.Value
 	refreshLevel(ls)
 	if title then
@@ -824,9 +919,10 @@ restoreBtn.Visible = false
 restoreBtn.ZIndex = 40
 
 setHidden = function(hidden: boolean)
+	hudHidden = hidden
 	for name, f in anchors do
 		if name ~= "Toasts" then
-			f.Visible = not hidden
+			f.Visible = not hidden and not (name == "TopCenter" and sheetOpen)
 		end
 	end
 	restoreBtn.Visible = hidden
@@ -962,6 +1058,7 @@ end
 local function refreshBadges()
 	C.setBadge(tiles.events, eventGathering())
 	C.setBadge(tiles.missions, player:GetAttribute("JobActive") == true)
+	C.setBadge(menuBtn, eventGathering() or player:GetAttribute("JobActive") == true) -- compact menu button
 end
 player:GetAttributeChangedSignal("EventJoined"):Connect(refreshBadges)
 player:GetAttributeChangedSignal("JobActive"):Connect(refreshBadges)
@@ -997,6 +1094,149 @@ local function onCharacter(char: Model)
 	end
 end
 player.CharacterAdded:Connect(onCharacter)
+
+-- Compact / touch widgets (docs/UI_SYSTEM.md "Touch layout") ---------------------------------------------------------
+local expCaption = cardPanel:FindFirstChild("ExpCaption") :: GuiObject?
+applyCompactWidgets = function(on: boolean)
+	local nameMin = nameLabel:FindFirstChildOfClass("UITextSizeConstraint")
+	if on then
+		cardPanel.Size = UDim2.fromOffset(COMPACT.TopLeft.X, COMPACT.TopLeft.Y)
+		avatarFrame.Position, avatarFrame.Size = UDim2.fromOffset(10, 12), UDim2.fromOffset(76, 76)
+		nameLabel.Position, nameLabel.Size = UDim2.fromOffset(96, 8), UDim2.fromOffset(192, 28)
+		if nameMin then nameMin.MinTextSize = 8 end -- names up to ~20 chars shrink, never "..."
+		levelLabel.AnchorPoint = Vector2.new(0, 0)
+		levelLabel.Position, levelLabel.Size = UDim2.fromOffset(96, 40), UDim2.fromOffset(72, 26)
+		levelLabel.TextXAlignment = Enum.TextXAlignment.Left
+		expBar.Position, expBar.Size = UDim2.fromOffset(96, 78), UDim2.new(1, -108, 0, 8)
+	else
+		cardPanel.Size = UDim2.fromOffset(380, 112)
+		avatarFrame.Position, avatarFrame.Size = UDim2.fromOffset(12, 12), UDim2.fromOffset(88, 88)
+		nameLabel.Size = UDim2.fromOffset(170, 28)
+		if nameMin then nameMin.MinTextSize = 12 end
+		levelLabel.AnchorPoint = Vector2.new(1, 0)
+		levelLabel.Position, levelLabel.Size = UDim2.new(1, -14, 0, 12), UDim2.fromOffset(86, 28)
+		levelLabel.TextXAlignment = Enum.TextXAlignment.Right
+		expBar.Position, expBar.Size = UDim2.fromOffset(150, 68), UDim2.new(1, -164, 0, 8)
+		jobMax.MaxSize = Vector2.new(620, 34)
+	end
+	moneyCompact.Visible = on
+	moneyPill.Visible = not on
+	expText.Visible = not on
+	if expCaption then expCaption.Visible = not on end
+	setTitle(currentTitle) -- title line + name position
+	-- quick menu: one menu button + sheet (compact) / the row (desktop)
+	menuBtn.Visible = on
+	if on then
+		menuGroup.AnchorPoint = Vector2.new(1, 0)
+		menuGroup.Position = UDim2.new(0, -8, 0, -6) -- left of the menu button, same top
+		menuGroup.Size = UDim2.fromOffset(6 * 88 + 5 * 8 + 12, 96)
+	else
+		menuGroup.AnchorPoint = Vector2.new(1, 0)
+		menuGroup.Position = UDim2.new(1, 6, 0, -6)
+		menuGroup.Size = UDim2.new(1, 12, 0, 96)
+	end
+	sheetOpen = not on -- force setSheet to apply
+	setSheet(false)
+	-- toasts: top-centre column, newest at the bottom, 2 at most (pump); desktop: bottom-right stack of 3
+	toastList.VerticalAlignment = if on then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Bottom
+	toastList.HorizontalAlignment = if on then Enum.HorizontalAlignment.Center else Enum.HorizontalAlignment.Right
+	for _, slot in slots do
+		slot.card.Size = UDim2.fromOffset(if on then COMPACT.Toasts.X else 280, 64)
+	end
+end
+
+-- Roblox's own touch controls (ContextActionService buttons, jump button), read at runtime, in this gui's space
+type Rect = {x: number, y: number, w: number, h: number}
+local function shownInTree(o: Instance, stop: Instance): boolean
+	local p: Instance? = o
+	while p and p ~= stop do
+		if p:IsA("GuiObject") and not p.Visible then
+			return false
+		end
+		p = p.Parent
+	end
+	return true
+end
+local function touchObstacles(): {Rect}
+	local out = {}
+	local origin = gui.AbsolutePosition
+	for _, name in {"ContextActionGui", "TouchGui"} do
+		local g = playerGui:FindFirstChild(name)
+		if g and g:IsA("ScreenGui") and g.Enabled then
+			for _, d in g:GetDescendants() do
+				if d:IsA("GuiButton") then
+					local sz = d.AbsoluteSize
+					-- buttons only (the thumbstick's big touch area is not a button and is not avoided)
+					if sz.X > 0 and sz.X <= 200 and sz.Y <= 200 and shownInTree(d, g) then
+						local at = d.AbsolutePosition - origin
+						table.insert(out, {x = at.X, y = at.Y, w = sz.X, h = sz.Y})
+					end
+				end
+			end
+		end
+	end
+	return out
+end
+local function hitsAny(x: number, y: number, w: number, h: number, list: {Rect}, pad: number): boolean
+	for _, r in list do
+		if x < r.x + r.w + pad and x + w + pad > r.x and y < r.y + r.h + pad and y + h + pad > r.y then
+			return true
+		end
+	end
+	return false
+end
+
+-- compact speedometer: centred, bottom edge 90 px above the screen bottom, never higher than 8 px under the toast
+-- column; slides left in 8 px steps while it would come within 8 px of a touch button. Job strip / chips: the widest
+-- centred width that keeps 8 px from the touch buttons in their rows.
+placeAvoiding = function()
+	if not compact then
+		return
+	end
+	local s = Responsive.scale()
+	local W, H = gui.AbsoluteSize.X, gui.AbsoluteSize.Y
+	local obstacles = touchObstacles()
+	local toastBottom = CM + COMPACT.TopCenter.Y * s + 6 + COMPACT.Toasts.Y * s
+	local sw, sh = COMPACT.BottomRight.X * s, COMPACT.BottomRight.Y * s
+	local top = math.max(toastBottom + 8, H - 90 - sh)
+	local x = W / 2 - sw / 2
+	while x > CM and hitsAny(x, top, sw, sh, obstacles, 8) do
+		x -= 8
+	end
+	anchors.BottomRight.Position = UDim2.fromOffset(math.floor(x), math.floor(top))
+	local bcH = COMPACT.BottomCenter.Y * s
+	local bcTop = H - CM - bcH
+	local half = W / 2 - CM
+	for _, r in obstacles do
+		if r.y < bcTop + bcH + 8 and r.y + r.h + 8 > bcTop then
+			if r.x >= W / 2 then
+				half = math.min(half, r.x - 8 - W / 2)
+			elseif r.x + r.w <= W / 2 then
+				half = math.min(half, W / 2 - (r.x + r.w) - 8)
+			else
+				half = 0
+			end
+		end
+	end
+	jobMax.MaxSize = Vector2.new(math.clamp(2 * half / s, 120, 620), 34)
+end
+gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	if compact then
+		layoutCompact(Responsive.scale()) -- the safe area settled after a viewport change
+	end
+end)
+local hudAlive = true
+gui.Destroying:Connect(function()
+	hudAlive = false
+end)
+task.spawn(function() -- touch buttons come and go (bound actions): re-check once a second while compact
+	while hudAlive do
+		task.wait(1)
+		if compact then
+			placeAvoiding()
+		end
+	end
+end)
 
 -- Responsive + start --------------------------------------------------------------------------------------------------
 gui.Parent = playerGui

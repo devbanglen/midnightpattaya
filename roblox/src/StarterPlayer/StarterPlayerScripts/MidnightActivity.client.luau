@@ -175,8 +175,18 @@ local function wordLine(str: string, y: number, h: number, size: number, c0: Col
 	s.Parent = t
 	return t
 end
-wordLine("MIDNIGHT", 14, 62, 60, C.text, C.cyan)
-wordLine("PATTAYA", 72, 52, 50, C.purple, C.purple:Lerp(C.text, 0.25))
+local wordmark = {
+	wordLine("MIDNIGHT", 14, 62, 60, C.text, C.cyan),
+	wordLine("PATTAYA", 72, 52, 50, C.purple, C.purple:Lerp(C.text, 0.25)),
+}
+
+-- compact / touch layout (docs/UI_SYSTEM.md "Touch layout"): MidnightHUD sets attribute Compact on its ScreenGui.
+-- Compact = no wordmark, the layouts move up to the top of TopCenter, free roam is ONE line (district  •  mode)
+-- plus the GPS / event pill, the big centre text sits right under the strip.
+local function isCompact(): boolean
+	return hudRoot ~= nil and hudRoot:GetAttribute("Compact") == true
+end
+local compactNow = false
 
 -- FREE layout (compact) ----------------------------------------------------------------------------------------------
 local free = newGroup("FreeRoam", 132, 110)
@@ -263,6 +273,12 @@ local function fadeGroup(g: Group, shown: boolean, t: number)
 		end
 	end
 end
+local function groupY(g: Group): number
+	if compactNow then
+		return 0
+	end
+	return if g == free then 132 else 128
+end
 local function setLayout(g: Group)
 	if current == g then
 		return
@@ -283,7 +299,7 @@ local function setLayout(g: Group)
 			end
 		end)
 	end
-	local y = if g == free then 132 else 128
+	local y = groupY(g)
 	g.frame.Position = UDim2.fromOffset(0, y + (if t > 0 then 12 else 0))
 	fadeGroup(g, false, 0)
 	g.frame.Visible = true
@@ -586,10 +602,14 @@ local function gpsTick(pos: Vector3)
 end
 
 local slowAcc = 0
+local districtName = "PATTAYA"
 local function slowTick()
 	local part = carPart()
 	if part then
-		fDistrict.Text = districtAt(part.Position)
+		districtName = districtAt(part.Position)
+		if not compactNow then
+			fDistrict.Text = districtName
+		end
 		gpsTick(part.Position)
 	end
 end
@@ -746,10 +766,14 @@ local function loopTick(now: number)
 end
 
 local function freeTick(now: number)
-	if job and player:GetAttribute("JobActive") == true then
-		fMode.Text = ("OPEN WORLD  •  %s JOB"):format(string.upper(job.title))
-	else
-		fMode.Text = "OPEN WORLD  •  FREE ROAM"
+	local short = if job and player:GetAttribute("JobActive") == true
+		then ("%s JOB"):format(string.upper(job.title)) else "FREE ROAM"
+	fMode.Text = "OPEN WORLD  •  " .. short
+	if compactNow then
+		local line = ("%s  •  %s"):format(districtName, short)
+		if fDistrict.Text ~= line then
+			fDistrict.Text = line
+		end
 	end
 	local pill: string? = nil
 	local dotCol = C.cyan
@@ -779,6 +803,27 @@ local function freeTick(now: number)
 		fPill.Size = UDim2.fromOffset(math.clamp(52 + #pill * 9, 200, 600), 34)
 	end
 end
+
+local function applyCompact()
+	compactNow = isCompact()
+	for _, w in wordmark do
+		w.Visible = not compactNow
+	end
+	fMode.Visible = not compactNow
+	fPill.Position = UDim2.fromOffset(330, if compactNow then 32 else 54)
+	big.Position = UDim2.fromOffset(330, if compactNow then 196 else 318)
+	bigSub.Position = UDim2.fromOffset(330, if compactNow then 258 else 380)
+	if not compactNow then
+		fDistrict.Text = districtName
+	end
+	for _, g in {free, race} do
+		g.frame.Position = UDim2.fromOffset(0, groupY(g))
+	end
+end
+if hudRoot then
+	hudRoot:GetAttributeChangedSignal("Compact"):Connect(applyCompact)
+end
+applyCompact()
 
 local acc = 0
 RunService.Heartbeat:Connect(function(dt)

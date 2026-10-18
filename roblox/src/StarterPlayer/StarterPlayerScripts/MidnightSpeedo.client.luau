@@ -226,6 +226,50 @@ corner(limited, Theme.radius.small)
 local limitedText = label(limited, {pos = UDim2.fromScale(0.5, 0.5), size = UDim2.fromScale(0.9, 0.72), text = "LIMITED",
 	font = Theme.font.bold, stroke = 1, z = 4})
 
+-- compact / touch variant (docs/UI_SYSTEM.md "Touch layout"): MidnightHUD sets attribute Compact on its ScreenGui
+-- and sizes BottomRight to 242 x 113 (design px, about 150 x 70 on an 830 x 439 phone). No dial: big digits, KM/H,
+-- nitro percent and a nitro bar; "LIMITED" replaces KM/H while a speed cap / equalised event is on.
+local function isCompact(): boolean
+	return hudRoot ~= nil and hudRoot:GetAttribute("Compact") == true
+end
+local mini = Instance.new("Frame")
+mini.Name = "MidnightSpeedoCompact"
+mini.Size = UDim2.fromOffset(242, 113)
+mini.BackgroundColor3 = C.navy
+mini.BackgroundTransparency = Theme.alpha.panel
+mini.BorderSizePixel = 0
+mini.Visible = false
+mini.Parent = anchor
+corner(mini, Theme.radius.panel)
+local miniStroke = Instance.new("UIStroke")
+miniStroke.Color = C.line
+miniStroke.Thickness = Theme.stroke.thin
+miniStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+miniStroke.Parent = mini
+local miniSpeed = label(mini, {anchor = Vector2.new(0, 0), pos = UDim2.fromOffset(8, 6), size = UDim2.fromOffset(142, 74),
+	text = "0", font = Theme.font.display, alignX = Enum.TextXAlignment.Right, stroke = 0.6})
+local miniUnit = label(mini, {anchor = Vector2.new(0, 0), pos = UDim2.fromOffset(158, 52), size = UDim2.fromOffset(76, 22),
+	text = "KM/H", font = Theme.font.bold, color = C.textDim, alignX = Enum.TextXAlignment.Left, stroke = 1})
+local miniNitro = label(mini, {anchor = Vector2.new(0, 0), pos = UDim2.fromOffset(158, 12), size = UDim2.fromOffset(76, 32),
+	text = "0%", font = Theme.font.display, color = C.cyan, alignX = Enum.TextXAlignment.Left, stroke = 1})
+local miniTrack = Instance.new("Frame")
+miniTrack.Name = "NitroBar"
+miniTrack.Position = UDim2.fromOffset(10, 88)
+miniTrack.Size = UDim2.fromOffset(222, 14)
+miniTrack.BackgroundColor3 = C.surface2
+miniTrack.BackgroundTransparency = 0.2
+miniTrack.BorderSizePixel = 0
+miniTrack.ZIndex = 3
+miniTrack.Parent = mini
+corner(miniTrack, Theme.radius.small)
+local miniFill = Instance.new("Frame")
+miniFill.Size = UDim2.fromScale(0, 1)
+miniFill.BackgroundColor3 = C.cyan
+miniFill.BorderSizePixel = 0
+miniFill.ZIndex = 4
+miniFill.Parent = miniTrack
+corner(miniFill, Theme.radius.small)
+
 -- nitro pulse, built once: the dial ring glows cyan while boosting
 local pulse = TweenService:Create(dialStroke, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
 	{Thickness = Theme.stroke.thick * 3})
@@ -286,7 +330,11 @@ local function paintNitro()
 			seg.BackgroundTransparency = if i <= lit then 0 else 0.45
 		end
 		nitroPct.TextColor3 = if warn then C.red else C.text
+		miniFill.BackgroundColor3 = if warn then C.red else C.cyan
+		miniNitro.TextColor3 = if warn then C.red else C.cyan
 	end
+	miniNitro.Text = nitroPct.Text
+	miniFill.Size = UDim2.fromScale(math.clamp(pct / 100, 0, 1), 1)
 end
 
 local function paintBoost()
@@ -326,18 +374,22 @@ local function paintLimited()
 	local eq = player:GetAttribute("Equalised") == true
 	limited.Visible = capped or eq
 	limitedText.Text = if capped then ("LIMITED %d"):format(cap) elseif eq then "EQUALISED" else "LIMITED"
+	miniUnit.Text = if capped or eq then "LIMITED" else "KM/H"
+	miniUnit.TextColor3 = if capped or eq then C.red else C.textDim
 end
 
 local function refreshVisible()
 	local on = visibleNow()
-	if on and not panel.Visible then
+	if on and not (panel.Visible or mini.Visible) then
 		readTopSpeed()
 		-- snap on entry: no sweep from the last car's numbers
 		speedTarget = player:GetAttribute("HUD_SpeedKmh") or 0
 		speedShown = speedTarget
 		speedShownInt = -1
 	end
-	panel.Visible = on
+	local small = isCompact()
+	panel.Visible = on and not small
+	mini.Visible = on and small
 end
 
 -- wiring -----------------------------------------------------------------------------------------------------------
@@ -346,6 +398,9 @@ local function onAttr(name: string, fn: () -> ())
 end
 onAttr("HUD_InCar", refreshVisible)
 onAttr("MidnightHUD", refreshVisible)
+if hudRoot then
+	hudRoot:GetAttributeChangedSignal("Compact"):Connect(refreshVisible)
+end
 onAttr("HUD_SpeedKmh", function()
 	speedTarget = player:GetAttribute("HUD_SpeedKmh") or 0
 end)
@@ -357,13 +412,13 @@ end)
 for _, n in {"HUD_Class", "HUD_CarName", "HUD_PI"} do
 	onAttr(n, function()
 		paintCar()
-		if panel.Visible then readTopSpeed() end -- car swapped while seated (garage spawn)
+		if panel.Visible or mini.Visible then readTopSpeed() end -- car swapped while seated (garage spawn)
 	end)
 end
 onAttr("SpeedCap", paintLimited)
 onAttr("Equalised", function()
 	paintLimited()
-	if panel.Visible then readTopSpeed() end
+	if panel.Visible or mini.Visible then readTopSpeed() end
 end)
 
 refreshVisible()
@@ -376,7 +431,7 @@ paintLimited()
 -- easing between the 20 Hz samples: only while the shown value is off its target; the digits and the arc change only
 -- when their rounded values do (no allocation per frame)
 RunService.RenderStepped:Connect(function(dt)
-	if not panel.Visible then
+	if not (panel.Visible or mini.Visible) then
 		return
 	end
 	if math.abs(speedTarget - speedShown) > 0.05 or speedShownInt < 0 then
@@ -386,6 +441,7 @@ RunService.RenderStepped:Connect(function(dt)
 		if n ~= speedShownInt then
 			speedShownInt = n
 			speedText.Text = tostring(n)
+			miniSpeed.Text = speedText.Text
 		end
 		local lit = math.clamp(math.floor(speedShown / math.max(topSpeed, 1) * SPEED_SEGMENTS + 0.5), 0, SPEED_SEGMENTS)
 		if lit ~= speedLit then

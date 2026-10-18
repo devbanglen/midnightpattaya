@@ -1023,16 +1023,82 @@ local function isTouch(): boolean
 	return UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 end
 local function rootScale(): number -- the root HUD's UIScale (Responsive.attach), 1 if none
-	local hud = hudAnchor and hudAnchor:FindFirstAncestorWhichIsA("ScreenGui")
-	local s = hud and hud:FindFirstChildOfClass("UIScale")
+	-- Responsive.attach puts the UIScale on each anchor frame (MidnightScale), not on the ScreenGui
+	local s = hudAnchor and hudAnchor:FindFirstChildOfClass("UIScale")
+	if not s then
+		local hud = hudAnchor and hudAnchor:FindFirstAncestorWhichIsA("ScreenGui")
+		s = hud and hud:FindFirstChildOfClass("UIScale")
+	end
 	return if s then s.Scale else 1
 end
+-- compact / touch card (docs/UI_SYSTEM.md "Touch layout", MidnightHUD gui attribute Compact): 150 x 120 SCREEN px
+-- (the card's UIScale cancels the root HUD scale), header 22 px, no compass / rose / district label, the three
+-- controls as a 36 px column just right of the card (zoom in, zoom out, expand). Desktop values restored otherwise.
+local viewW, viewH = MAP_W, MAP_H -- the visible map area (card or full map), world px
+local forceRedraw = true
+local cardCompact: boolean? = nil
+local function layoutCard(on: boolean)
+	if cardCompact == on then
+		return
+	end
+	cardCompact = on
+	local w, h, hh, pad = CARD_W, CARD_H, HEADER_H, PAD
+	if on then
+		w, h, hh, pad = 150, 120, 22, 4
+	end
+	MAP_W, MAP_H = w - pad * 2, h - hh - pad
+	card.Size = UDim2.fromOffset(w, h)
+	pin.Position = UDim2.fromOffset(pad + 2, hh / 2)
+	pin.Size = UDim2.fromOffset(if on then 8 else 12, if on then 8 else 12)
+	header.Position = UDim2.fromOffset(pad + (if on then 14 else 20), 0)
+	header.Size = UDim2.new(1, -(pad + (if on then 14 else 20)) - (if on then 4 else 40), 0, hh)
+	local lim = header:FindFirstChildOfClass("UITextSizeConstraint")
+	if lim then
+		lim.MaxTextSize = if on then Theme.size.caption else Theme.size.label
+		lim.MinTextSize = if on then 8 else 10
+	end
+	compass.Visible = not on
+	rose.Visible = not on
+	mapDistrict.Visible = not on
+	mapView.Position = UDim2.fromOffset(pad, hh)
+	mapView.Size = UDim2.fromOffset(MAP_W, MAP_H)
+	credit.Position = if on then UDim2.new(0, pad + 2, 1, -pad - 1) else UDim2.new(0, PAD + 46, 1, -PAD - 4)
+	credit.Size = if on then UDim2.fromOffset(MAP_W - 4, 9) else UDim2.fromOffset(170, 12)
+	credit.TextSize = if on then 8 else math.max(9, Theme.size.caption - 3)
+	for i, b in {zoomInBtn, zoomOutBtn, expandBtn} do
+		if on then
+			b.AnchorPoint = Vector2.new(0, 0)
+			b.Position = UDim2.new(1, 6, 0, (i - 1) * 42)
+			b.Size = UDim2.fromOffset(36, 36)
+			b.TextSize = Theme.size.body + 2
+		else
+			local bottomIndex = 3 - i -- expand 0, zoom out 1, zoom in 2 (as built)
+			b.AnchorPoint = Vector2.new(1, 1)
+			b.Position = UDim2.new(1, -PAD - 4, 1, -PAD - 4 - (bottomIndex * (TOUCH + 6)))
+			b.Size = UDim2.fromOffset(TOUCH, TOUCH)
+			b.TextSize = Theme.size.title
+		end
+	end
+	if not open then
+		viewW, viewH = MAP_W, MAP_H
+	end
+	forceRedraw = true
+end
+
 local function place()
 	local useNew = hudAnchor ~= nil and hudAnchor.Parent ~= nil and player:GetAttribute("MidnightHUD") == true
 	local touch = isTouch()
 	local cam = workspace.CurrentCamera
 	local vpY = if cam then cam.ViewportSize.Y else 720
-	if useNew then
+	local hudGui = hudAnchor and hudAnchor:FindFirstAncestorWhichIsA("ScreenGui")
+	local small = useNew and hudGui ~= nil and hudGui:GetAttribute("Compact") == true
+	layoutCard(small)
+	if small then
+		card.AnchorPoint = Vector2.new(0, 0)
+		card.Position = UDim2.fromOffset(0, 0)
+		cardScale.Scale = 1 / math.max(rootScale(), 0.01) -- screen px (MidnightHUD places BottomLeft under the card)
+		card.Parent = hudAnchor
+	elseif useNew then
 		local rs = rootScale()
 		local margin = if touch then TOUCH_MARGIN / rs else 0
 		card.AnchorPoint = Vector2.new(0, 1)
@@ -1055,6 +1121,7 @@ local function findAnchor(hud: Instance?)
 		local a = hud:WaitForChild("BottomLeft", 5)
 		if a and a:IsA("GuiObject") then
 			hudAnchor = a
+			hud:GetAttributeChangedSignal("Compact"):Connect(place)
 			place()
 		end
 	end
@@ -1102,8 +1169,6 @@ if GPSUpdate then
 end
 
 -- views / redraw --------------------------------------------------------------------------------------------------
-local viewW, viewH = MAP_W, MAP_H
-local forceRedraw = true
 local function boundsOf(name: string)
 	local b = map.bounds
 	local minX, maxX, minZ, maxZ = b.minX, b.maxX, b.minZ, b.maxZ
