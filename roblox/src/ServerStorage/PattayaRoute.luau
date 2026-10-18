@@ -25,6 +25,14 @@ for ei, e in graph.edges do
 	table.insert(adjacency[b], {a, ei, cost, true})
 end
 Route.nodes = nodes
+-- the city graph comes first in graph.luau; nodes after baseNodes belong to access corridors (e.g. the road to Bira)
+-- and are never picked as sprint / challenge / boss destinations, so tested courses don't change when roads are added
+Route.baseNodes = graph.baseNodes or #nodes
+local osmIndex = {} -- OSM node id -> graph index (when graph.luau carries osmIds)
+for i, id in (graph.osmIds or {}) do
+	osmIndex[id] = i
+end
+Route.osmIndex = osmIndex
 
 function Route.toLocal(p: Vector3): Vector2
 	return Vector2.new(p.X - Route.ORIGIN.X, p.Z - Route.ORIGIN.Z)
@@ -145,7 +153,7 @@ function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen:
 	local dist, prev = Route.dijkstra(src)
 	local candidates = {}
 	for n, d in dist do
-		if d >= minLen and d <= maxLen then
+		if d >= minLen and d <= maxLen and n <= Route.baseNodes then
 			table.insert(candidates, n)
 		end
 	end
@@ -169,6 +177,32 @@ function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen:
 		table.insert(route, Route.toWorld(q))
 	end
 	return {cps = cps, dirs = dirs, route = route, length = Route.length(pts)}
+end
+
+-- Route from a world position to a graph node (by OSM id or graph index): the polyline in world coordinates and its
+-- length, or nil, reason. Used by the GPS (e.g. the way to the Bira Circuit).
+function Route.routeTo(pos: Vector3, look: Vector3?, target: number, isOsmId: boolean?)
+	local dst = if isOsmId then osmIndex[target] else target
+	if not dst then
+		return nil, "Unknown destination"
+	end
+	local src = Route.nearestNode(Route.toLocal(pos), 600, look and Vector2.new(look.X, look.Z) or nil)
+	if not src then
+		return nil, "No road nearby"
+	end
+	if src == dst then
+		return {route = {Route.toWorld(nodes[dst])}, length = 0}
+	end
+	local dist, prev = Route.dijkstra(src)
+	if not dist[dst] then
+		return nil, "No road to the destination"
+	end
+	local pts = Route.polylineOf(prev, src, dst)
+	local route = {}
+	for _, q in pts do
+		table.insert(route, Route.toWorld(q))
+	end
+	return {route = route, length = Route.length(pts), nodeIndex = dst}
 end
 
 -- distance from point c to the segment a-b on the ground plane (a car's path since the last sample)
