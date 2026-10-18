@@ -86,3 +86,13 @@ errors beyond the missing Roblox type definitions.
 - These are Persistent: race checkpoints, job stands, Road Fight rings, event rings, the garage and paddocks.
 - Clients use `WaitForChild` with timeouts.
 - Server code never depends on streaming.
+
+## Leader's verification after merging team3/review (2026-10-18, Studio Play)
+- No script errors with the 14 replaced scripts; race car models are `Atomic`.
+- Idle creep: the hatch sat on the flat start grid for 10 s with no input and moved 0.00 studs (max ground speed
+  0.01 studs/s); before the fix it drifted ~5 studs in 5 s.
+- U5 rate limit: a burst of 10 `RequestSprint` produced exactly one SprintUpdate "start".
+- Regression with the test kit: Street Sprint 2,374 studs +198 ฿; Challenge vs AI "Challenge won" +245 ฿
+  (= 2,175/15 + 100). `SprintActive` cleared afterwards.
+- Not re-tested: U1 (no circuit with a grid ahead of the line exists yet), U2 title ranking, U3 session lock and
+  autosave (needs API access / a real server).
