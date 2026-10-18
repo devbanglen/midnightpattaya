@@ -97,6 +97,12 @@ Unverified items stay marked unverified.
 
 ## Branding and IP
 - MIDNIGHT PATTAYA artwork and UI are original.
+- HUD style: the HUD panels use the loading screen's colours (neon cyan to pink) through
+  `ReplicatedStorage.MidnightStyle`.
+  - Each panel gets a thin cyan-to-pink accent line along its top edge.
+  - Titled panels use a GothamBlack title and show the name, either in the title (Garage, Circuits menu, circuit
+    HUD, open map) or as a small "MIDNIGHT PATTAYA" wordmark (loop race HUD, circuit results).
+  - The module only decorates panels and never moves them. If it is missing, the HUDs still work, just undecorated.
 - Bira International Circuit is named descriptively as a real place. Its official logos, artwork and marks are not
   used. Sponsor boards are placeholders ("MIDNIGHT PATTAYA", invented brands) until rights are clarified.
 - OSM: "© OpenStreetMap contributors" (ODbL).

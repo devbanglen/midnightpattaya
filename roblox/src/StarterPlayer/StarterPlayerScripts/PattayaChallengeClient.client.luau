@@ -22,6 +22,10 @@ end
 
 local RED, WHITE = Color3.fromRGB(255, 80, 80), Color3.fromRGB(255, 255, 255)
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "ChallengeHUD"
 gui.ResetOnSpawn = false
@@ -45,6 +49,9 @@ local invite = label(UDim2.new(0.5, 0, 0.6, 0), UDim2.fromOffset(640, 70), WHITE
 invite.BackgroundColor3 = Color3.fromRGB(60, 0, 0)
 invite.BackgroundTransparency = 0.25
 Instance.new("UICorner", invite).CornerRadius = UDim.new(0, 10)
+if Style then
+	Style.accent(invite, 10)
+end
 local hint = Instance.new("TextLabel")
 hint.AnchorPoint = Vector2.new(0, 1)
 hint.Position = UDim2.new(0, 16, 1, -62)

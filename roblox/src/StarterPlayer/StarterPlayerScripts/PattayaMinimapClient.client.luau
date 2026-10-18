@@ -38,6 +38,10 @@ local function circuitPos(id: string): Vector3?
 	return if typeof(v) == "Vector3" then v else nil
 end
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "MinimapHUD"
 gui.ResetOnSpawn = false
@@ -222,6 +226,10 @@ credit.TextColor3 = Color3.fromRGB(150, 160, 190)
 credit.Text = "© OpenStreetMap contributors"
 credit.ZIndex = 6
 credit.Parent = window
+if Style then
+	title.Font = Style.TITLE_FONT
+	Style.accent(window, 12).ZIndex = 7
+end
 gui.Parent = player:WaitForChild("PlayerGui")
 
 if GPSUpdate then

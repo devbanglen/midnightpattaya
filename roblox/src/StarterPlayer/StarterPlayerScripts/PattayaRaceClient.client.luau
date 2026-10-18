@@ -16,6 +16,11 @@ local COUNT = #gates
 local LAPS = race:GetAttribute("Laps") or 1
 local CYAN, WHITE, GOLD = Color3.fromRGB(0, 200, 255), Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 200, 40)
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "RaceHUD"
 gui.ResetOnSpawn = false
@@ -35,6 +40,11 @@ title.TextSize = 15
 title.TextColor3 = Color3.fromRGB(150, 220, 255)
 title.Text = race:GetAttribute("RaceName") or "Race"
 title.Parent = panel
+if Style then
+	Style.title(title)
+	Style.accent(panel, 12)
+	Style.wordmark(panel)
+end
 local line = Instance.new("TextLabel")
 line.Position = UDim2.fromOffset(0, 22)
 line.Size = UDim2.new(1, -20, 0, 36)

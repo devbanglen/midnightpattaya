@@ -25,6 +25,10 @@ local STOP_SPEED = 30
 local PURPLE, GOLD, WHITE = Color3.fromRGB(170, 70, 255), Color3.fromRGB(255, 200, 40), Color3.fromRGB(255, 255, 255)
 local DARK = Color3.fromRGB(16, 12, 26)
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 -- UI helpers ---------------------------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "GarageUI"
@@ -111,6 +115,10 @@ limit.MaxSize = Vector2.new(860, 520)
 
 local title = label(panel, "MIDNIGHT PATTAYA GARAGE", UDim2.new(0.6, 0, 0, 30), UDim2.new(0, 16, 0, 10), Enum.Font.GothamBlack, Color3.fromRGB(220, 180, 255))
 title.TextXAlignment = Enum.TextXAlignment.Left
+if Style then
+	Style.title(title)
+	Style.accent(panel, 14)
+end
 local wallet = label(panel, "", UDim2.new(0.36, 0, 0, 24), UDim2.new(0.62, 0, 0, 14), Enum.Font.GothamBold, GOLD)
 wallet.TextXAlignment = Enum.TextXAlignment.Right
 

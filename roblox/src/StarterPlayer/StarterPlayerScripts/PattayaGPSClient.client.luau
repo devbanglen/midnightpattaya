@@ -20,6 +20,10 @@ end
 local CYAN = Color3.fromRGB(0, 220, 255)
 local DRAW_STUDS = 2500
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "GPSHUD"
 gui.ResetOnSpawn = false
@@ -35,6 +39,9 @@ panel.TextColor3 = CYAN
 panel.Visible = false
 panel.Parent = gui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+if Style then
+	Style.accent(panel, 8)
+end
 local hint = Instance.new("TextLabel")
 hint.AnchorPoint = Vector2.new(0, 1)
 hint.Position = UDim2.new(0, 16, 1, -84)

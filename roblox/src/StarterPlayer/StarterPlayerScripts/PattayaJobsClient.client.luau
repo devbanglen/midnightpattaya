@@ -23,6 +23,10 @@ local GOLD, WHITE = Color3.fromRGB(255, 200, 40), Color3.fromRGB(255, 255, 255)
 local STAND_RADIUS = 18
 local STOP_SPEED = 30
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 -- HUD -------------------------------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "JobHUD"
@@ -39,6 +43,9 @@ panel.TextColor3 = WHITE
 panel.Visible = false
 panel.Parent = gui
 Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+if Style then
+	Style.accent(panel, 10)
+end
 local prompt = Instance.new("TextLabel")
 prompt.AnchorPoint = Vector2.new(0.5, 1)
 prompt.Position = UDim2.new(0.5, 0, 1, -150)

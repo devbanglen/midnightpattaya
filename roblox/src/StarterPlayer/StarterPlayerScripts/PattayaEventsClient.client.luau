@@ -15,6 +15,10 @@ if not (state and EventJoin) then
 	return
 end
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "EventHUD"
 gui.ResetOnSpawn = false
@@ -34,6 +38,9 @@ local stroke = Instance.new("UIStroke")
 stroke.Thickness = 2
 stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 stroke.Parent = banner
+if Style then
+	Style.accent(banner, 8)
+end
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local function inCar(): BasePart?

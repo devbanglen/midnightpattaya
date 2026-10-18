@@ -38,6 +38,10 @@ local function fmt(t: number?): string
 	return string.format("%d:%06.3f", t // 60, t % 60)
 end
 
+-- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
+local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
+local Style = if styleModule then require(styleModule) :: any else nil
+
 local gui = Instance.new("ScreenGui")
 gui.Name = "CircuitHUD"
 gui.ResetOnSpawn = false
@@ -182,6 +186,13 @@ layout.Padding = UDim.new(0, 6)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
 layout.Parent = scroll
 
+if Style then
+	Style.accent(hud, 8)
+	Style.accent(results, 8)
+	Style.wordmark(results)
+	Style.accent(menu, 8)
+	Style.accent(specBar, 8)
+end
 gui.Parent = player:WaitForChild("PlayerGui")
 
 -- menu options remembered between openings
