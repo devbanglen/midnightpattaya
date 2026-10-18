@@ -352,6 +352,11 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 				if above then mp:SetAttribute("AboveRoof", true) end
 				if bit32.band(fl, 4) ~= 0 and sp.mp == "MP_Signboard" and text and ctx.signs then
 					I.addSign(mp, text, textColour)
+					-- the part is turned by IMPORT_YAW, so its street side is its Back face (leader, VIS-7.1b)
+					local sg = mp:FindFirstChildOfClass("SurfaceGui")
+					if sg then
+						sg.Face = Enum.NormalId.Back
+					end
 					nSigns += 1
 				end
 				nMesh += 1
