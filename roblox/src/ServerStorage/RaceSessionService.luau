@@ -1183,10 +1183,11 @@ function Service.init(sendFn)
 	started = true
 	send = sendFn
 	Leaderboard.init(Progress)
+	local KINDS = {"formal", "open"} -- hoisted: no table allocation per slot per frame
 	RunService.Heartbeat:Connect(function()
 		local t = now()
 		for _, sl in slots do
-			for _, kind in {"formal", "open"} do
+			for _, kind in KINDS do
 				local s = sl[kind]
 				if s and not s.closed then
 					local ok, err = pcall(if kind == "formal" then stepFormal else stepOpen, s, t)

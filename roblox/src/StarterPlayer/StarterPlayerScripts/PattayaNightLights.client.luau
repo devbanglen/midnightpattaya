@@ -5,7 +5,8 @@
 --  2. Night mode for the Pattaya world: lit window tiles on facades (4x4-window night tile, so it is shown at 4x the
 --     day tile size), glowing street lamps with their SpotLights on.
 --  3. Floodlights: any BasePart with attribute FloodLight=true anywhere in workspace gets its SpotLight children
---     enabled at night (circuit poles).
+--     enabled at night (circuit poles). Lamp and floodlight SpotLights share a budget: only the nearest
+--     LOD_SpotCap (60) within range of the camera are on (see section 3; LOD_Enabled = false lifts it).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
@@ -167,40 +168,107 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- 3. Floodlights (anywhere in workspace) ---------------------------------------------------------------------------
-local floods = setmetatable({}, {__mode = "k"})
+-- SpotLight budget (lamps and floodlights): at night only the nearest LOD_SpotCap SpotLights within range of the
+-- camera are enabled (lamps LOD_LampLightRange, floodlights LOD_FloodLightRange; a light behind the camera counts
+-- 1.5x as far). By day all are off, as before. Re-evaluated 4 times a second; Enabled is only written when a light's
+-- state changes. workspace attribute LOD_Enabled = false lifts the cap and the ranges (every light on at night, the
+-- old behaviour). The knobs are workspace attributes so ServerStorage.PattayaPerfProfile can set them.
+local SPOT_DEFAULTS = {LOD_SpotCap = 60, LOD_LampLightRange = 350, LOD_FloodLightRange = 550}
+local function spotKnob(name: string): number
+	local v = workspace:GetAttribute(name)
+	return if type(v) == "number" then v else SPOT_DEFAULTS[name]
+end
+local spots: {[SpotLight]: {flood: boolean, pos: Vector3, on: boolean}} = {}
+local function registerSpot(light: SpotLight, flood: boolean)
+	if spots[light] then
+		return
+	end
+	local p = light.Parent :: BasePart
+	spots[light] = {flood = flood, pos = p.Position, on = light.Enabled}
+	if light.Enabled and not night then
+		light.Enabled = false
+		spots[light].on = false
+	end
+end
+local spotAcc = 1
+local function updateSpots()
+	spotAcc = 0
+	local cap, lampR, floodR = math.huge, math.huge, math.huge
+	if workspace:GetAttribute("LOD_Enabled") ~= false then
+		cap, lampR, floodR = spotKnob("LOD_SpotCap"), spotKnob("LOD_LampLightRange"), spotKnob("LOD_FloodLightRange")
+	end
+	local want = {}
+	if night then
+		local cam = workspace.CurrentCamera
+		local cf = if cam then cam.CFrame else CFrame.identity
+		local origin, look = cf.Position, cf.LookVector
+		local near = {}
+		for light, s in spots do
+			local off = s.pos - origin
+			local d = off.Magnitude
+			if off:Dot(look) < 0 then
+				d *= 1.5
+			end
+			if d < (if s.flood then floodR else lampR) then
+				table.insert(near, {light, d})
+			end
+		end
+		if #near > cap then
+			table.sort(near, function(a, b) return a[2] < b[2] end)
+		end
+		for i = 1, math.min(#near, cap) do
+			want[near[i][1]] = true
+		end
+	end
+	for light, s in spots do
+		if not light:IsDescendantOf(workspace) then
+			spots[light] = nil -- streamed out (a light that streams in again is a new instance)
+			continue
+		end
+		local on = want[light] == true
+		if s.on ~= on then
+			s.on = on
+			light.Enabled = on
+		end
+	end
+end
+RunService.Heartbeat:Connect(function(dt)
+	spotAcc += dt
+	if spotAcc >= 0.25 then
+		updateSpots()
+	end
+end)
+
 local function applyFlood(part: BasePart)
 	for _, c in part:GetChildren() do
 		if c:IsA("SpotLight") then
-			c.Enabled = night
+			registerSpot(c, true)
 		end
 	end
 end
 workspace.DescendantAdded:Connect(function(d)
 	if d:IsA("SpotLight") then
 		local p = d.Parent
-		if p and p:IsA("BasePart") and p:GetAttribute("FloodLight") == true then
-			floods[p] = true
-			d.Enabled = night
+		if p and p:IsA("BasePart") then
+			if p:GetAttribute("FloodLight") == true then
+				registerSpot(d, true)
+			elseif p.Name == "Lamp" then
+				registerSpot(d, false) -- a lamp's SpotLight that streamed in after its part
+			end
 		end
 	elseif d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-		floods[d] = true
 		task.defer(applyFlood, d)
 	end
 end)
 task.spawn(function()
 	for i, d in workspace:GetDescendants() do
 		if d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-			floods[d] = true
 			applyFlood(d)
 		end
 		if i % 5000 == 0 then task.wait() end
 	end
 end)
-onNightChanged(function()
-	for p in floods do
-		if p.Parent then applyFlood(p) end
-	end
-end)
+onNightChanged(updateSpots)
 
 -- 4. Car lights ----------------------------------------------------------------------------------------------------
 local CAR_LIGHT_RANGE = 350 -- studs from the camera
@@ -338,7 +406,7 @@ local function apply(inst: Instance)
 	elseif inst:IsA("BasePart") and inst.Name == "Lamp" then
 		inst.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
 		local light = inst:FindFirstChildOfClass("SpotLight")
-		if light then light.Enabled = night end
+		if light then registerSpot(light, false) end -- switched by the SpotLight budget (section 3)
 	end
 end
 

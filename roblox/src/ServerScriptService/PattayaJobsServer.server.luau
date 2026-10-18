@@ -129,6 +129,18 @@ local function flatDist(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
 end
 
+-- a stand's nearest graph node never changes (stands and graph are static), so it is looked up once per stand
+-- instead of once per stand per request (25 stands x a linear scan of ~2,900 nodes on every request)
+local standNodeCache: {[any]: number | boolean} = {}
+local function standNode(s): number?
+	local n = standNodeCache[s]
+	if n == nil then
+		n = Route.nearestNode(Route.toLocal(s.pos), 600) or false
+		standNodeCache[s] = n
+	end
+	return if n == false then nil else n :: number
+end
+
 RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	local from = byId[standId]
 	local chassis = Route.carOf(plr)
@@ -138,7 +150,7 @@ RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	if flatDist(chassis.Position, from.pos) > STAND_RADIUS + 4 or speedOf(chassis) > STOP_SPEED then
 		return
 	end
-	local src = Route.nearestNode(Route.toLocal(from.pos), 600)
+	local src = standNode(from)
 	if not src then
 		return
 	end
@@ -147,7 +159,7 @@ RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	local options = {}
 	for _, s in byId do
 		if s ~= from then
-			local n = Route.nearestNode(Route.toLocal(s.pos), 600)
+			local n = standNode(s)
 			local d = n and dist[n]
 			if d and d >= MIN_LEN and d <= MAX_LEN then
 				table.insert(options, {stand = s, node = n})
