@@ -301,6 +301,14 @@ function S.setProgress(plr: Player, t): string
 	local ls = plr:FindFirstChild("leaderstats")
 	assert(ls, "no leaderstats (PattayaProgress not started)")
 	local out = {}
+	if t.Title ~= nil then
+		-- the leaderstat only shows the best title of the saved set: reset the set through PattayaProgress
+		local mod = ServerStorage:FindFirstChild("PattayaProgress")
+		local okP, P = pcall(function() return if mod then require(mod) :: any else nil end)
+		if okP and P and P.SetTitle then
+			P.SetTitle(plr, tostring(t.Title))
+		end
+	end
 	for _, k in {"Money", "Level", "EXP", "Title"} do
 		local v = t[k]
 		local inst = ls:FindFirstChild(k)

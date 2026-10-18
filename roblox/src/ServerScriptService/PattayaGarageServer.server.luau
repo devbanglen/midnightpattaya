@@ -193,9 +193,24 @@ local function stateFor(plr: Player)
 	}
 end
 
+-- busy = PattayaRoute.busy (loop race / sprint / job / circuit session). PattayaRoute needs the generated road graph,
+-- so it is required lazily, only once PattayaData.graph exists (else the same attribute check without it).
+local routeBusy: ((Player) -> boolean)? = nil
 local function busy(plr: Player): boolean
+	if not routeBusy then
+		local data = ServerStorage:FindFirstChild("PattayaData")
+		if data and data:FindFirstChild("graph") then
+			local ok, Route = pcall(require, ServerStorage:WaitForChild("PattayaRoute"))
+			if ok then
+				routeBusy = (Route :: any).busy
+			end
+		end
+	end
+	if routeBusy then
+		return routeBusy(plr)
+	end
 	return plr:GetAttribute("RaceState") == "racing" or plr:GetAttribute("SprintActive") == true
-		or plr:GetAttribute("JobActive") == true
+		or plr:GetAttribute("JobActive") == true or plr:GetAttribute("CircuitActive") == true
 end
 
 local function nearGarage(plr: Player): boolean

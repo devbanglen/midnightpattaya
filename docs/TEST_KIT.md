@@ -280,6 +280,28 @@ end)
 -- later: print(TK.report())  -> no "JUMP START" this time (fix re-test), results row, reward
 ```
 
+### Circuit race with the grid ahead of the line (out lap, U1)
+
+Only for a circuit whose `grid` sits past the start/finish line (Bira and the fallback grid are behind it, so they
+must behave exactly as before: lap 1 timed from lights out). With such a circuit `<id>`:
+
+```lua
+local P = game.Players.LocalPlayer
+local rec = TK.hookRemotes()
+TK.fire("CircuitRequest", "join", {mode = "CircuitRace", circuit = "<id>", laps = 2})
+task.spawn(function()
+	repeat task.wait(0.25) until P:GetAttribute("CircuitState") == "StartLights"
+	TK.lapCircuit("TK_Circuit_<id>", 2, {speed = 95, name = "race",
+		startWhen = function() return P:GetAttribute("CircuitState") == "Racing" end})
+end)
+-- later
+print(rec:count("CircuitMsg", "lap"))   -- expect 2: the grid-to-line segment is not a lap
+print(rec:dump(10, function(e) return e.kind == "lap" end))   -- both laps full length, no partial-lap PB/record
+```
+
+Expect `CircuitLap` = 0 (HUD "OUT LAP") from lights out until the first line crossing, then 1, 2. Penalties
+(cuts, track limits, pit speeding) and the teleport DQ still apply on the out lap.
+
 ### Bira: physics laps and a pit lap
 
 ```lua

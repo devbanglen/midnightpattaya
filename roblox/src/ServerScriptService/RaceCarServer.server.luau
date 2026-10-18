@@ -117,6 +117,9 @@ local function buildCar(cf, color, id, opts)
 	opts = opts or {}
 	local model = Instance.new("Model")
 	model.Name = opts.name or ("RaceCar_" .. id)
+	-- all parts stream in together (like the AI bots): a car missing a wheel part on a client made
+	-- CarController.enter return early, so it could not be driven until the player sat again. Personal cars too.
+	model.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
 	model:SetAttribute("RaceCar", true)
 	model:SetAttribute("CarId", id)
 	local engine, gripTier = opts.engine or 0, opts.grip or 0

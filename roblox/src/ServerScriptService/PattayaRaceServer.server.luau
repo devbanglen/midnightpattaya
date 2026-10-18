@@ -19,6 +19,26 @@ end
 local Progress = require(ServerStorage:WaitForChild("PattayaProgress"))
 Progress.Start()
 
+-- busy = PattayaRoute.busy (loop race / sprint / job / circuit session). PattayaRoute needs the generated road graph,
+-- so it is required lazily, only once PattayaData.graph exists (else the same attribute check without it).
+local routeBusy: ((Player) -> boolean)? = nil
+local function busy(plr: Player): boolean
+	if not routeBusy then
+		local data = ServerStorage:FindFirstChild("PattayaData")
+		if data and data:FindFirstChild("graph") then
+			local ok, Route = pcall(require, ServerStorage:WaitForChild("PattayaRoute"))
+			if ok then
+				routeBusy = (Route :: any).busy
+			end
+		end
+	end
+	if routeBusy then
+		return routeBusy(plr)
+	end
+	return plr:GetAttribute("RaceState") == "racing" or plr:GetAttribute("SprintActive") == true
+		or plr:GetAttribute("JobActive") == true or plr:GetAttribute("CircuitActive") == true
+end
+
 local remotes = ReplicatedStorage:FindFirstChild("PattayaRemotes") or Instance.new("Folder")
 remotes.Name = "PattayaRemotes"
 remotes.Parent = ReplicatedStorage
@@ -88,8 +108,8 @@ RunService.Heartbeat:Connect(function()
 		end
 		local st = states[plr]
 		if not st then
-			if crossed(gates[1], prev, pos) and plr:GetAttribute("SprintActive") ~= true
-				and plr:GetAttribute("JobActive") ~= true then
+			-- not while in a sprint, job or circuit session (no loop race runs here yet: RaceState isn't "racing")
+			if crossed(gates[1], prev, pos) and not busy(plr) then
 				st = {lap = 1, next = 2, start = now, lastGateAt = now, lastGatePos = pos}
 				states[plr] = st
 				plr:SetAttribute("RaceState", "racing")

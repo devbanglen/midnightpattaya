@@ -111,12 +111,19 @@ folder.Parent = world
 
 -- jobs -------------------------------------------------------------------------------------------------------------
 local active = {} -- [player] = {kind, from, to, dest, start, timeLimit, length, fare, bumps, ...}
+-- request rate limit: at most one RequestJob per REQUEST_GAP s per player (extras are dropped), and never a second
+-- route search while one is running for that player (each request runs a Dijkstra over the whole road graph)
+local REQUEST_GAP = 0.5
+local lastRequest: {[Player]: number} = {}
+local routing: {[Player]: boolean} = {}
 
 local function stop(plr: Player, reason: string)
 	if active[plr] then
 		active[plr] = nil
 		plr:SetAttribute("JobActive", false)
-		JobUpdate:FireClient(plr, "stop", reason)
+		if plr.Parent then
+			JobUpdate:FireClient(plr, "stop", reason)
+		end
 	end
 end
 
@@ -142,6 +149,11 @@ local function standNode(s): number?
 end
 
 RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
+	local clock = os.clock()
+	if routing[plr] or clock - (lastRequest[plr] or -math.huge) < REQUEST_GAP then
+		return
+	end
+	lastRequest[plr] = clock
 	local from = byId[standId]
 	local chassis = Route.carOf(plr)
 	if not (from and chassis) or active[plr] or Route.busy(plr) then
@@ -154,7 +166,13 @@ RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	if not src then
 		return
 	end
-	local dist, prev = Route.dijkstra(src)
+	routing[plr] = true
+	local okD, dist, prev = pcall(Route.dijkstra, src)
+	routing[plr] = nil
+	if not okD then
+		warn("PattayaJobsServer: route search failed:", dist)
+		return
+	end
 	-- destinations: any other stand whose nearest junction is in range by road
 	local options = {}
 	for _, s in byId do
@@ -289,4 +307,6 @@ end)
 Players.PlayerRemoving:Connect(function(plr)
 	active[plr] = nil
 	nearState[plr] = nil
+	lastRequest[plr] = nil
+	routing[plr] = nil
 end)

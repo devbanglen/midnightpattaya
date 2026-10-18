@@ -144,8 +144,9 @@ The garage data goes through `Progress.GetData/SetData` and is saved in the same
   always added on read, even if the data is missing.
 - **Load flag:** `GetData` returns nil until the record has loaded. The player attribute `ProgressLoaded = true`
   marks the moment it has. The garage refuses requests until then.
-- **Save timing:** data is saved when the player leaves and when the server closes, the same as money. A purchase
-  is not saved at that moment, so a server crash loses it along with the money spent.
+- **Save timing:** data is saved by the 120 s autosave, when the player leaves and when the server closes, the same
+  as money. A server crash loses at most the last 2 min (purchase and money together). The full record format and
+  the session lock are in RACING_ROUTE_DESIGN.md "Progression".
 - **New safety change:** if the DataStore read fails (a pcall error, not "no data"), that session no longer saves
   over the record. Before, a failed read was overwritten with level 1 / 0 money.
 
