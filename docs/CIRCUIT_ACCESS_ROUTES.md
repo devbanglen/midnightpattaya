@@ -80,5 +80,13 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
 - **Drive test** (physics-driven autopilot following the GPS line, traffic made non-solid for the run): from the
   Pattaya start grid to "You have arrived: Bira Circuit" in **206 s**, 402 probes under the car all on road, car
   upright (min UpVector.Y 0.99), at most 7 studs off the GPS line. Route 8.1 km in game (28,942 studs).
+- **Last leg:** from the corridor's end along the transition road and across the entrance plaza to the paddock ring
+  (14 s, 38 probes: 15 on `TransitionRoad`, 22 on `Parking`, the first still on the corridor road), then the
+  circuit menu accepted a Free Practice session at the paddock. So the directive's player journey (spawn → car →
+  GPS → drive → paddock → activity) is driveable end to end.
+- A straight line from the corridor's end to the ring (instead of the transition road) drops the car 4 studs onto
+  terrain beside the road, from which the car cannot climb back (first attempt in the test). A low kerb or ground
+  blending along the transition road would be a sensible later polish.
 - Not done: the corridor has no buildings, props or traffic; a return trip was routed (2,832 studs from
-  mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated.
+  mid-corridor back to Pattaya Klang) but not driven; the Highway 36 alternative is not generated; the world-map UI
+  (menu with a map icon for the circuit) is still pending, GPS is key-driven for now.
