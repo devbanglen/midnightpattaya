@@ -45,3 +45,9 @@
 - FPS จริงตอนเล่น (Shift+F5) ในย่านใหม่และที่สนาม
 - โหมด 2 คนในสนาม (แข่ง, ห้อง private, ผู้ชม)
 - ลงจากรถระหว่าง Road Fight / Night Run กับผู้เล่นจริง
+
+## ตั้งค่า Streaming ด้วยมือ (ครั้งเดียว — สคริปต์ตั้งให้ไม่ได้)
+Explorer เลือก **Workspace** → Properties หมวด **Streaming**: `StreamingMinRadius = 512`, `StreamingTargetRadius = 1280`,
+`StreamOutBehavior = Opportunistic`, `ModelStreamingBehavior = Improved` แล้วเซฟ (เหตุผลอยู่ใน docs/PERFORMANCE_BUDGET.md:
+ที่ความเร็วไนตรัส 215 studs/s รถต้องมีถนนโหลดล่วงหน้า ~1,000 studs) ถ้าสคริปต์ฝั่ง client หาของไม่เจอหลังเปลี่ยน ให้ย้อน
+`ModelStreamingBehavior` กลับเป็น Default ก่อน
