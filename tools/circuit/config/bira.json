@@ -1,0 +1,84 @@
+{
+  "name": "bira",
+  "venue_name": "Bira Circuit (game venue)",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0; elevation: Mapzen/Tilezen Terrain Tiles on AWS (SRTM and other sources, see docs/BIRA_TRACK_REFERENCE.md)",
+  "crs": "EPSG:32647",
+
+  "city_graph": "../ROBLOXRACE/build/central_pattaya/graph_game.json",
+  "city_graph_note": "read-only; only origin_utm, compression, meters_per_stud and node ids are used. Falls back to city_origin_utm below if missing.",
+  "city_origin_utm": [703682.9114886925, 1430916.133318141],
+  "city_compression": 0.5,
+  "city_meters_per_stud": 0.28,
+  "city_slice_bbox_s_w_n_e": [12.921, 100.862, 12.953, 100.893],
+  "world_origin": [20000, 0, 0],
+  "city_road_top": 1.0,
+
+  "circuit_raw": "data/osm/raw/bira_circuit_2026-10-18.json",
+  "corridor_raw": "data/osm/raw/bira_corridor_2026-10-18.json",
+  "dem_tiles": "data/dem/terrarium",
+  "dem_zoom": 15,
+
+  "circuit_scale_note": "circuit is NOT compressed: 0.28 m per stud like the city, compression 1.0 (1 real metre = 3.571 studs)",
+  "circuit_compression": 1.0,
+  "vertical_scale": 1.0,
+  "elevation_smooth_m": 90,
+
+  "raceway_ways": [107684749, 1205208205],
+  "direction": "clockwise",
+  "direction_source": "LapMeta track page (secondary source, not confirmed on bira.co.th)",
+
+  "pit_lane_ways": [1205208206, 132455223, 1205208207],
+  "pit_building_ways": [132453983, 165165898, 132457157],
+  "grandstand_ways": [132453984],
+  "parking_ways": [167028268],
+  "parking_nodes": [1767278421],
+  "stadium_way": 169455714,
+  "gate_node": 1767298161,
+
+  "join_node_city": 423748313,
+  "join_node_city_note": "east end of Pattaya Klang Road in the central slice graph (graph_game.json node id = OSM node id)",
+  "facility_junction_node": 1457068485,
+  "facility_junction_note": "CBI.2081 / Bira service road junction; the corridor graph ends here and the transition road starts",
+  "transition_min_studs": 200,
+  "corridor_clear_studs": 30,
+  "plaza_m": [40, 30],
+  "return_band_m": 120,
+
+  "track_width_m": 12.0,
+  "track_width_note": "unverified gameplay value (no published width found); pit straight widened",
+  "pit_straight_width_m": 14.0,
+  "pit_lane_width_m": 9.0,
+  "pit_wall_m": 1.0,
+  "runoff_m": 10.0,
+  "runoff_outside_corner_m": 18.0,
+  "barrier_min_clear_m": 4.0,
+  "resample_studs": 5.0,
+  "chaikin_iterations": 3,
+
+  "corner_min_turn_deg": 12,
+  "corner_max_radius_m": 250,
+  "corner_merge_gap_m": 25,
+
+  "grid_slots": 16,
+  "grid_first_m": 8.0,
+  "grid_row_m": 8.0,
+  "pit_speed_limit_studs_s": 60,
+  "brake_board_min_straight_m": 150,
+  "floodlight_spacing_m": 70,
+
+  "building_heights_m": {"pit_garage": 7.0, "race_control": 12.0, "grandstand": 9.0, "paddock": 0.4},
+
+  "corridor_road_classes": {
+    "trunk":          {"tier": "express", "lanes": 6},
+    "trunk_link":     {"tier": "express", "lanes": 2},
+    "primary":        {"tier": "main",    "lanes": 4},
+    "secondary":      {"tier": "main",    "lanes": 4},
+    "tertiary":       {"tier": "main",    "lanes": 2},
+    "unclassified":   {"tier": "soi",     "lanes": 2},
+    "service":        {"tier": "soi",     "lanes": 2}
+  },
+  "lane_width_studs": 13,
+  "min_lane_width_studs": 11,
+  "sidewalk_studs": {"express": 0, "main": 10, "soi": 6},
+  "smoothing": {"chaikin_iterations": 3, "resample_studs": 6}
+}
