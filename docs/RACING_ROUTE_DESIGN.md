@@ -174,6 +174,140 @@ reuses the Street Challenge race engine, and `PattayaChallengeClient` for the E 
   leaderboard column, `Title`.
 - **Saving:** wins (attribute `RoadFight`, one bit per boss) and the title are saved with the player's progress.
 
+## 9. Scheduled events: Night Run and Survival (RayCity Jilju/Pokju and Survival)
+Runtime: `PattayaEventsServer` (schedule, gathering, rounds, pay) and `PattayaEventsClient` (banner, GPS arrow, J
+to join). The race itself runs on `ServerStorage.PattayaStreetRace`, the engine shared with Street Challenge and Road
+Fight. Gates, HUD and countdown come from the usual `PattayaSprintClient` and `PattayaChallengeClient`.
+
+**Not playtested yet.** Everything below describes the design as built in code.
+
+### Shared race engine (`PattayaStreetRace`)
+This code moved out of `PattayaChallengeServer` and is meant to behave exactly as before:
+- the AI racer: model, speed profile and step
+- grid placement, with the cars anchored through the 3.5 s countdown
+- ordered checkpoints within 26 studs, and standings every 0.5 s
+- catch-up nitro (30 instead of 20)
+- leaving the car forfeits; the 260 studs/s teleport check
+- the time limit, DNF after the winner, and the Challenge payout
+
+`startRace(parts, opts)` takes these options: a title, a route function, the time limit, the DNF delay, the forfeit
+text, `gridAlongRoute`, a start banner, and `onResult` / `onEnd` callbacks. With `gridAlongRoute`, a big grid follows
+the road instead of a straight line. Challenge uses the defaults. Road Fight passes its seeded course, its own payout
+and the boss reset.
+
+### Schedule and joining
+- **Schedule:** every **15 real minutes** (`CONFIG.intervalMinutes`) the server announces an event **60 s** ahead
+  (`CONFIG.leadSeconds`). Every 3rd event is Survival (`CONFIG.survivalEvery`). The others are Night Run.
+- **Name:** it follows the clock, as RayCity did with Jilju by day and Pokju at night. It is **NIGHT RUN** (purple)
+  when `ClockTime` is after 17:48 or before 06:18, and **DAY RUN** (gold) by day. Survival is red.
+- **Start point:** a junction on a main road (tier 2, at least two roads). When someone is driving, it is 150–1,500
+  studs from a random driver. The route is picked when the event is announced.
+- **Gathering ring:** a ring 90 studs across marks the start. It has a 260-stud neon beacon and an always-on-top
+  label ("NIGHT RUN / JOIN HERE 0:42 (3)").
+- **On every client:** a banner with the countdown and the distance to the ring. Until you join, a coloured GPS arrow
+  floats over your car.
+- **To join:** drive into the ring, or press **J** while driving within **1,500 studs** of the ring
+  (`CONFIG.joinRadius`). J is R1 on a gamepad and the JOIN button on mobile. Players who join with J are moved onto
+  the grid at the start.
+- **While waiting:** joined players count as busy (`SprintActive`), so they can't start a sprint, job or challenge.
+- **At the start:** players who are not in their car, or are in a job or a loop race, are dropped with "You missed
+  the start". If nobody is left: "cancelled - nobody joined".
+- **Grid size:** up to **16** entrants. AI street racers fill the grid up to **6 cars**: always for Survival, and for
+  a Night Run when fewer than 2 humans joined. So both work with a single player.
+
+### Night Run / Day Run
+- **Route:** one long point-to-point route of **2,500–4,500 studs**, with checkpoints every 300 studs. Main roads are
+  preferred (sois cost 1.6×).
+- **Grid:** several rows on the road itself, two cars per row, 20 studs between rows.
+- **Limits:** 240 s. Anyone still racing **45 s after the winner** is out. Leaving the car also puts you out, and
+  pays nothing.
+- **AI racers:** top speed 125–150 studs/s, corner grip 150.
+- **`EventActive`:** set to `true` on every human entrant from the start until their result.
+  - **Needed in `PattayaJobsServer`** for extra near-miss nitro during events. In the NearMiss handler, replace the
+    `NitroBonus` line with:
+    `NitroBonus:FireClient(plr, (6 + 2 * ns.combo) * (if plr:GetAttribute("EventActive") then 2 else 1))`
+- **Pay** (n = cars on the grid, h = human entrants, p = place):
+
+| | Money | EXP |
+|---|---|---|
+| Finisher | length/25 + 20 × (n − p) + podium × (1 + 0.25 × (h − 1)) | length/40 + 10 × (n − p) |
+| Podium bonus | 1st 200, 2nd 100, 3rd 50 | – |
+| Did not finish / left the car | 0 | 0 |
+
+  Example: a 3,500-stud route with 6 cars and 1 human. A win pays 140 + 100 + 200 = 440 ฿ and 137 EXP.
+- At the end, everyone on the server gets "NIGHT RUN won by NAME 74.20 s".
+
+### Survival
+- **Gathering:** the same as Night Run.
+- **Rounds:** **4** (`CONFIG.survival.rounds`, clamped to 3–5). Each round is a short route of **1,000–1,600
+  studs** that starts where the last one ended. There is a 7 s break between rounds.
+- **Ranking after each round:**
+  1. finishers, by place
+  2. drivers who did not finish, by progress
+  3. drivers who left the car
+- **Elimination:**
+  - The slowest **20%** are out (rounded down, **at least 1**), plus anyone who left the car.
+  - It is **never everyone**: the best of them stays in.
+  - With 2 drivers left, or in the last round, the round is the final, and its winner wins.
+- **Round limits:** 120 s. A driver still racing 25 s after the round winner has not finished and is ranked by
+  progress.
+- **Equalised cars:**
+  - Entrants get `Equalised = true` and `SpeedCap = 150` (studs/s) until they are out.
+  - The garage/car-class teammate is making `CarController` honour these.
+  - AI racers in Survival run at 128–142.
+- **Pay:**
+  - 40 ฿ + 20 EXP per round survived, paid when you are out.
+  - Winner: 600 ฿ + 300 EXP, plus the round pay for every round.
+  - The winner also gets the title **"Survivor"** if they have no title yet. Road Fighter and Road King are kept.
+- If every human is out, the best remaining AI is announced as the winner.
+
+### Config and test hooks
+- **Constants:** `CONFIG` at the top of `PattayaEventsServer`.
+- **Live overrides:** attributes on that script: `IntervalMinutes` (0 = no schedule), `SurvivalEvery`,
+  `LeadSeconds`.
+- **Force a start** from the Studio command bar (switch it to **Server** in Play):
+  - `game.ServerStorage.StartEvent:Fire("nightrun", 15)`
+  - `game.ServerStorage.StartEvent:Fire("survival", 15)`
+  - The number is the lead time in seconds (at least 5).
+- **Public state:** attributes on `ReplicatedStorage.PattayaEvent`: Phase (idle/gathering/running), Kind, Title,
+  StartAt, RingPos, Entrants, Round, Rounds, Alive, NextAt.
+- **Per-player attributes:** `EventJoined`, `EventActive`, `Equalised`, `SpeedCap`.
+
+### Test plan (Studio Play, 1 player, then 2 players)
+1. Get in a car. In the command bar (Server), run `game.Lighting:SetAttribute("TimeLock", 21)`, then
+   `game.ServerStorage.StartEvent:Fire("nightrun", 20)`.
+   - Expect a toast "NIGHT RUN in 20 s!" and the banner with the countdown and the distance to the ring.
+   - Expect the purple beacon in the distance and a purple arrow over the car.
+2. Press J (within 1,500 studs). Expect "You're in!" and the banner "you're in! (1 drivers)". H and C now do
+   nothing.
+3. At 0:
+   - The car is moved onto the grid, and 5 AI racers line up behind it on the road.
+   - The 3-2-1-GO countdown plays, and the car is held until GO.
+   - The HUD shows `NIGHT RUN CP 1/n … P1/6`, and a toast says "NIGHT RUN 6 cars x.x km".
+4. Drive (or use the autopilot) through all gates.
+   - Expect a "NIGHT RUN WINNER!" or "kth place of 6" toast, and a reward toast with the pay from the table.
+   - Expect the server-wide "won by" message.
+   - `EventActive` is set while racing and cleared after.
+5. Repeat and get out of the car mid-race. Expect "Left the car - out of the NIGHT RUN" and no pay. The AI cars
+   disappear after the race ends.
+6. Set `TimeLock = 12` and start again. The event is called DAY RUN, with a gold ring.
+7. Drive into the ring instead of pressing J. You join as soon as the car is inside the ring.
+8. Start with nobody joining. Expect "cancelled - nobody joined", the ring removed, and no errors.
+9. Run `StartEvent:Fire("survival", 15)` and join.
+   - Expect `SURVIVAL R1/4`, and the `Equalised`/`SpeedCap` attributes on the player.
+   - After each round, expect "Round 1 survived! Eliminated: NAME. 5 left", or "ELIMINATED in round k of 4" with
+     the round pay.
+   - Expect a 7 s break, then the next round starting where the last one ended.
+   - The final winner gets 600 ฿ plus the round pay, and the title "Survivor" if they had no title.
+   - The attributes are cleared at the end.
+10. Regression: these must behave exactly as in the "Tested" section, with the same messages and pay:
+    - Street Challenge vs AI (C)
+    - Challenge between 2 players (C/Y)
+    - a Road Fight win and a loss
+    - Street Sprint (H)
+11. With 2 players, both join. Expect no AI in the Night Run, both players in the standings, and pay using h = 2.
+12. Set `IntervalMinutes = 1` on the script and wait. An event is announced automatically about 1 minute later.
+
 ## Tested (2026-10-18, Studio Play, client-owned car moved by a client-side test autopilot at 140 studs/s)
 - **Jobs:**
   - Delivery Windy Plaza → Wat Chai Mongkhon (2,135 studs): road under the car at 116/116 samples. It paid, but the
