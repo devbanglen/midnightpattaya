@@ -90,7 +90,35 @@ Street Sprint also uses now.
 - The job fails if the time runs out ("Too late! The customer left") or you leave the car. The same 260 studs/s
   teleport check applies, measured once a second.
 - You can't take a job during a race or sprint, and you can't start a sprint or race during a job.
-- Near-miss and jump tips (RayCity "thrill") need traffic, which isn't built yet.
+- Near misses past traffic add 5 ฿ each to the tip (section 6).
+
+## 6. Ambient traffic and near misses
+Generator: `tools/mapgen/traffic.py` (config block `traffic`) writes `traffic.json`. `export_roblox.py` turns it into
+`traffic.luau`, which goes to `ReplicatedStorage.PattayaTraffic`. Runtime: `PattayaTraffic` (LocalScript); the
+near-miss remote is handled in `PattayaJobsServer`.
+- **Loops:** 36 closed loops, 464 cars, about 420 studs apart on each loop at 38–55 studs/s (roughly 40–55 km/h).
+  - Each loop is a random walk over the directed road graph that keeps to main roads 85% of the time and respects
+    one-way streets, closed with a shortest path back to its start.
+  - Cars drive in the **left** lane (Thailand), offset a quarter of the road width from the centreline.
+- **Same traffic for everyone:** each car's position is a pure function of the server clock, so every client shows
+  the same traffic with no network cost. Only cars within 650 studs of the camera get a model, from a pool of at
+  most 70: sedans/taxis (pink and green cabs have a TAXI-METER light), blue songthaews (baht buses) and vans, with
+  head and tail lights.
+- **Crashes:** traffic is solid for your own car (client physics), so hitting it is a real crash. That gives a
+  knock during a job.
+  - If you are stopped or slower in front of a traffic car, it turns into a ghost for 1.5 s and drives through you
+    instead of shoving you.
+  - Driving into one head-on is still a crash.
+- **Near miss:** pass a traffic car end to end with less than 7 studs of side gap, without touching, at 70+ studs/s.
+  - The client reports it. The server can only sanity-check, because traffic is client-side: you must be in a car
+    at 60+ studs/s, at most one every 0.6 s.
+  - Pays 6 + 2 × combo nitro, where the combo grows while near misses come within 4 s of each other, up to 10.
+  - During a job it adds 5 ฿ to the tip. A "NEAR MISS x3" toast is shown.
+- **Known limits:**
+  - Traffic cars don't stop for each other, for junctions or for traffic lights; they pass through each other at
+    crossings.
+  - Traffic also runs on the loop race roads.
+  - Other players' cars are not avoided. Each client only knows its own car.
 
 The loop race also ignores any sample-to-sample jump longer than 60 studs. In testing, a teleport (respawn or a
 test move) from the grid across gate 1 started a race.
@@ -105,6 +133,14 @@ test move) from the grid across gate 1 started a race.
   - A request from 80 studs away was refused. Sprint during a job was refused. Cancel cleared the job and the route
     line.
   - Waiting out the limit (46 s) gave "Too late! The customer left" and no money.
+- **Traffic (Play):**
+  - 58 cars around the start, moving about 44 studs/s, at 61 FPS. Screenshots show the van, songthaew and pink taxi
+    in the correct (left) lane.
+  - Oncoming pass with a 3-stud gap at 100 studs/s: near miss fired, with a combo of 2 (probably a second car on an
+    overlapping loop).
+  - Head-on crash under real physics: 57 → −14 studs/s bounce, then the traffic car ghosted through.
+  - Taxi Walking Street → Windy Plaza with traffic on: 1,224 studs in 12.5 s, 0 knocks, 5 near misses accepted
+    (2 sent by the test, 3 real). Tip 61 = 36 for time left + 25 for near misses, total 243 ฿. 60 FPS while driving.
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
   race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.

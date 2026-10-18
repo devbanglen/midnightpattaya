@@ -74,6 +74,11 @@ local function toast(text: string)
 	end)
 end
 
+player:GetAttributeChangedSignal("NearMissAt"):Connect(function()
+	local combo = player:GetAttribute("NearMissCombo") or 1
+	toast(if combo > 1 then ("NEAR MISS  x%d"):format(combo) else "NEAR MISS")
+end)
+
 -- job state ------------------------------------------------------------------------------------------------------
 local job -- {dest, start, timeLimit, fare, bumps, title, to}
 local visuals: Folder? = nil

@@ -71,6 +71,18 @@
     "job_stand_max_snap_studs": 220
   },
 
+  "traffic": {
+    "seed": 11,
+    "routes": 36,
+    "min_loop_studs": 2500,
+    "max_loop_studs": 7000,
+    "main_road_bias": 0.85,
+    "studs_per_car": 420,
+    "speed_studs_s": [38, 55],
+    "kind_weights": [5, 3, 2],
+    "kinds_note": "0 sedan/taxi, 1 songthaew (baht bus), 2 van"
+  },
+
   "buildings": {
     "level_height_m": 3.2,
     "vertical_scale": 0.75,

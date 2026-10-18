@@ -45,6 +45,9 @@ end
 local RequestJob = remote("RequestJob")
 local CancelJob = remote("CancelJob")
 local JobUpdate = remote("JobUpdate")
+local NearMiss = remote("NearMiss") -- from PattayaTraffic (client-side traffic)
+local NitroBonus = remote("NitroBonus")
+local NEAR_TIP = 5 -- ฿ per near miss during a job (RayCity "thrill" tips)
 
 -- stands: built at runtime from the generated data (persistent, so every client sees all of them) ----------------
 local folder = world:FindFirstChild("JobStands")
@@ -170,7 +173,7 @@ RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	end
 	local now = workspace:GetServerTimeNow()
 	active[plr] = {kind = from.kind, from = from, to = to, start = now, timeLimit = timeLimit, length = length,
-		fare = fare, bumps = 0, history = {}, low = 0, lastBumpAt = 0, sampleAt = now, samplePos = chassis.Position,
+		fare = fare, bumps = 0, nearTip = 0, history = {}, low = 0, lastBumpAt = 0, sampleAt = now, samplePos = chassis.Position,
 		checkAt = now, checkPos = chassis.Position}
 	plr:SetAttribute("JobActive", true)
 	JobUpdate:FireClient(plr, "start", {kind = from.kind, title = k.title, from = from.label, to = to.label,
@@ -179,6 +182,28 @@ end)
 
 CancelJob.OnServerEvent:Connect(function(plr: Player)
 	stop(plr, "Job cancelled")
+end)
+
+-- near misses past traffic: the traffic is client-side, so the server can only sanity-check (in a car, fast, rate
+-- limited). Pays nitro (more for a combo within 4 s) and a tip during a job.
+local nearState = {} -- [player] = {at, combo}
+NearMiss.OnServerEvent:Connect(function(plr: Player)
+	local chassis = Route.carOf(plr)
+	local now = workspace:GetServerTimeNow()
+	local ns = nearState[plr] or {at = 0, combo = 0}
+	nearState[plr] = ns
+	if not chassis or speedOf(chassis) < 60 or now - ns.at < 0.6 then
+		return
+	end
+	ns.combo = if now - ns.at < 4 then math.min(ns.combo + 1, 10) else 1
+	ns.at = now
+	NitroBonus:FireClient(plr, 6 + 2 * ns.combo)
+	local st = active[plr]
+	if st then
+		st.nearTip += NEAR_TIP
+	end
+	plr:SetAttribute("NearMissCombo", ns.combo)
+	plr:SetAttribute("NearMissAt", now)
 end)
 
 RunService.Heartbeat:Connect(function()
@@ -237,7 +262,7 @@ RunService.Heartbeat:Connect(function()
 			local k = KINDS[st.kind]
 			local t = now - st.start
 			local cut = math.min(st.bumps * k.bumpCut, 0.6)
-			local tip = math.floor(math.max(0, st.timeLimit - t) * k.tipPerSec)
+			local tip = math.floor(math.max(0, st.timeLimit - t) * k.tipPerSec) + st.nearTip
 			local money = math.floor(st.fare * (1 - cut)) + tip
 			local exp = math.floor(st.length * k.expPerStud)
 			active[plr] = nil
@@ -251,4 +276,5 @@ end)
 
 Players.PlayerRemoving:Connect(function(plr)
 	active[plr] = nil
+	nearState[plr] = nil
 end)
