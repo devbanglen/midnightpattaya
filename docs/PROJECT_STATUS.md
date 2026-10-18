@@ -1,4 +1,6 @@
-# Project status — Pattaya Racing World
+# Project status — MIDNIGHT PATTAYA (formerly Pattaya Racing World)
+
+Plan: `MIDNIGHT_PATTAYA_MASTER_PLAN.md` (directive phases A–J).
 
 Last update: 2026-10-18. Statuses are only "done" when tested; see "How tested".
 
@@ -20,6 +22,8 @@ Last update: 2026-10-18. Statuses are only "done" when tested; see "How tested".
 | 10c Traffic + near misses | done (first pass, tested) | `tools/mapgen/traffic.py` (36 loops, 464 cars, left-hand lanes, one-ways respected), `ReplicatedStorage.PattayaTraffic`, `PattayaTraffic` client (clock-driven, pooled ≤70 models, solid, ghosts instead of shoving), near-miss remote → nitro combo + job tip | see `docs/RACING_ROUTE_DESIGN.md` "Tested": screenshots, near miss, real-physics crash, job with traffic at 60 FPS | traffic ignores junctions/other traffic/other players; runs on the loop race too; not tested on mobile |
 | 10d Street Challenge | done (tested vs AI and 2 players) | `PattayaChallengeServer`/`Client`: C to challenge the nearest driver (Y/N invite) or an AI street racer, live-street route, countdown, standings, catch-up nitro, pay by place; `PattayaRoute.pointToPoint` shared with Sprint | win, lose, forfeit vs AI; 2-player Studio test: race, results, decline, no-answer (see `docs/RACING_ROUTE_DESIGN.md`) | AI is a ghost (no collisions); not tested over a real network |
 | 10e Road Fight | done (tested with autopilot) | 4 bosses at real spots (`road_fight` config → `roadfight.luau`), fixed seeded courses, unlock order, rewards, titles "Road Fighter"/"Road King" saved with progress, leaderboard Title column | lock, win, lose, rematch, titles in Play (see `docs/RACING_ROUTE_DESIGN.md`) | boss stands not visually checked; difficulty not tried by a human |
+| A Name update (MIDNIGHT PATTAYA) | in progress | `docs/MIDNIGHT_PATTAYA_MASTER_PLAN.md` (directive integrated, module map, phases A–J), old plan marked superseded, loading screen `ReplicatedFirst.MidnightLoading` (title, subtitle, tagline, OSM credit) | Play: the script ran to completion and removed itself, no errors | look of the loading screen not seen (the capture came after it faded); in-game HUD titles still say race names only; place/experience name is set by the owner when publishing |
+| C–J Bira circuit, circuit racing, events, garage/classes, wider world | in progress (team) | five parallel branches `team/*`; see the master plan | not yet merged or playtested | |
 | 9, 11 | not started | | | |
 
 ## Existing systems kept (not replaced)

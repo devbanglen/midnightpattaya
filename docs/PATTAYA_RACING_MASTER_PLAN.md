@@ -1,4 +1,7 @@
-# Pattaya Racing World — master plan
+# Pattaya Racing World — master plan (superseded)
+
+> The game is now **MIDNIGHT PATTAYA**. The current plan is `MIDNIGHT_PATTAYA_MASTER_PLAN.md`; this file is kept as the
+> original plan (architecture and first-slice decisions still apply).
 
 Design mode C: RayCity-style, gameplay-optimised Pattaya. Recognisable real road layout and coast, compressed
 distances, widened roads, smoothed curves. Owner communication in Thai.

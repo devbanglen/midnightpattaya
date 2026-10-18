@@ -77,7 +77,7 @@ Research date: 2026-10-18. RayCity (레이시티) shut down everywhere in 2013, 
 - Time of day matters: dawn, day, evening and night were added in 2011, and they drive the Jilju (day) vs Pokju (night) event split. Lobby tracks were real places too: Gwanghwamun to Itaewon, Cheonggyecheon, and **Busan** (Gwangan Bridge, the harbour), each map with a fixed time of day ([GameAbout](http://www.gameabout.com/news/articleView.html?idxno=23146), [Ruliweb](https://bbs.ruliweb.com/news/538/read/26911)).
 - Clicking the map gave **auto-navigation** to a destination ([MMOHuts](https://mmohuts.com/news/raycity-review)).
 
-## 7. Recommendations for Pattaya Racing World
+## 7. Recommendations for MIDNIGHT PATTAYA (then called Pattaya Racing World)
 
 These race types use our existing systems: the open-city map built from real roads, checkpoint races with laps, and raycast arcade cars with nitro and drift.
 
