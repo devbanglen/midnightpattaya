@@ -27,6 +27,8 @@ Roblox APIs (see "Offline check"), not in Studio.
 | `roblox/src/ServerStorage/LeaderboardService.luau` | `ServerStorage.LeaderboardService` | ModuleScript |
 | `roblox/src/ServerStorage/RaceSessionService.luau` | `ServerStorage.RaceSessionService` | ModuleScript |
 | `roblox/src/ServerStorage/CircuitTestTrack.luau` | `ServerStorage.CircuitTestTrack` | ModuleScript (test helper) |
+| `roblox/src/ServerStorage/RankedRating.luau` | `ServerStorage.RankedRating` | ModuleScript (ranked maths; required by RaceSessionService, see RANKED_SYSTEM.md) |
+| `roblox/src/ServerStorage/RankedRatingTest.luau` | `ServerStorage.RankedRatingTest` | ModuleScript (dev only unit test) |
 | `roblox/src/ServerScriptService/CircuitServer.server.luau` | `ServerScriptService.CircuitServer` | Script |
 | `roblox/src/StarterPlayer/StarterPlayerScripts/CircuitRaceClient.client.luau` | `StarterPlayer.StarterPlayerScripts.CircuitRaceClient` | LocalScript |
 | `roblox/data/circuits/test_oval.luau` | `ServerStorage.PattayaData.circuits.test_oval` (create the Folder `circuits`) | ModuleScript (fixture) |
@@ -272,8 +274,9 @@ servers.
 
 **`CircuitMsg` (server → client):** `menu`, `toast`, `warn {kind, text}`, `sector {n, time, colour}`,
 `lap {lap, time, valid, colour, pb, sectors, reason}`, `lights {at, interval, count}`, `lightsOut {at}`,
-`tower {mode, rows}`, `results {name, mode, laps, rows, bestLap}`, `spectate {…}|nil`, `invite {…}`,
-`friends {circuit, rows}`.
+`tower {mode, rows, ranked}`, `results {name, mode, laps, rows, bestLap, ranked, bucket, unranked, provisionalRaces}`,
+`spectate {…}|nil`, `invite {…}`, `friends {circuit, rows}`. The ranked fields (and `menu.ranked`, the rating fields on
+results rows) are described in RANKED_SYSTEM.md.
 
 **Player attributes:** `CircuitActive`, `CircuitId`, `CircuitName`, `CircuitMode`, `CircuitState`, `CircuitLap`,
 `CircuitLaps`, `CircuitLapStart`, `CircuitLastLap`, `CircuitBestLap`, `CircuitPB`, `CircuitLapValid`,
@@ -340,9 +343,12 @@ The UI is original and says "MIDNIGHT PATTAYA". It uses no RayCity assets.
 - travel to the paddock
 - the simple spectator camera (server `ReplicationFocus` + client `CameraSubject`)
 
+**Ranked (written, off by default, not yet tested in Studio):** see RANKED_SYSTEM.md.
+- `RaceSessionService.Ranked`: `enabled = false` (or the ServerStorage attribute `RankedEnabled`), `ratingKey =
+  "circuitRating"`, `defaultRating`, `bucketOf(class, equalised)`, `validate(session, rows)`, `apply(session, rows)`.
+  Only public CircuitRace sessions are ranked. Ratings are computed by `ServerStorage.RankedRating`.
+
 **Prepared (interfaces only):**
-- `RaceSessionService.Ranked`: `enabled = false`, `ratingKey = "circuitRating"`, `defaultRating`, `bucketOf(class)`,
-  `validate(session, rows)`, `apply(session, rows)`. These are called at results when enabled.
 - `RaceSessionService.hooks`: `onState`, `onGate`, `onLap`, `onIncident`, `onResults`. Future systems subscribe
   here:
   - yellow/blue flags (from `onIncident` and the gaps)

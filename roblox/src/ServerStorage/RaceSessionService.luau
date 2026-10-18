@@ -31,6 +31,7 @@
 -- CircuitLap, CircuitLaps, CircuitLapStart, CircuitLastLap, CircuitBestLap, CircuitPB, CircuitLapValid,
 -- CircuitPos, CircuitCount, CircuitGap, CircuitPit, CircuitPitLimit, CircuitOff, CircuitWrongWay, CircuitPenalty,
 -- CircuitFormEnds, CircuitFinished, CircuitOwner.
+-- Ranked (off by default, docs/RANKED_SYSTEM.md): Service.Ranked; only public CircuitRace sessions can be ranked.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local PhysicsService = game:GetService("PhysicsService")
@@ -42,6 +43,7 @@ local Timing = require(ServerStorage:WaitForChild("LapTimingService"))
 local Leaderboard = require(ServerStorage:WaitForChild("LeaderboardService"))
 local Route = require(ServerStorage:WaitForChild("PattayaRoute"))
 local Progress = require(ServerStorage:WaitForChild("PattayaProgress"))
+local RankedRating = require(ServerStorage:WaitForChild("RankedRating"))
 
 local Service = {}
 
@@ -69,21 +71,140 @@ local PRIVATE_IDLE = 600
 local AT_CIRCUIT = 600 -- studs from the centerline/paddock that count as "at the circuit"
 local GHOST = "CircuitGhost"
 
--- Ranked play: interfaces only (not enabled). A rating per class bucket would be saved with
--- Progress.SetData(plr, "circuitRating", {[bucket] = rating}).
+-- Ranked play (docs/RANKED_SYSTEM.md). Off by default: turn it on with Service.Ranked.enabled = true or the
+-- ServerStorage attribute RankedEnabled = true. It is read when a race is created (session.ranked), and only a public
+-- CircuitRace is ever ranked: never a PrivateRoom (owner-picked field, solo rooms) and never an open mode.
+-- The maths is ServerStorage.RankedRating. The rating per class bucket is saved with
+-- Progress.SetData(plr, "circuitRating", {[bucket] = {rating, races, season}}) and shown on LeaderboardService's ranked
+-- board. Everything comes from the server's results rows; nothing from the client.
 Service.Ranked = {
 	enabled = false,
+	attribute = "RankedEnabled", -- ServerStorage attribute that also turns it on (tests)
 	ratingKey = "circuitRating",
-	defaultRating = 1000,
-	bucketOf = function(class: string): string
-		return class -- one bucket per car class
-	end,
-	-- return false to throw a result away (e.g. too few drivers, a DNF storm, mismatched classes)
-	validate = function(session, rows): boolean
-		return #rows >= 2
-	end,
-	apply = function(session, rows) end, -- rating update goes here
+	defaultRating = RankedRating.DEFAULT,
+	minRaceStuds = 3000, -- laps x lap length below this is not a ranked result (test oval: 2+ laps, Bira: 1+)
+	voidOnDisqualified = true, -- a teleport disqualification throws the whole result away
 }
+local Ranked = Service.Ranked
+
+function Ranked.isEnabled(): boolean
+	return Ranked.enabled == true or ServerStorage:GetAttribute(Ranked.attribute) == true
+end
+
+-- the rating pool for a car class; a driver in an Equalised event (every car on the hatch spec) has its own pool
+function Ranked.bucketOf(class: string, equalised: boolean?): string
+	if equalised then
+		return "Equalised"
+	end
+	return if table.find(Service.CLASSES, class) then class else "Street"
+end
+
+-- laps needed on a circuit for a ranked result
+function Ranked.minLaps(circuit): number
+	return math.max(1, math.ceil(Ranked.minRaceStuds / math.max(1, circuit.lengthStuds)))
+end
+
+-- human drivers only: future AI or ghost rows carry ai / bot / ghost = true and are never rated
+local function rankedRows(rows)
+	local out = {}
+	for _, r in rows do
+		if not (r.ai or r.bot or r.ghost) and type(r.userId) == "number" then
+			table.insert(out, r)
+		end
+	end
+	return out
+end
+
+-- the stored entry of a player for a bucket, soft reset for the season (a fresh one if there is none)
+local function storedEntry(plr: Player, bucket: string, season: number)
+	local all = Progress.GetData(plr, Ranked.ratingKey)
+	return RankedRating.normalise(if type(all) == "table" then all[bucket] else nil, season, Ranked.defaultRating)
+end
+Ranked.storedEntry = storedEntry
+
+-- returns ok, reason. A false result is shown as "UNRANKED: reason" and changes no rating.
+function Ranked.validate(session, rows): (boolean, string?)
+	if not session.ranked then
+		return false, "not a ranked race"
+	end
+	local humans = rankedRows(rows)
+	if #humans < 2 then
+		return false, "needs 2 or more drivers"
+	end
+	local bucket, finishers = nil, 0
+	for _, r in humans do
+		if r.dq and Ranked.voidOnDisqualified then
+			return false, "a driver was disqualified"
+		end
+		local b = Ranked.bucketOf(r.class or "Street", r.equalised)
+		if bucket and b ~= bucket then
+			return false, "mixed classes"
+		end
+		bucket = b
+		if r.status == "FIN" then
+			finishers += 1
+		end
+	end
+	if finishers == 0 then
+		return false, "nobody finished"
+	end
+	if session.laps * session.circuit.lengthStuds < Ranked.minRaceStuds then
+		return false, ("too short (%d+ laps here)"):format(Ranked.minLaps(session.circuit))
+	end
+	return true, nil
+end
+
+-- at lights out: remember every driver's rating, so a driver who leaves the game mid-race is still rated against
+-- (their own new rating cannot be saved: their record was saved when they left)
+function Ranked.snapshot(session)
+	local season = RankedRating.seasonAt(os.time()).id
+	session.rankedSeason = season
+	session.rankedSnap = {}
+	for _, p in session.parts do
+		if not p.gone and p.plr.Parent and p.plr:GetAttribute("ProgressLoaded") then
+			local bucket = Ranked.bucketOf(p.class or "Street", p.equalised)
+			session.rankedSnap[p.plr.UserId] = {bucket = bucket, entry = storedEntry(p.plr, bucket, season)}
+		end
+	end
+end
+
+-- rows in finishing order (finishers, then DNFs). Adds bucket / rating / ratingDelta / provisional / ratedRaces to
+-- each human row and saves the new ratings of the drivers still on this server.
+function Ranked.apply(session, rows)
+	local humans = rankedRows(rows)
+	local bucket = Ranked.bucketOf(humans[1].class or "Street", humans[1].equalised)
+	local season = session.rankedSeason or RankedRating.seasonAt(os.time()).id
+	local drivers, players = {}, {}
+	for i, r in humans do
+		local plr = Players:GetPlayerByUserId(r.userId)
+		local snap = session.rankedSnap and session.rankedSnap[r.userId]
+		local entry
+		if plr and plr:GetAttribute("ProgressLoaded") then
+			entry = storedEntry(plr, bucket, season)
+		elseif snap and snap.bucket == bucket then
+			entry = snap.entry
+		else
+			entry = RankedRating.normalise(nil, season, Ranked.defaultRating)
+		end
+		players[i] = plr
+		drivers[i] = {key = r, rating = entry.rating, races = entry.races, dnf = r.status ~= "FIN"}
+	end
+	for i, res in RankedRating.update(drivers) do
+		local r = res.key
+		r.bucket, r.rating, r.ratingDelta = bucket, res.new, res.delta
+		r.provisional, r.ratedRaces = res.provisional, res.races
+		local plr = players[i]
+		if plr and plr.Parent and plr:GetAttribute("ProgressLoaded") then
+			local all = Progress.GetData(plr, Ranked.ratingKey)
+			all = if type(all) == "table" then all else {}
+			all[bucket] = {rating = res.new, races = res.races, season = season}
+			Progress.SetData(plr, Ranked.ratingKey, all)
+			Leaderboard.submitRating(plr, bucket, season, res.new, res.provisional)
+			r.ratingSaved = true
+		end
+	end
+	session.rankedBucket = bucket
+end
 
 -- Future systems subscribe here (flags, safety car, tyre wear, fuel, damage, replay, ghosts, AI, marshals).
 -- Callbacks run in their own thread: onState(session), onGate(session, part, gate, t), onLap(session, part, lap),
@@ -283,6 +404,7 @@ local function newSession(c, kind: string, mode: string, opts, owner: Player?)
 		private = mode == "PrivateRoom", owner = owner, invited = {},
 		allowed = allowed, collisions = collisions,
 		timing = not (mode == "FreePractice" and opts.timing == false),
+		ranked = mode == "CircuitRace" and Ranked.isEnabled(), -- public races only, fixed for the session
 		formEnds = if mode == "CircuitRace" then now() + FORM_TIME else nil,
 		lastActivity = now(), finishedCount = 0, towerAt = 0, standingsAt = 0,
 		bestLap = nil, bestSectors = {},
@@ -490,7 +612,14 @@ function Service.join(plr: Player, opts)
 		send(plr, "toast", if s.owner == plr then "Private room created: invite drivers, then press START"
 			else "Joined the private room - waiting for the owner to start")
 	else
-		send(plr, "toast", ("Race forming: %d laps, starts in %d s"):format(s.laps, math.ceil(s.formEnds - now())))
+		local rankedNote = ""
+		if s.ranked then
+			rankedNote = if s.laps < Ranked.minLaps(c)
+				then (" - unranked (RANKED needs %d+ laps here)"):format(Ranked.minLaps(c))
+				else " - RANKED"
+		end
+		send(plr, "toast", ("Race forming: %d laps, starts in %d s%s"):format(s.laps, math.ceil(s.formEnds - now()),
+			rankedNote))
 	end
 	return true
 end
@@ -653,11 +782,24 @@ function Service.menuInfo(plr: Player)
 			info.formal = {mode = f.mode, state = f.state, count = #f.parts, laps = f.laps, private = f.private,
 				owner = f.owner and f.owner.DisplayName, collisions = f.collisions, classes = classes,
 				formLeft = f.formEnds and math.max(0, math.ceil(f.formEnds - now())) or nil,
+				ranked = f.ranked == true, rankedOk = f.ranked == true and f.laps >= Ranked.minLaps(c),
 				canJoin = f.state == "Forming" and (not f.private or f.owner == plr or f.invited[plr.UserId] == true)}
 		end
 		local pb = Leaderboard.getPB(plr, c.id)
 		info.pb = pb and pb.lap
 		info.top = Leaderboard.top(c.id, 5)
+		if Ranked.isEnabled() then
+			-- the pool of the car you sit in now: your rating there and its top 5
+			local bucket = Ranked.bucketOf(if chassis then classOf(chassis.Parent :: Model) else "Street",
+				plr:GetAttribute("Equalised") == true)
+			local season = RankedRating.seasonAt(os.time())
+			local mine = if plr:GetAttribute("ProgressLoaded") then storedEntry(plr, bucket, season.id) else nil
+			info.ranked = {bucket = bucket, season = season.name, minLaps = Ranked.minLaps(c),
+				rating = mine and mine.rating, races = mine and mine.races,
+				provisional = mine == nil or RankedRating.isProvisional(mine.races),
+				provisionalRaces = RankedRating.PROVISIONAL_RACES,
+				top = Leaderboard.rankedTop(bucket, season.id, 5)}
+		end
 	end
 	return info
 end
@@ -788,6 +930,7 @@ local function handle(s, p, ev, t: number)
 		end
 	elseif kind == "teleport" then
 		if raceRules(s, p) then
+			p.dq = true
 			dropPart(p, "Disqualified: moved too fast (teleport)")
 		else
 			invalidate(s, p, "teleport")
@@ -1018,6 +1161,13 @@ local function goRacing(s)
 			attrs(p.plr, {CircuitLap = 0})
 		end
 		p.plr:SetAttribute("CircuitLapStart", s.outAt)
+		p.equalised = p.plr:GetAttribute("Equalised") == true -- server-set attribute (events), for the ranked bucket
+	end
+	if s.ranked then
+		local ok, err = pcall(Ranked.snapshot, s) -- never let the rating break the start
+		if not ok then
+			warn("[Circuit] ranked snapshot failed: " .. tostring(err))
+		end
 	end
 	setState(s, "Racing")
 	broadcast(s, "lightsOut", {at = s.outAt})
@@ -1047,11 +1197,13 @@ local function showResults(s)
 	local n = #s.parts
 	for i, p in finishers do
 		table.insert(rows, {pos = i, name = p.name, userId = p.plr.UserId, time = p.raceTime + p.penalty,
-			penalty = p.penalty, best = p.timer.sessionBest, laps = p.timer.completed, status = "FIN", class = p.class})
+			penalty = p.penalty, best = p.timer.sessionBest, laps = p.timer.completed, status = "FIN", class = p.class,
+			equalised = p.equalised})
 	end
 	for _, p in others do
 		table.insert(rows, {pos = #rows + 1, name = p.name, userId = p.plr.UserId, time = nil, penalty = p.penalty,
-			best = p.timer.sessionBest, laps = p.timer.completed, status = "DNF", reason = p.dnf, class = p.class})
+			best = p.timer.sessionBest, laps = p.timer.completed, status = "DNF", reason = p.dnf, class = p.class,
+			equalised = p.equalised, dq = p.dq})
 	end
 	-- rewards
 	for i, p in finishers do
@@ -1070,13 +1222,29 @@ local function showResults(s)
 			rows[i].money, rows[i].exp = math.floor(money), math.floor(exp)
 		end
 	end
-	if Service.Ranked.enabled and Service.Ranked.validate(s, rows) then
-		Service.Ranked.apply(s, rows)
+	-- ranked: a rating bug must never break the results screen or the rewards above
+	local ranked, unranked = false, nil
+	if s.ranked then
+		local okV, valid, why = pcall(Ranked.validate, s, rows)
+		if okV and valid then
+			local okA, err = pcall(Ranked.apply, s, rows)
+			ranked = okA
+			if not okA then
+				warn("[Circuit] ranked rating failed: " .. tostring(err))
+				unranked = "rating error"
+			end
+		else
+			if not okV then
+				warn("[Circuit] ranked validation failed: " .. tostring(valid))
+			end
+			unranked = if okV then why else "rating error"
+		end
 	end
 	fire("onResults", s, rows)
 	setState(s, "Results")
 	broadcast(s, "results", {name = s.circuit.name, mode = s.mode, laps = s.laps, rows = rows,
-		bestLap = s.bestLap})
+		bestLap = s.bestLap, ranked = ranked, bucket = s.rankedBucket, unranked = unranked,
+		provisionalRaces = RankedRating.PROVISIONAL_RACES})
 end
 
 local function stepFormal(s, t: number)
@@ -1150,7 +1318,7 @@ local function stepFormal(s, t: number)
 			local rows = updateStandings(s)
 			if t - s.towerAt > 1 then
 				s.towerAt = t
-				broadcast(s, "tower", {mode = s.mode, laps = s.laps, rows = rows})
+				broadcast(s, "tower", {mode = s.mode, laps = s.laps, rows = rows, ranked = s.ranked})
 			end
 		end
 		local limit = s.outAt + s.laps * s.circuit.len / 30 + 120
