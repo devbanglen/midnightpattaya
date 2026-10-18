@@ -11,6 +11,7 @@ Groups: GF ground-floor fronts, MF mid-floor fronts, TP top (parapet) fronts, CN
 Kit modules (GF/MF/TP) use the 'mount' anchor, CN the 'corner' anchor, RF the 'base' anchor (export.py).
 Generic shapes only; sign boards are plain placeholders (MP_Signboard, UV 0..1 for a texture later).
 """
+import math
 import os
 import sys
 
@@ -21,6 +22,49 @@ from common.facade import wall, fill, front_box, railing          # noqa: E402
 from common.units import MODULE_W as W, FLOOR_H as FH, GROUND_H as GH, PARAPET_H as PH, WALL_T as T  # noqa: E402
 
 HW = W / 2
+
+
+# ------------------------------------------------------------------------------------------------------- awnings
+# Every awning surface is a CLOSED solid (Builder.prism / box): Roblox draws only front faces (glTF doubleSided
+# false), and the VIS-7.1 sheets (two opposite one-sided quads) read in Studio as a thin dark wedge.
+def _fabric_awning(b, x0, x1, t, proj, z_top, z_bot, mat, seg=6, thick=0.08, bulge=0.3, valance=0.65, tabs=9):
+    """Thai shop canopy: convex sloped fabric slab from the wall (y = t, z_top) out to y = t + proj, a front valance
+    (box + scalloped tabs) hanging to z_bot, closed side cheeks. Bbox: x0..x1, y t..t + proj, z z_bot..z_top."""
+    yv0 = t + proj - 0.15                                   # valance back face; canopy ends here
+    zf = z_bot + valance - 0.05                            # canopy front edge height (top surface)
+    top = []
+    for k in range(seg + 1):
+        u = k / seg
+        top.append((t + (yv0 - t) * u, z_top - (z_top - zf) * u + bulge * math.sin(math.pi * u)))
+    bot = [(y, z - thick) for y, z in top]
+    b.prism([(x0, y, z) for y, z in top] + [(x0, y, z) for y, z in reversed(bot)], (x1 - x0, 0, 0), mat)
+    zt = z_bot + 0.35                                       # valance band top part, tabs below
+    b.box((x0, yv0, zt), (x1, t + proj, zf + 0.05), mat)
+    w = (x1 - x0) / tabs
+    for k in range(tabs):                                   # scallops (triangular tabs) along the valance edge
+        xa = x0 + k * w
+        b.prism([(xa, yv0 + 0.01, zt + 0.01), (xa + w, yv0 + 0.01, zt + 0.01), (xa + w / 2, yv0 + 0.01, z_bot)],
+                (0, proj - (yv0 - t) - 0.02, 0), mat)
+    for xc, dx in ((x0, 0.08), (x1 - 0.08, 0.08)):           # side cheeks under the canopy
+        out = [(xc, y, z) for y, z in bot] + [(xc, yv0, zt), (xc, t, zt + 1.2)]
+        b.prism(out, (dx, 0, 0), mat)
+
+
+def _sheet_awning(b, x0, x1, t, proj, z_top, z_front, mat, thick=0.08, ribs=11):
+    """corrugated sheet-metal awning: sloped closed slab, ribs along the slope, front drip lip, two brackets.
+    Bbox: x0..x1, y t..t + proj, z top z_top."""
+    yf = t + proj
+    b.prism([(x0, t, z_top - 0.03), (x0, yf, z_front), (x0, yf, z_front - thick), (x0, t, z_top - 0.03 - thick)],
+            (x1 - x0, 0, 0), mat)
+    sl = (z_front - (z_top - 0.03)) / proj
+    for k in range(ribs):                                   # ribs, half sunk into the sheet
+        x = x0 + 0.25 + (x1 - x0 - 0.5) * k / (ribs - 1)
+        ya, yb = t + 0.12, yf - 0.1
+        b.beam((x, ya, z_top - 0.03 + sl * (ya - t)), (x, yb, z_top - 0.03 + sl * (yb - t)), 0.12, 0.09, mat,
+               skip_ends=False)
+    b.box((x0, yf - 0.08, z_front - 0.32), (x1, yf, z_front), mat)          # drip lip
+    for x in (x0 + 0.45, x1 - 0.45):                                          # brackets
+        b.beam((x, t, z_front - 1.3), (x, yf - 0.5, z_front + sl * -0.5 - thick), 0.1, 0.1, mat)
 
 
 def kit(group, modules_w=1, floors=None, collision='Box', note=''):
@@ -41,12 +85,9 @@ def gf_shophouse_shutter():
         z = 4.6 + k * 0.62
         b.box((hole[0], 0.4, z), (hole[1], 0.5, z + 0.12), 'MP_Shutter', skip=('yn',))
     b.box((hole[0] - 0.1, 0.1, 7.6), (hole[1] + 0.1, 1.1, 8.4), 'MP_Shutter', skip=('yn',))  # shutter box
-    # sheet-metal awning sloping down to the street
-    b.qn([(-HW, T, 8.4), (HW, T, 8.4), (HW, T + 3.2, 7.3), (-HW, T + 3.2, 7.3)], (0, 0.3, 1), 'MP_Shutter')
-    b.qn([(-HW, T, 8.3), (HW, T, 8.3), (HW, T + 3.2, 7.2), (-HW, T + 3.2, 7.2)], (0, -0.3, -1), 'MP_Shutter')
-    # sign slot: plain board on the fascia
-    front_box(b, -HW + 0.3, HW - 0.3, 8.8, 11.0, T, T + 0.25, 'MP_Signboard')
-    b.panel(-HW + 0.45, HW - 0.45, 8.95, 10.85, T + 0.26, 'MP_Signboard')
+    _sheet_awning(b, -HW, HW, T, 3.2, 8.4, 7.3, 'MP_Shutter')
+    # sign slot: closed board on the fascia (front face = MP_Signboard colour, SurfaceGui on the part's Front)
+    b.sign_box(-HW + 0.3, HW - 0.3, 8.8, 11.0, T, T + 0.26, 'MP_Signboard')
     return b
 
 
@@ -60,14 +101,8 @@ def gf_shophouse_awning():
         b.box((x - 0.12, 0.25, 0.0), (x + 0.12, 0.45, 7.8), 'MP_Wall', skip=('yn', 'zn', 'zp'))
     b.box((hole[0], 0.25, 2.6), (-0.9, 0.45, 2.85), 'MP_Wall', skip=('yn',))   # display sill rails
     b.box((0.9, 0.25, 2.6), (hole[1], 0.45, 2.85), 'MP_Wall', skip=('yn',))
-    # fabric awning (two-sided sheet) + valance
-    b.qn([(-HW + 0.2, T, 8.6), (HW - 0.2, T, 8.6), (HW - 0.2, T + 3.6, 6.9), (-HW + 0.2, T + 3.6, 6.9)], (0, 0.4, 1), 'MP_Awning')
-    b.qn([(-HW + 0.2, T, 8.5), (HW - 0.2, T, 8.5), (HW - 0.2, T + 3.6, 6.8), (-HW + 0.2, T + 3.6, 6.8)], (0, -0.4, -1), 'MP_Awning')
-    b.box((-HW + 0.2, T + 3.55, 6.1), (HW - 0.2, T + 3.7, 6.9), 'MP_Awning')
-    for x in (-HW + 0.3, HW - 0.3):                                         # side cheeks
-        b.qn([(x, T, 8.6), (x, T + 3.6, 6.9), (x, T + 3.6, 6.1), (x, T, 7.6)], (1 if x > 0 else -1, 0, 0), 'MP_Awning')
-    front_box(b, -HW + 0.3, HW - 0.3, 8.9, 11.0, T, T + 0.25, 'MP_Signboard')
-    b.panel(-HW + 0.45, HW - 0.45, 9.05, 10.85, T + 0.26, 'MP_Signboard')
+    _fabric_awning(b, -HW + 0.2, HW - 0.2, T, 3.7, 8.6, 6.1, 'MP_Awning')
+    b.sign_box(-HW + 0.3, HW - 0.3, 8.9, 11.0, T, T + 0.26, 'MP_Signboard')
     return b
 
 
@@ -84,8 +119,7 @@ def gf_restaurant():
     front_box(b, -HW, HW, 8.1, 8.6, T, T + 2.8, 'MP_WallAccent')            # flat canopy
     for x0 in (-HW + 0.2, 1.4):                                              # planters
         front_box(b, x0, x0 + HW - 1.6, 0.0, 1.4, T, T + 1.0, 'MP_WallAccent', bottom=False)
-    front_box(b, -HW + 0.4, HW - 0.4, 8.9, 11.0, T, T + 0.3, 'MP_Signboard')
-    b.panel(-HW + 0.55, HW - 0.55, 9.05, 10.85, T + 0.31, 'MP_Signboard')
+    b.sign_box(-HW + 0.4, HW - 0.4, 8.9, 11.0, T, T + 0.31, 'MP_Signboard')
     return b
 
 
@@ -357,8 +391,9 @@ def rf_sign_frame():
     for x in (-w / 2 + 1.5, -w / 6, w / 6, w / 2 - 1.5):
         b.box((x - 0.2, -1.6, 0.0), (x + 0.2, -1.2, z0 + h), 'MP_MetalDark', skip=('zn',))
         b.beam((x, 1.0, 0.0), (x, -1.4, z0 + 1.0), 0.3, 0.3, 'MP_MetalDark')
-    b.box((-w / 2, -1.2, z0), (w / 2, -0.8, z0 + h), 'MP_MetalDark')
-    b.panel(-w / 2 + 0.4, w / 2 - 0.4, z0 + 0.4, z0 + h - 0.4, -0.79, 'MP_Signboard')
+    b.box((-w / 2, -1.2, z0), (w / 2, -0.9, z0 + h), 'MP_MetalDark')        # backing frame, 0.06 clear of the board
+    # closed board 0.0501 thick (>= MIN_THICK, so export does not shell it again); same bbox as the old panel shell
+    b.sign_box(-w / 2 + 0.4, w / 2 - 0.4, z0 + 0.4, z0 + h - 0.4, -0.8401, -0.79, 'MP_Signboard')
     for z in (z0, z0 + h - 0.25):
         b.box((-w / 2, -0.8, z), (w / 2, -0.6, z + 0.25), 'MP_NeonMagenta', skip=('yn',))
     for x in (-w / 2, w / 2 - 0.25):

@@ -1,5 +1,5 @@
 """Mesh clean-up applied to every asset before export (bmesh, in place):
-merge by distance -> dissolve degenerate -> limited dissolve (planar faces, never across materials or custom UV
+merge by distance (not two-sided sheets) -> dissolve degenerate -> limited dissolve (planar faces, never across materials or custom UV
 cards) -> triangulate (beauty) -> sharp edges from angle (flat-shaded boxes, smooth poles/trunks)."""
 import math
 import bmesh
@@ -10,7 +10,12 @@ SHARP_ANGLE = math.radians(35)
 
 
 def optimise(bm):
-    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=MERGE_DIST)
+    nm = bm.faces.layers.int.get('nomerge')
+    if nm is None:
+        verts = bm.verts[:]
+    else:       # two-sided sheets keep their coincident back verts (merging them collapsed the back faces)
+        verts = [v for v in bm.verts if not any(f[nm] for f in v.link_faces)]
+    bmesh.ops.remove_doubles(bm, verts=verts, dist=MERGE_DIST)
     bmesh.ops.dissolve_degenerate(bm, edges=bm.edges[:], dist=1e-5)
     keep = bm.faces.layers.int.get('uvkeep')
     # limited dissolve only over the box-projected faces: cards keep their 0..1 UVs untouched

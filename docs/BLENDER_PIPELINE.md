@@ -14,6 +14,40 @@ What it makes: 43 low-poly, reusable `.glb` assets in three families.
 Every number in this document comes from `validate.py`, which reads the exported GLBs. The full output is in
 `docs/images/vis_assets/manifest.json`.
 
+## VIS-7.1b fixes (team7/vis-kit2, 2026-10-19): signs, awnings, palms
+
+Studio (leader, VIS-7.1 sample block): shop signs read as a thin blue outline with the shop name floating on the wall,
+awnings as a thin flat wedge, palms as flat green cards. **Written and rendered on the box, not seen in Studio.**
+
+- **Cause, reproduced in a render.** The GLBs were correct by the glTF rule (winding and stored normals agree, the sign
+  front faces −Z). `qa_render.py --views` with back-face culling on shows the old sign and awning complete. The same
+  render with **every triangle's winding reversed** (`*_views.jpg`, panel 4) gives exactly the Studio picture. The sign
+  was an open-backed box (no back face) plus a panel 0.01 in front of its face. With the winding reversed, both
+  front faces are culled, the back is open, and only the inner faces of the box edges stay visible. So in Studio these
+  meshes are drawn with the winding the other way round from what glTF says. Two possible causes: the importer
+  (check the *Invert Negative Faces* setting) or a mirrored mesh. This is not verified in Studio. Every open shell in
+  the kit is exposed in the same way: walls, front boxes, planters. On the sample block they are hidden because the
+  VisCore part sits right behind them.
+- **Fix (works with either winding):** sign boards are closed 6-face boxes (`Builder.sign_box`). Their bbox is
+  unchanged, the front face has UV 0..1, and there is no coplanar panel. Awnings are closed solids: the fabric awning
+  is a convex canopy slab with a 0.65-stud scalloped valance and side cheeks; the shutter awning is a corrugated sheet
+  with ribs, a drip lip and brackets. The `RF_SignFrame` backing frame moved 0.06 behind the board (it used to sit
+  0.01 behind it). Changed: `BLD_GF_ShophouseShutter`, `BLD_GF_ShophouseAwning`, `BLD_GF_Restaurant`,
+  `BLD_RF_SignFrame`, `RSD_Awning_Shop`. Every asset bbox and every MeshPart size and centre are identical to the
+  uploaded VIS-7.1 build.
+- **Palms** `RSD_Palm_A/B/C`: the old "two-sided" frond cards had lost their back faces, because merge-by-distance
+  fused the coincident back vertices. They also had only 5 quads per frond. New palms use geometry only:
+  - 11–13 fronds per palm, golden-angle yaw, pitch from +48° (young fronds) to −30° (old fronds), arching and
+    drooping;
+  - each frond is a 3-sided rachis with 15–16 narrow two-sided leaflets per side, keeled into a V, angled toward the
+    tip, drooping, with the frond rolling along its length;
+  - a curved, leaning trunk (lean 4° / 7° / 5°) with 14 ring bands, a root flare and a crown-shaft bulge;
+  - 2 hanging brown dead fronds and 6 coconuts.
+
+  Triangles: 2,673 / 2,419 / 2,269, still 2 MeshParts (Bark = trunk + dead fronds + coconuts, Leaf = green fronds).
+  Heights: 33.7 / 29.1 / 25.2 studs (they were 22.7 / 28.1 / 16.8). The bboxes changed and `manifest.json` has the
+  new sizes, so the Luau palm placement data has to be regenerated. The pivot is still the trunk foot.
+
 ## Run it
 
 Blender is not installed locally. Everything runs headless on the GPU box: Blender 5.2.2 LTS at
@@ -62,17 +96,19 @@ Outputs, in `build/vis_assets/` (not committed):
 |---|---|
 | `tools/blender/common/units.py` | scale + grid constants, triangle/material limits (pure Python) |
 | `common/materials.py` | the shared material list (18 names, `MP_*`), created as Principled BSDF |
-| `common/mesh.py` | bmesh `Builder`: box, oriented box, beam, cylinder/cone, swept tube, quad with forced normal, alpha card, UV 0..1 panel |
+| `common/mesh.py` | bmesh `Builder`: box, oriented box, beam, cylinder/cone, swept tube, quad with forced normal, two-sided quad/polygon, closed prism, closed sign box, alpha card, UV 0..1 panel |
 | `common/facade.py` | kit helpers: wall face with window holes + reveals, fills, front boxes, railings |
-| `common/optimize.py` | merge by distance → dissolve degenerate → limited dissolve (planar, not across materials / cards) → triangulate → sharp edges from angle |
+| `common/optimize.py` | merge by distance (not `nomerge` two-sided faces) → dissolve degenerate → limited dissolve (planar, not across materials / cards) → triangulate → sharp edges from angle |
 | `common/uv.py` | box-projected UVs in world studs (1 UV = 8 studs) except cards / sign panels (0..1) |
 | `common/naming.py` | naming rule (also used by validate.py) |
 | `export.py` | asset → origin rule → optimise → split per material → `.glb` + `meta/<name>.json` |
 | `gen_buildings.py`, `gen_roadside.py`, `gen_racing.py` | the three families (parametric functions, one per asset) |
 | `validate.py` | reads the GLB JSON + binary chunks, checks everything, writes `manifest.json` |
-| `qa_render.py` | contact sheet per family (re-imported from the GLBs), kit assembly (Workbench) + night assembly (EEVEE) |
+| `qa_render.py` | contact sheet per family (re-imported from the GLBs), kit assembly (Workbench) + night assembly (EEVEE); `--views A,B` per-asset front / 3/4 / back / 3/4-winding-reversed renders with back-face culling on |
+| `qa_compose.py` | the four views of each asset → `qa/<NAME>_views.jpg` |
 | `shrink_qa.py` | commit-sized JPEGs |
-| `run_remote.sh`, `run_remote.ps1`, `remote_job.sh` | local → box → local |
+| `run_remote.sh`, `run_remote.ps1`, `remote_job.sh` | local → box → local (whole kit) |
+| `run_remote_partial.sh`, `remote_partial.sh` | regenerate only named assets on top of the current `build/vis_assets` (other GLBs keep their bytes), validate all, QA views + a control asset |
 | `make_luau_manifest.py` → `import_manifest.luau` | asset name → asset id template with the expected sizes / tris |
 | `validate_import.luau`, `apply_import_settings.luau` | Studio-side settings + checks after the import |
 
@@ -137,14 +173,17 @@ Names never end in `_Att`, `_InnerCage` or `_OuterCage`, because the importer tu
 
 **Geometry rules** (all checked by `validate.py`):
 
-- At most 10,000 triangles per asset, which is the project budget. The largest asset is `BLD_GF_Commercial7Bay` at 512.
+- At most 10,000 triangles per asset, which is the project budget. The largest asset is `RSD_Palm_A` at 2,673
+  (palms: ≤ 3,000 each, VIS-7.1b); the largest building module is `BLD_GF_Commercial7Bay` at 512.
 - At most 20,000 triangles per MeshPart (Roblox hard limit).
 - Triangles only, with normals and UVs.
 - Identity node transforms.
 - No 0-thickness part: a flat sheet (glass fill, sign panel, flat roof) gets a 0.05-stud shell, because Roblox rejects
   0-thickness meshes.
-- Palm fronds are two-sided cards (real back faces, `doubleSided` false) with UV 0..1, ready for an alpha frond
-  texture.
+- Anything seen from both sides is either a **closed solid** (sign boards, awning slabs, valances, cheeks:
+  `Builder.sign_box` / `prism` / `box`) or a **two-sided sheet** (palm leaflets: `Builder.poly2` / `quad(double=True)`,
+  front + reversed back face on separate verts, flagged `nomerge` so optimise() does not merge them away). glTF
+  `doubleSided` stays false; Roblox culls back faces. No sign panel sits coplanar (≤ 0.05) with another face.
 
 ## Roblox limits used (researched 2026-10-19)
 
@@ -169,7 +208,7 @@ The first import has to confirm both. `validate_import.luau` searches at any dep
 
 ## Asset list (from `manifest.json`, 2026-10-19 run)
 
-43 assets / 129 MeshParts / **5,789 triangles in total**; the largest asset is 512 (`BLD_GF_Commercial7Bay`, 7 modules). Sizes are in studs (X × Y × Z, Roblox
+43 assets / 129 MeshParts / **12,664 triangles in total** (VIS-7.1b; was 5,789); the largest asset is `RSD_Palm_A` at 2,673, the largest building module 512 (`BLD_GF_Commercial7Bay`, 7 modules). Sizes are in studs (X × Y × Z, Roblox
 axes). "(collide)" means CanCollide is recommended on the mesh. All other props keep CanCollide off on the mesh and
 use a simple Part collider for the pole or trunk, as the builder already does.
 
@@ -177,9 +216,9 @@ use a simple Part collider for the pole or trunk, as the builder already does.
 
 | asset | anchor | tris | parts | size | collision |
 |---|---|---|---|---|---|
-| `BLD_GF_ShophouseShutter` (roller shutter half down, metal awning, sign slot) | mount | 108 | 4 | 7.14 x 11.57 x 3.95 | Box |
-| `BLD_GF_ShophouseAwning` (open shopfront, fabric awning, sign slot) | mount | 88 | 4 | 7.14 x 11.57 x 4.30 | Box |
-| `BLD_GF_Restaurant` (glazing, canopy, planters, sign slot) | mount | 150 | 4 | 7.14 x 11.57 x 3.35 | Box |
+| `BLD_GF_ShophouseShutter` (roller shutter half down, corrugated metal awning, closed sign board) | mount | 284 | 4 | 7.14 x 11.57 x 3.95 | Box |
+| `BLD_GF_ShophouseAwning` (open shopfront, curved fabric canopy + scalloped valance + cheeks, closed sign board) | mount | 268 | 4 | 7.14 x 11.57 x 4.30 | Box |
+| `BLD_GF_Restaurant` (glazing, canopy, planters, closed sign board) | mount | 150 | 4 | 7.14 x 11.57 x 3.35 | Box |
 | `BLD_GF_CommercialBay` (1 bay) | mount | 82 | 4 | 7.14 x 11.57 x 0.95 | Box |
 | `BLD_GF_Commercial7Bay` (7-bay front, one mesh) | mount | 512 | 4 | 50.00 x 11.57 x 3.75 | Box |
 | `BLD_GF_HotelLobby` (2 modules, drop-off canopy, cyan LED) | mount | 110 | 4 | 14.29 x 11.57 x 7.65 | Box |
@@ -216,10 +255,10 @@ use a simple Part collider for the pole or trunk, as the builder already does.
 | `RSD_Barrier_Parking` (boom along +X) | pole | 104 | 3 | 11.90 x 2.83 x 1.14 | Box (collide) |
 | `RSD_Bench_Park` | base | 96 | 2 | 4.82 x 2.46 x 1.28 | Box (collide) |
 | `RSD_Rail_Beach` (tile every 6.70) | base | 90 | 2 | 6.70 x 2.68 x 0.70 | Box (collide) |
-| `RSD_Palm_A` (8 m, 9 fronds) | pole | 286 | 2 | 19.71 x 22.75 x 16.75 | Box, trunk collider |
-| `RSD_Palm_B` (10 m, 11 fronds, leaning) | pole | 306 | 2 | 17.38 x 28.09 x 21.41 | Box, trunk collider |
-| `RSD_Palm_C` (6 m, 7 fronds) | pole | 258 | 2 | 16.68 x 16.79 x 15.07 | Box, trunk collider |
-| `RSD_Awning_Shop` (3 m) | base | 52 | 2 | 8.04 x 2.71 x 5.41 | Box |
+| `RSD_Palm_A` (tall, trunk 28, 13 fronds, lean 4°) | pole | 2,673 | 2 | 25.34 x 33.68 x 24.30 | Box, trunk collider |
+| `RSD_Palm_B` (mid, trunk 25, 12 fronds, lean 7°) | pole | 2,419 | 2 | 21.88 x 29.11 x 23.65 | Box, trunk collider |
+| `RSD_Palm_C` (short, trunk 20.5, 11 fronds, lean 5°) | pole | 2,269 | 2 | 20.24 x 25.20 x 19.78 | Box, trunk collider |
+| `RSD_Awning_Shop` (3 m, closed fabric slab) | base | 60 | 2 | 8.04 x 2.71 x 5.41 | Box |
 
 ### C. Racing (5)
 

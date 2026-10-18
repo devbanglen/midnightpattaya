@@ -6,6 +6,12 @@ Writes per family a contact sheet <png_dir>/<family>_sheet.png (every asset re-i
 picture shows what Roblox will receive: 3/4 view from the front, labels = name + triangle count from manifest.json)
 and <png_dir>/kit_assembly.png: a shophouse row and a hotel tower assembled only from kit modules on the
 module grid (proves modules, corners and tops snap), each on a plain grey building box.
+
+Per-asset views (VIS-7.1b):  ... -- <vis_out_dir> <png_dir> --views NAME[,NAME...] [--only-views]
+  writes <png_dir>/views/<NAME>_{front,34,back,34flip}.png with BACK-FACE CULLING ON (as Roblox draws a glTF with
+  doubleSided = false): front = from Roblox -Z (Blender +Y), 34 = front-right 3/4 from above, back = from Roblox +Z,
+  34flip = the 3/4 view with every triangle's winding reversed (what a viewer that reads the winding the other way
+  would draw: closed solids and two-sided sheets must still read). qa_compose.py puts the four into one sheet.
 """
 import glob
 import json
@@ -21,6 +27,8 @@ from common.units import MODULE_W, FLOOR_H, GROUND_H   # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 SRC, DST = argv[0], argv[1]
+VIEWS = argv[argv.index('--views') + 1].split(',') if '--views' in argv else []
+ONLY_VIEWS = '--only-views' in argv
 os.makedirs(DST, exist_ok=True)
 MAN = {}
 if os.path.exists(os.path.join(SRC, 'manifest.json')):
@@ -310,9 +318,50 @@ def assembly(night=False):
         render(os.path.join(DST, 'kit_assembly.png'), lo, hi, az=145, el=18, pad=1.12)   # from +Y: fronts + right side
 
 
-if __name__ == '__main__':
+def find_glb(name):
     for fam in ('buildings', 'roadside', 'racing'):
-        sheet(fam)
-    assembly()
-    assembly(night=True)
+        p = os.path.join(SRC, fam, name + '.glb')
+        if os.path.exists(p):
+            return p
+    raise FileNotFoundError(name)
+
+
+def asset_views(name):
+    """front / 3/4 / back / 3/4-flipped renders of one glb with back-face culling on (Workbench)"""
+    import bmesh
+    out = os.path.join(DST, 'views')
+    os.makedirs(out, exist_ok=True)
+    for flip in (False, True):
+        reset()
+        sc = bpy.context.scene
+        sc.display.shading.show_backface_culling = True
+        sc.world.color = (0.30, 0.34, 0.42)                 # mid grey-blue: dark glass and white signs both read
+        col, root, objs = import_glb(find_glb(name))
+        sc.collection.children.link(col)
+        for o in objs:
+            for slot in getattr(o, 'material_slots', []):
+                if slot.material:
+                    slot.material.use_backface_culling = True
+            if flip and o.type == 'MESH':
+                bm = bmesh.new()
+                bm.from_mesh(o.data)
+                bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+                bm.to_mesh(o.data)
+                bm.free()
+        bpy.context.view_layer.update()
+        lo, hi = bounds(objs)
+        # imported glTF: Roblox -Z (front) = Blender +Y; render() azimuth 180 looks from +Y
+        shots = [('34flip', 145.0, 22.0)] if flip else [('front', 180.0, 4.0), ('34', 145.0, 22.0), ('back', 0.0, 8.0)]
+        for tag, az, el in shots:
+            render(os.path.join(out, f'{name}_{tag}.png'), lo, hi, az=az, el=el, res=900, pad=1.12)
+
+
+if __name__ == '__main__':
+    if not ONLY_VIEWS:
+        for fam in ('buildings', 'roadside', 'racing'):
+            sheet(fam)
+        assembly()
+        assembly(night=True)
+    for n in VIEWS:
+        asset_views(n)
     print('QA DONE', flush=True)

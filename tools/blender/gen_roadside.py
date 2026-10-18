@@ -194,48 +194,130 @@ def beach_railing():
     return b
 
 
-def _palm(name, h, lean, n_fronds, seed, frond_len):
-    random.seed(seed)
+# ---------------------------------------------------------------------------------------------------------- palms
+# VIS-7.1b: geometry-only coconut palms (no textures in Roblox yet). Two MeshParts: Bark (trunk with ring bands, crown
+# shaft, coconuts, hanging dead fronds) and Leaf (green fronds: curved rachis + tapered two-sided leaflets).
+# Budget <= 3,000 triangles per palm. Pivot = trunk foot at the origin ('pole' anchor), lean toward +X.
+
+def _v(x):
+    from mathutils import Vector
+    return Vector(x)
+
+
+def _frond(b, rnd, origin, yaw, pitch, L, n_leaf, mat, droop=0.45, twist=0.6, leaf_len=3.0, rachis_r=0.16,
+           seg=5, keel=0.42, leaf_w=0.2):
+    """one frond: rachis = 3-sided tube along an arching curve (rises with `pitch`, sags with `droop`), n_leaf
+    leaflets per side (narrow strap: base point -> widest fold -> tip, 2 triangles, two-sided), angled toward the tip, keeled down
+    into a V, drooping at the tip; the leaflet plane rolls along the frond by `twist` (rad at the tip)."""
+    from mathutils import Matrix, Quaternion
+    O = _v(origin)
+    hdir = _v((math.cos(yaw), math.sin(yaw), 0.0))
+    up = _v((0, 0, 1))
+
+    def P(s):
+        u = s / L
+        return O + hdir * (math.cos(pitch) * s) + up * (math.sin(pitch) * s - droop * L * u * u)
+
+    pts = [P(L * k / seg) for k in range(seg + 1)]
+    b.tube(pts, [rachis_r * (1 - 0.75 * k / seg) for k in range(seg + 1)], 3, mat, cap_end=False)
+    side0 = hdir.cross(up).normalized()                   # horizontal, perpendicular to the frond
+    for i in range(n_leaf):
+        u = 0.1 + 0.88 * i / max(1, n_leaf - 1)
+        s = L * u
+        c = P(s)
+        tng = (P(min(L, s + 0.05)) - P(max(0.0, s - 0.05))).normalized()
+        roll = twist * u
+        side = Quaternion(tng, roll) @ side0
+        side = (side - tng * side.dot(tng)).normalized()
+        nrm = side.cross(tng).normalized()                # 'up' of the leaflet plane
+        if nrm.z < 0:
+            nrm = -nrm
+        ln = leaf_len * (0.45 + 0.75 * math.sin(math.pi * min(1.0, 0.15 + u * 0.95))) * rnd.uniform(0.9, 1.08)
+        for sgn in (-1, 1):
+            d = (side * sgn * math.cos(0.62) + tng * math.sin(0.62)).normalized()   # ~36 deg toward the tip
+            d = (d * math.cos(keel) - nrm * math.sin(keel)).normalized()           # keel: V-shaped cross-section
+            wdir = (tng - d * tng.dot(d)).normalized()
+            base = c + side * sgn * rachis_r * 0.6
+            sag = (0.25 + 0.6 * u) * ln * 0.22
+            mid = base + d * (ln * 0.42) - up * (sag * 0.3)
+            tip = base + d * ln - up * sag
+            wm = leaf_w * rnd.uniform(0.85, 1.1)
+            # narrow strap leaflet folded at its widest point: 2 triangles, two-sided
+            b.poly2([base, mid - wdir * wm, mid + wdir * wm], mat)
+            b.poly2([mid - wdir * wm, tip, mid + wdir * wm], mat)
+
+
+def _coconut(b, c, r, mat):
+    """low octahedron-ish nut (8 triangles)"""
+    x, y, z = c
+    v = [b._v((x + r, y, z)), b._v((x, y + r, z)), b._v((x - r, y, z)), b._v((x, y - r, z)),
+         b._v((x, y, z + r * 0.9)), b._v((x, y, z - r * 1.05))]
+    for i in range(4):
+        j = (i + 1) % 4
+        b._face([v[i], v[j], v[4]], mat)
+        b._face([v[j], v[i], v[5]], mat)
+
+
+def _palm(name, h_trunk, lean_deg, n_fronds, seed, frond_len, n_leaf, bands=14):
+    rnd = random.Random(seed)
     b = Builder(name)
-    segs = 8
+    dx = h_trunk * math.tan(math.radians(lean_deg))
+    wig = rnd.uniform(-0.25, 0.25)
+
+    def axis(t):                                          # slightly curved trunk axis, lean toward +X
+        return (dx * (0.55 * t + 0.45 * t * t), wig * math.sin(math.pi * t), h_trunk * t)
+
     pts, radii = [], []
-    for k in range(segs + 1):
-        t = k / segs
-        pts.append((lean * t * t, 0.0, h * t))
-        radii.append(0.75 - 0.3 * t + (0.1 if k == 0 else 0.0))
-    b.tube(pts, radii, 6, 'MP_Bark', cap_end=True)
-    for k in range(3):                                                                  # crown shaft rings
-        z = h - 0.5 - k * 0.5
-        b.cyl((lean * (z / h) ** 2, 0, z - 0.15), (lean * (z / h) ** 2, 0, z + 0.15), 0.58, 6, 'MP_Bark', caps=(False, True))
-    top = (lean, 0.0, h)
+    r0, r1 = 0.78, 0.5
+    pts.append(axis(0.0)); radii.append(r0 + 0.32)                        # root flare
+    pts.append(axis(0.03)); radii.append(r0 + 0.08)
+    for k in range(bands):                                                # ring bands: ridge + groove per band
+        t0 = 0.05 + 0.87 * k / bands
+        t1 = t0 + 0.87 / bands * 0.35
+        r = r0 + (r1 - r0) * t0
+        pts.append(axis(t0)); radii.append(r * 1.09)
+        pts.append(axis(t1)); radii.append(r * 0.93)
+    for t, r in ((0.95, r1 * 1.12), (0.985, r1 * 1.18), (1.0, r1 * 0.9)):  # crown shaft bulge
+        pts.append(axis(t)); radii.append(r)
+    b.tube(pts, radii, 7, 'MP_Bark', cap_end=True)
+    top = _v(axis(1.0))
+    # green fronds: youngest pointing up near the top, oldest drooping below; golden-angle yaw with jitter
+    ga = math.radians(137.5)
     for k in range(n_fronds):
-        a = 2 * math.pi * k / n_fronds + random.uniform(-0.2, 0.2)
-        rise = random.uniform(0.2, 0.7)
-        L = frond_len * random.uniform(0.85, 1.1)
-        fp, fw = [], []
-        for s in range(6):
-            t = s / 5
-            r = L * t
-            z = top[2] + rise * L * 0.35 * math.sin(t * math.pi * 0.8) - (t ** 2) * L * 0.45
-            fp.append((top[0] + math.cos(a) * r, top[1] + math.sin(a) * r, z))
-            fw.append(0.4 + 2.6 * math.sin(min(t, 0.95) * math.pi) * (1 - 0.3 * t))
-        b.card(fp, fw, (0, 0, 1), 'MP_Foliage', double=True)
-    for k in range(4):                                                                  # coconuts
-        a = k * math.pi / 2 + 0.4
-        b.boxc((top[0] + math.cos(a) * 0.7, math.sin(a) * 0.7, h - 0.9), (0.6, 0.6, 0.6), 'MP_Bark')
+        f = k / max(1, n_fronds - 1)
+        yaw = k * ga + rnd.uniform(-0.25, 0.25)
+        pitch = math.radians(48 - 78 * f + rnd.uniform(-7, 7))
+        L = frond_len * (0.78 + 0.3 * math.sin(math.pi * min(1.0, 0.2 + f))) * rnd.uniform(0.92, 1.06)
+        o = top + _v((math.cos(yaw) * 0.25, math.sin(yaw) * 0.25, -0.15 - 0.55 * f))
+        _frond(b, rnd, o, yaw, pitch, L, n_leaf, 'MP_Foliage', droop=0.32 + 0.3 * f, twist=rnd.uniform(-0.9, 0.9),
+               leaf_len=frond_len * 0.27)
+    # two hanging dead fronds (brown = MP_Bark part) and a coconut cluster under the crown
+    for k in range(2):
+        yaw = rnd.uniform(0, 2 * math.pi) if k == 0 else yaw + math.pi * rnd.uniform(0.7, 1.3)
+        o = top + _v((math.cos(yaw) * 0.35, math.sin(yaw) * 0.35, -0.9))
+        _frond(b, rnd, o, yaw, math.radians(-62 + rnd.uniform(-8, 8)), frond_len * 0.62, 6, 'MP_Bark',
+               droop=0.12, twist=rnd.uniform(-0.4, 0.4), leaf_len=frond_len * 0.13, rachis_r=0.13, seg=3, keel=1.0,
+               leaf_w=0.16)
+    for k in range(6):
+        a = k * 2 * math.pi / 6 + rnd.uniform(-0.3, 0.3)
+        rr = 0.62 + 0.12 * (k % 2)
+        _coconut(b, (top.x + math.cos(a) * rr, top.y + math.sin(a) * rr, top.z - 0.75 - 0.35 * (k % 2)), 0.42, 'MP_Bark')
     return b
 
 
 def palm_a():
-    return _palm('RSD_Palm_A', pm(8.0), 1.5, 9, 11, pm(3.4))
+    """tall coconut palm (~33 studs), lean 4 deg"""
+    return _palm('RSD_Palm_A', 28.0, 4.0, 13, 11, 12.5, 16)
 
 
 def palm_b():
-    return _palm('RSD_Palm_B', pm(10.0), 2.8, 11, 22, pm(3.8))
+    """mid coconut palm (~29 studs), lean 7 deg"""
+    return _palm('RSD_Palm_B', 25.0, 7.0, 12, 22, 12.0, 15)
 
 
 def palm_c():
-    return _palm('RSD_Palm_C', pm(6.0), 0.6, 7, 33, pm(3.0))
+    """short coconut palm (~25 studs), lean 5 deg"""
+    return _palm('RSD_Palm_C', 20.5, 5.0, 11, 33, 11.0, 15)
 
 
 def shop_awning():
@@ -245,8 +327,9 @@ def shop_awning():
     w, proj, drop = pm(3.0), pm(2.0), pm(0.6)
     z0 = pm(2.6)
     b.box((-w / 2, 0.0, z0 - 0.2), (w / 2, 0.35, z0 + 0.4), 'MP_MetalDark')
-    b.qn([(-w / 2, 0.35, z0 + 0.3), (w / 2, 0.35, z0 + 0.3), (w / 2, proj, z0 - drop), (-w / 2, proj, z0 - drop)], (0, 0.3, 1), 'MP_Awning')
-    b.qn([(-w / 2, 0.35, z0 + 0.25), (w / 2, 0.35, z0 + 0.25), (w / 2, proj, z0 - drop - 0.05), (-w / 2, proj, z0 - drop - 0.05)], (0, -0.3, -1), 'MP_Awning')
+    # closed fabric slab (VIS-7.1b: the two opposite one-sided sheets read as a thin wedge in Roblox)
+    b.prism([(-w / 2, 0.35, z0 + 0.3), (-w / 2, proj, z0 - drop), (-w / 2, proj, z0 - drop - 0.08),
+             (-w / 2, 0.35, z0 + 0.22)], (w, 0, 0), 'MP_Awning')
     b.box((-w / 2, proj - 0.1, z0 - drop - 0.7), (w / 2, proj + 0.05, z0 - drop), 'MP_Awning')
     for x in (-w / 2 + 0.2, w / 2 - 0.2):
         b.beam((x, 0.3, z0 - 1.0), (x, proj - 0.1, z0 - drop - 0.1), 0.12, 0.12, 'MP_MetalDark')
@@ -264,9 +347,9 @@ ASSETS = [
     (parking_barrier, prop('Barrier', 'Box', True, 'arm along +X', anchor='pole')),
     (bench, prop('Bench', 'Box', True)),
     (beach_railing, prop('Rail', 'Box', True, 'tile along X every 6.7 studs, -Z toward the walkway')),
-    (palm_a, prop('Palm', 'Box', False, 'fronds are alpha-ready cards (UV 0..1); trunk collider Part', anchor='pole')),
-    (palm_b, prop('Palm', 'Box', False, 'fronds are alpha-ready cards (UV 0..1); trunk collider Part', anchor='pole')),
-    (palm_c, prop('Palm', 'Box', False, 'fronds are alpha-ready cards (UV 0..1); trunk collider Part', anchor='pole')),
+    (palm_a, prop('Palm', 'Box', False, 'geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part', anchor='pole')),
+    (palm_b, prop('Palm', 'Box', False, 'geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part', anchor='pole')),
+    (palm_c, prop('Palm', 'Box', False, 'geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part', anchor='pole')),
     (shop_awning, prop('Awning', 'Box', False, 'wall side at the bbox -Y/+Z(Roblox) edge')),
 ]
 
