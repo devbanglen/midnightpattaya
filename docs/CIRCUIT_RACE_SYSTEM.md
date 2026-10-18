@@ -492,3 +492,35 @@ or off as you want: off tests the session fallback. Then press Play.
 - **Progress API merge:** `Progress.GetData`/`SetData` are added minimally, saved as `data` in the same record. If
   the garage teammate adds the same API, keep one copy. The semantics are identical: a per-player key/value table
   saved on leave.
+
+## Tested by the leader in Studio (2026-10-18)
+Autopilot driving the client-owned car; the server judged everything.
+
+**Test oval (fixture):**
+- Load: no `[Circuit]` warnings; `workspace.Circuits.test_oval` (338 parts) and `Paddock_test_oval` built.
+- Travel from Pattaya: car landed at the paddock, toast "Welcome to the paddock".
+- Time Attack: car placed in the pit lane, ghosted (`CollisionGroup = CircuitGhost`), "Out lap" toast. Out lap + 3
+  timed laps: 16.27 / 16.21 / 16.22 s, all valid, sector messages with purple/yellow colouring, PB updated, paid.
+- Rules: 1.3 s off the track → `CircuitOff=true`, "Lap invalid: track limits"; 20 points backwards →
+  `CircuitWrongWay=true`; reset remote moved the car 8 studs back onto the last gate with "Car reset … lap invalid";
+  leave restored `CollisionGroup = Default`, cleared `CircuitActive` and showed the loop panel again.
+- Circuit Race, solo, 3 laps: "Race forming: 3 laps, starts in 25 s" → "Grid slot 1 of 1" → 5 lights → lights out →
+  3 laps → "Finished 0:50.324 (+5 s penalties)" → results row (P1, FIN, 234 ฿ / 117 EXP) → paid, back to idle.
+  - **Bug found:** "JUMP START +5 s" fired 1 s before the lights went out although the car was held still. The
+    rule measured from the grid slot from the moment of release, when the client-owned car is still settling after
+    the server's PivotTo and ownership handoff. Fixed: the reference position is taken 0.75 s after the lights
+    start (`JUMP_SETTLE`), then 4 studs of movement is a jump start. Not re-tested yet.
+
+**Bira (real venue, physics-driven lap: the autopilot only set horizontal velocity and yaw, so gravity and the
+car's own raycast suspension handled the hills):**
+- Bira registered from `PattayaData.circuits.bira`; `Paddock_bira` built; travel worked (car at the entrance,
+  y −1.2) and Time Attack placed the car in the pit lane on the hill (y 38).
+- Out lap 84 s, then **lap 1 valid: 92.01 s** at 95 studs/s cruising (55–72 in bends), car upright the whole way
+  (min UpVector.Y 0.99), no stalls. **Lap 2 valid: 92.01 s.** Two consecutive valid laps, as the acceptance
+  criteria require. 16,076 physics samples; the chassis was at most 4.5 studs above the centreline height (its
+  ride height plus crests).
+- Venue geometry before this: 5,106 raycast probes (centre + both track edges) hit track at every point, mean error
+  0.02 studs, max 0.29, max step between points 0.66 — after the run-off fix in `CircuitBuilder` (see
+  BIRA_CIRCUIT_DESIGN.md).
+- Not tested: pit entry/exit on Bira, a race on Bira, two players, performance (FPS) at the venue, the drive from
+  the city (the corridor is not yet merged into the road graph).
