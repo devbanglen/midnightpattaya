@@ -18,12 +18,21 @@ _BOX_FACES = {  # outward CCW windings for the 8-vertex box layout used in Build
 }
 
 
+def _newell(vs):
+    nn = Vector((0, 0, 0))
+    for i in range(len(vs)):
+        a, c = vs[i], vs[(i + 1) % len(vs)]
+        nn += Vector(((a.y - c.y) * (a.z + c.z), (a.z - c.z) * (a.x + c.x), (a.x - c.x) * (a.y + c.y)))
+    return nn
+
+
 class Builder:
     def __init__(self, name):
         self.name = name
         self.bm = bmesh.new()
         self.uv = self.bm.loops.layers.uv.new('UVMap')
         self.keep = self.bm.faces.layers.int.new('uvkeep')   # 1 = UVs set by the primitive (cards, sign panels)
+        self.nomerge = self.bm.faces.layers.int.new('nomerge')  # 1 = never merged by distance (two-sided sheets)
         self.mats = []
 
     # ---------------------------------------------------------------- internals
@@ -37,10 +46,12 @@ class Builder:
                 raise ValueError(f'{self.name}: more than {MAX_MATERIALS} materials: {self.mats}')
         return self.mats.index(mat)
 
-    def _face(self, verts, mat, smooth=False, uvs=None):
+    def _face(self, verts, mat, smooth=False, uvs=None, nomerge=False):
         f = self.bm.faces.new(verts)
         f.material_index = self._mi(mat)
         f.smooth = smooth
+        if nomerge:
+            f[self.nomerge] = 1
         if uvs:
             for loop, uv in zip(f.loops, uvs):
                 loop[self.uv].uv = uv
@@ -133,22 +144,50 @@ class Builder:
     def qn(self, verts, n, mat, uvs=None):
         """polygon whose winding is fixed so its normal points along n (any vertex order accepted)"""
         vs = [Vector(v) for v in verts]
-        nn = Vector((0, 0, 0))
-        for i in range(len(vs)):                      # Newell normal
-            a, c = vs[i], vs[(i + 1) % len(vs)]
-            nn += Vector(((a.y - c.y) * (a.z + c.z), (a.z - c.z) * (a.x + c.x), (a.x - c.x) * (a.y + c.y)))
-        if nn.dot(Vector(n)) < 0:
+        if _newell(vs).dot(Vector(n)) < 0:
             vs.reverse()
             uvs = list(reversed(uvs)) if uvs else None
         return self._face([self._v(v) for v in vs], mat, uvs=uvs)
 
     def quad(self, v0, v1, v2, v3, mat, uvs=None, double=False):
-        """single quad, CCW = front; double adds a back face (separate verts so normals stay clean)"""
+        """single quad, CCW = front; double adds a back face (separate verts so normals stay clean). Both faces of a
+        two-sided quad are flagged 'nomerge': before VIS-7.1b optimise() merged the coincident back verts and the
+        back faces collapsed, so the 'two-sided' palm cards were in fact one-sided."""
         vs = [self._v(Vector(v)) for v in (v0, v1, v2, v3)]
-        self._face(vs, mat, uvs=uvs)
+        self._face(vs, mat, uvs=uvs, nomerge=double)
         if double:
             vb = [self._v(Vector(v)) for v in (v3, v2, v1, v0)]
-            self._face(vb, mat, uvs=list(reversed(uvs)) if uvs else None)
+            self._face(vb, mat, uvs=list(reversed(uvs)) if uvs else None, nomerge=True)
+
+    def poly2(self, pts, mat, smooth=False):
+        """two-sided polygon (leaflets, thin fins): front face + reversed back face on separate verts, both 'nomerge'.
+        Roblox culls back faces (glTF doubleSided = false), so a single surface seen from both sides needs both."""
+        self._face([self._v(Vector(p)) for p in pts], mat, smooth, nomerge=True)
+        self._face([self._v(Vector(p)) for p in reversed(pts)], mat, smooth, nomerge=True)
+
+    def prism(self, outline, d, mat, smooth=False):
+        """closed solid: planar polygon outline (CCW seen from +d) extruded by the vector d. Sides are quads, both caps
+        ngons (triangulated later). Used for awning slabs, cheeks and valance tabs: a closed solid shows its colour
+        from every side whatever the viewer, so no surface of it can vanish under back-face culling."""
+        d = Vector(d)
+        outline = [Vector(p) for p in outline]
+        if _newell(outline).dot(d) < 0:
+            outline.reverse()
+        a = [self._v(p) for p in outline]
+        b = [self._v(p + d) for p in outline]
+        n = len(a)
+        self._face(list(reversed(a)), mat, smooth)
+        self._face(b, mat, smooth)
+        for i in range(n):
+            j = (i + 1) % n
+            self._face([a[i], a[j], b[j], b[i]], mat, smooth)
+
+    def sign_box(self, x0, x1, z0, z1, y0, y1, mat):
+        """CLOSED sign board (all 6 faces) from the wall face y0 to the board face y1, front (+Y = Roblox -Z = the
+        part's Front, where the builder puts the SurfaceGui) with UV 0..1 for a texture later. Replaces the old
+        open-backed front_box + coplanar panel() pair (panel 0.01 in front of the box face)."""
+        self.box((x0, y0, z0), (x1, y1, z1), mat, skip=('yp',))
+        self.panel(x0, x1, z0, z1, y1, mat)
 
     def card(self, pts, widths, normal_hint, mat, double=True):
         """alpha-ready strip (palm frond): quads along pts, width per point, UV u across 0..1, v along 0..1"""
@@ -166,6 +205,7 @@ class Builder:
             self.quad(a0, a1, b1, b0, mat, uvs=[(0, v0), (1, v0), (1, v1), (0, v1)], double=double)
 
     def panel(self, x0, x1, z0, z1, y, mat, uv01=True):
-        """front-facing (+Y) flat panel at depth y, UV 0..1 (sign boards; seen from +Y, x0 is on the right)"""
+        """front-facing (+Y) flat panel at depth y, UV 0..1 (sign boards). Normal +Y for x0 < x1; seen from +Y the
+        x0 edge is on the RIGHT, so u = 1 there and the texture reads left to right."""
         self.quad((x0, y, z0), (x0, y, z1), (x1, y, z1), (x1, y, z0), mat,
                   uvs=[(1, 0), (1, 1), (0, 1), (0, 0)] if uv01 else None)

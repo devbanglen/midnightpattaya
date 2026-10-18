@@ -137,16 +137,17 @@ def build_and_export(builder, meta, out_dir):
 
 
 def main(assets, family):
-    """assets: list of (fn, meta) where fn() returns a Builder. CLI: blender -b -P gen_x.py -- --out DIR [--only N]"""
+    """assets: list of (fn, meta) where fn() returns a Builder.
+    CLI: blender -b -P gen_x.py -- --out DIR [--only N[,N...]]   (each N matches an asset name exactly or as a part)"""
     argv = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
     out = argv[argv.index('--out') + 1] if '--out' in argv else os.path.join(os.getcwd(), 'build', 'vis_assets')
-    only = argv[argv.index('--only') + 1] if '--only' in argv else None
+    only = argv[argv.index('--only') + 1].split(',') if '--only' in argv else None
     reset_scene()
     t0 = time.time()
     n = 0
     for fn, meta in assets:
         b = fn()
-        if only and only not in b.name:
+        if only and not any(n in b.name for n in only):
             b.bm.free()
             continue
         tris = build_and_export(b, dict(meta, family=family), out)

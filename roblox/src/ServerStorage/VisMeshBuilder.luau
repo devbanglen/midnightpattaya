@@ -53,6 +53,8 @@ type Assets = {tpl: {[string]: {[string]: Tpl}}, failed: {[string]: string}, loa
 
 -- the loaded MeshPart for one manifest part: by its own name, by its node ("<part>_Node"), else the only MeshPart of
 -- the asset with exactly that size (the importer's naming is not pinned down by a test yet)
+local IMPORT_YAW = CFrame.Angles(0, math.pi, 0) -- see prepareAssets: the importer bakes a 180 deg yaw
+
 local function findPart(root: Instance, sp: any, taken: {[Instance]: boolean}): MeshPart?
 	local bySize: {MeshPart} = {}
 	local want = Vector3.new(sp.size[1], sp.size[2], sp.size[3])
@@ -73,7 +75,11 @@ end
 
 -- asset cache ---------------------------------------------------------------------------------------------------------
 local function prepareAssets(vm: any, names: {[string]: boolean}): Assets
-	local ids = require(ServerStorage:WaitForChild("VisAssetsManifest") :: ModuleScript) :: any
+	-- Edit mode caches require(): after a re-upload changes the ids, a Clone() is the only way to read the new source
+	-- (leader, VIS-7.1b: BuildMesh loaded the old palm ids and reported them unusable)
+	local manifestMod = ServerStorage:WaitForChild("VisAssetsManifest") :: ModuleScript
+	local RunService = game:GetService("RunService")
+	local ids = require(if RunService:IsEdit() then manifestMod:Clone() else manifestMod) :: any
 	local byName: {[string]: any} = {}
 	for _, a in vm.assets do
 		byName[a.name] = a
@@ -139,7 +145,11 @@ local function prepareAssets(vm: any, names: {[string]: boolean}): Assets
 			out.offsetMax = math.max(out.offsetMax, (rel.Position - v3(sp.centre)).Magnitude)
 			local _, ang = mp.CFrame.Rotation:ToAxisAngle()
 			out.rotMax = math.max(out.rotMax, math.deg(math.abs(ang)))
-			tpl[sp.short] = {part = mp, rot = CFrame.identity}
+			-- IMPORT_YAW (leader, measured 2026-10-19): Roblox's glTF importer bakes every mesh rotated 180 deg about Y
+			-- (RSD_Palm_A_Bark centre +0.969 x in the file loads at -0.97; the MeshPart's own rotation reads 0). The
+			-- manifest centre is kept and the part is turned back, so a module's street-side detail faces the street
+			-- (before this, sign boards showed their open back and asymmetric modules faced into the wall).
+			tpl[sp.short] = {part = mp, rot = IMPORT_YAW}
 		end
 		if bad then
 			out.failed[name] = bad

@@ -2,8 +2,8 @@
  "summary": {
   "assets": 43,
   "ok": 43,
-  "tris_total": 5789,
-  "tris_max": 512,
+  "tris_total": 12664,
+  "tris_max": 2673,
   "by_family": {
    "buildings": 24,
    "roadside": 14,
@@ -572,7 +572,7 @@
    "name": "BLD_GF_Restaurant",
    "file": "buildings/BLD_GF_Restaurant.glb",
    "bytes": 13708,
-   "sha1": "126a6ff9ea2c2ee93d5957711462ac006c39ae89",
+   "sha1": "2c93818d86878d6e22cfe82083158d91f26ce6e7",
    "tris": 150,
    "materials": [
     "MP_Glass",
@@ -676,9 +676,9 @@
   {
    "name": "BLD_GF_ShophouseAwning",
    "file": "buildings/BLD_GF_ShophouseAwning.glb",
-   "bytes": 10280,
-   "sha1": "ae6a61518c912630e73a8763a400b8580f30575f",
-   "tris": 88,
+   "bytes": 20536,
+   "sha1": "e54f60ce82c92bba815ce7d3dc1a1be75d9c579e",
+   "tris": 268,
    "materials": [
     "MP_Awning",
     "MP_Glass",
@@ -689,7 +689,7 @@
     {
      "name": "BLD_GF_ShophouseAwning_Awning",
      "material": "MP_Awning",
-     "tris": 20,
+     "tris": 200,
      "size": [
       6.743,
       2.5,
@@ -781,9 +781,9 @@
   {
    "name": "BLD_GF_ShophouseShutter",
    "file": "buildings/BLD_GF_ShophouseShutter.glb",
-   "bytes": 11724,
-   "sha1": "60d0b607c78ba4749fb24f4834d80bbb8d6d96e2",
-   "tris": 108,
+   "bytes": 23928,
+   "sha1": "b954bcb8b600f1d6754a9fed360b748778a685b2",
+   "tris": 284,
    "materials": [
     "MP_Glass",
     "MP_Shutter",
@@ -809,7 +809,7 @@
     {
      "name": "BLD_GF_ShophouseShutter_Shutter",
      "material": "MP_Shutter",
-     "tris": 72,
+     "tris": 248,
      "size": [
       7.143,
       4.2,
@@ -1758,7 +1758,7 @@
    "name": "BLD_RF_SignFrame",
    "file": "buildings/BLD_RF_SignFrame.glb",
    "bytes": 13144,
-   "sha1": "ecfe49db312503ba9a25323f460bc9e3858301d5",
+   "sha1": "3f012c4a40bc60d592d128f949cd35f0c939a43b",
    "tris": 144,
    "materials": [
     "MP_MetalDark",
@@ -2192,9 +2192,9 @@
   {
    "name": "RSD_Awning_Shop",
    "file": "roadside/RSD_Awning_Shop.glb",
-   "bytes": 5912,
-   "sha1": "038f5c355bd38332c913d1cfa929909e16dfffa2",
-   "tris": 52,
+   "bytes": 6472,
+   "sha1": "014714ede48f3cde21a7cd64dcebc3a67e260c32",
+   "tris": 60,
    "materials": [
     "MP_Awning",
     "MP_MetalDark"
@@ -2203,7 +2203,7 @@
     {
      "name": "RSD_Awning_Shop_Awning",
      "material": "MP_Awning",
-     "tris": 16,
+     "tris": 24,
      "size": [
       8.036,
       2.607,
@@ -2580,9 +2580,9 @@
   {
    "name": "RSD_Palm_A",
    "file": "roadside/RSD_Palm_A.glb",
-   "bytes": 19576,
-   "sha1": "8a27593b8797510e6551b547d1b6063a4e8a0ac8",
-   "tris": 286,
+   "bytes": 223776,
+   "sha1": "44f935db6e47710282946c006e9709821d2f5555",
+   "tris": 2673,
    "materials": [
     "MP_Bark",
     "MP_Foliage"
@@ -2591,48 +2591,48 @@
     {
      "name": "RSD_Palm_A_Bark",
      "material": "MP_Bark",
-     "tris": 196,
+     "tris": 619,
      "size": [
-      3.181,
-      21.486,
-      1.889
+      4.043,
+      28.086,
+      6.884
      ],
      "centre": [
-      0.854,
-      10.743,
+      0.969,
+      14.043,
       0.0
      ]
     },
     {
      "name": "RSD_Palm_A_Leaf",
      "material": "MP_Foliage",
-     "tris": 90,
+     "tris": 2054,
      "size": [
-      19.708,
-      4.772,
-      16.747
+      25.339,
+      18.692,
+      24.3
      ],
      "centre": [
-      1.496,
-      20.363,
-      -0.492
+      1.953,
+      24.33,
+      -0.231
      ]
     }
    ],
    "bbox_min": [
-    -8.358,
+    -10.717,
     0.0,
-    -8.865
+    -12.381
    ],
    "bbox_max": [
-    11.35,
-    22.749,
-    7.882
+    14.622,
+    33.676,
+    11.919
    ],
    "size_studs": [
-    19.708,
-    22.749,
-    16.747
+    25.339,
+    33.676,
+    24.3
    ],
    "ok": true,
    "fails": [],
@@ -2643,14 +2643,14 @@
    "anchor": "pole",
    "collision": "Box",
    "can_collide": false,
-   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+   "note": "geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part"
   },
   {
    "name": "RSD_Palm_B",
    "file": "roadside/RSD_Palm_B.glb",
-   "bytes": 20844,
-   "sha1": "69adccaba8a63287a14ea5ee56ff6036d8d83ce5",
-   "tris": 306,
+   "bytes": 199784,
+   "sha1": "02dd53db9338342dc0d1eec224d1f9e41df03a46",
+   "tris": 2419,
    "materials": [
     "MP_Bark",
     "MP_Foliage"
@@ -2659,48 +2659,48 @@
     {
      "name": "RSD_Palm_B_Bark",
      "material": "MP_Bark",
-     "tris": 196,
+     "tris": 619,
      "size": [
-      4.481,
-      26.87,
-      1.889
+      6.906,
+      25.158,
+      4.365
      ],
      "centre": [
-      1.504,
-      13.435,
-      0.0
+      2.372,
+      12.579,
+      -1.091
      ]
     },
     {
      "name": "RSD_Palm_B_Leaf",
      "material": "MP_Foliage",
-     "tris": 110,
+     "tris": 1800,
      "size": [
-      17.384,
-      5.372,
-      21.411
+      21.883,
+      16.766,
+      23.651
      ],
      "centre": [
-      2.736,
-      25.407,
-      0.397
+      2.249,
+      20.732,
+      -0.425
      ]
     }
    ],
    "bbox_min": [
-    -5.956,
+    -8.692,
     0.0,
-    -10.308
+    -12.251
    ],
    "bbox_max": [
-    11.428,
-    28.093,
-    11.103
+    13.191,
+    29.114,
+    11.4
    ],
    "size_studs": [
-    17.384,
-    28.093,
-    21.411
+    21.883,
+    29.114,
+    23.651
    ],
    "ok": true,
    "fails": [],
@@ -2711,14 +2711,14 @@
    "anchor": "pole",
    "collision": "Box",
    "can_collide": false,
-   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+   "note": "geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part"
   },
   {
    "name": "RSD_Palm_C",
    "file": "roadside/RSD_Palm_C.glb",
-   "bytes": 17612,
-   "sha1": "c1387801869c6ed0994222312c25377735734d21",
-   "tris": 258,
+   "bytes": 185956,
+   "sha1": "6e09799f45b74645f6c7e959904dd343c5880eef",
+   "tris": 2269,
    "materials": [
     "MP_Bark",
     "MP_Foliage"
@@ -2727,48 +2727,48 @@
     {
      "name": "RSD_Palm_C_Bark",
      "material": "MP_Bark",
-     "tris": 188,
+     "tris": 619,
      "size": [
-      2.281,
-      16.102,
-      1.889
+      7.094,
+      20.608,
+      3.167
      ],
      "centre": [
-      0.404,
-      8.051,
-      0.0
+      1.936,
+      10.304,
+      0.457
      ]
     },
     {
      "name": "RSD_Palm_C_Leaf",
      "material": "MP_Foliage",
-     "tris": 70,
+     "tris": 1650,
      "size": [
-      16.684,
-      3.967,
-      15.066
+      20.235,
+      14.751,
+      19.78
      ],
      "centre": [
-      0.736,
-      14.81,
-      -0.131
+      0.755,
+      17.828,
+      0.184
      ]
     }
    ],
    "bbox_min": [
-    -7.606,
+    -9.363,
     0.0,
-    -7.664
+    -9.706
    ],
    "bbox_max": [
-    9.078,
-    16.794,
-    7.402
+    10.872,
+    25.204,
+    10.075
    ],
    "size_studs": [
-    16.684,
-    16.794,
-    15.066
+    20.235,
+    25.204,
+    19.78
    ],
    "ok": true,
    "fails": [],
@@ -2779,7 +2779,7 @@
    "anchor": "pole",
    "collision": "Box",
    "can_collide": false,
-   "note": "fronds are alpha-ready cards (UV 0..1); trunk collider Part"
+   "note": "geometry fronds (rachis + two-sided leaflets), <= 3000 tris; trunk collider Part"
   },
   {
    "name": "RSD_Pole_Utility",
