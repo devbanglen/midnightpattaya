@@ -9,6 +9,7 @@
 --     LOD_SpotCap (60) within range of the camera are on (see section 3; LOD_Enabled = false lifts it). Any BasePart
 --     with NightNeon=true turns Neon with its NightColor attribute at night and back to SmoothPlastic + DayColor by
 --     day (circuit window bands, lamp heads).
+--     Street lamps, neon palette and headlight colour follow the active LightingPreset (section 1).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
@@ -32,11 +33,18 @@ end
 
 -- 1. Lighting presets ------------------------------------------------------------------------------------------------
 local C = Color3.fromRGB
-local PRESETS = {
+-- VIS-3 (2026-10-19): the look is chosen by the Lighting attribute LightingPreset (live, command bar):
+--   MidnightClear (default) | MidnightWet | Dawn | Daylight | Legacy
+-- Each preset is a full set of night / dusk / day / dawn keyframes, still blended by ClockTime (KEYS below), plus the
+-- street-lamp colours, the neon palette (NightNeon parts and NeonSign props) and the headlight colour. The owner knobs
+-- NightExposure and NightSky work on top of every preset. docs/NIGHT_LIGHTING.md has the table and the rationale.
+-- Written, not run in Studio: every value except Legacy is a first guess for the owner to compare by eye.
+
+-- Legacy = the values in use before VIS-3, verbatim (uniform violet cast at night, strong bloom).
+local LEGACY = {
 	night = {
 		-- the first night preset was too dark to see the road (owner, 2026-10-18): lifted ambient/exposure, less fog;
 		-- the owner then tuned NightExposure to +0.4 by eye (2026-10-19), baked in here (0.55 -> 0.95).
-		-- Lighting attribute NightExposure (default 0) adds to ExposureCompensation at night for live tuning.
 		Ambient = C(74, 70, 104), OutdoorAmbient = C(118, 112, 160), Brightness = 1.7, ExposureCompensation = 0.95,
 		EnvironmentDiffuseScale = 0.45, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(90, 60, 160),
 		atmo = {Density = 0.26, Offset = 0.12, Color = C(90, 65, 140), Decay = C(40, 25, 70), Glare = 0, Haze = 1.1},
@@ -73,6 +81,154 @@ local PRESETS = {
 		grade = {Brightness = 0, Contrast = 0.05, Saturation = 0.1, TintColor = C(255, 240, 235)},
 	},
 }
+
+-- MidnightClear: dry, clear night. The violet of Legacy becomes a steel navy of about the SAME brightness
+-- (OutdoorAmbient luminance ~114 vs ~117 in Legacy), so the road stays as readable as at the owner's baseline
+-- (exposure 0.95 kept); colour then comes from the warm lamps and the cyan / magenta neon instead of a purple wash.
+-- Bloom only on what is really bright (Threshold 1.3), low navy fog, indigo sky with stars.
+local CLEAR = {
+	night = {
+		Ambient = C(60, 68, 96), OutdoorAmbient = C(100, 114, 150), Brightness = 1.7, ExposureCompensation = 0.95,
+		EnvironmentDiffuseScale = 0.45, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(120, 140, 190),
+		atmo = {Density = 0.22, Offset = 0.1, Color = C(70, 84, 120), Decay = C(28, 34, 80), Glare = 0, Haze = 1.0},
+		bloom = {Intensity = 0.45, Size = 24, Threshold = 1.3},
+		grade = {Brightness = 0.02, Contrast = 0.12, Saturation = 0.12, TintColor = C(240, 244, 255)},
+		skyAtmo = {Offset = 0.22, Color = C(96, 92, 150), Decay = C(34, 42, 118), Haze = 1.8},
+		sky = {StarCount = 3000},
+	},
+	dusk = {
+		Ambient = C(70, 58, 78), OutdoorAmbient = C(140, 104, 118), Brightness = 1.7, ExposureCompensation = 0.3,
+		EnvironmentDiffuseScale = 0.6, EnvironmentSpecularScale = 0.9, ColorShift_Top = C(255, 150, 100),
+		atmo = {Density = 0.3, Offset = 0.15, Color = C(250, 150, 120), Decay = C(90, 60, 120), Glare = 0.4, Haze = 1.8},
+		bloom = {Intensity = 0.5, Size = 24, Threshold = 1.2},
+		grade = {Brightness = 0.01, Contrast = 0.1, Saturation = 0.14, TintColor = C(255, 238, 228)},
+	},
+	day = {
+		Ambient = C(110, 112, 120), OutdoorAmbient = C(140, 142, 150), Brightness = 2.6, ExposureCompensation = 0,
+		EnvironmentDiffuseScale = 1, EnvironmentSpecularScale = 1, ColorShift_Top = C(255, 245, 225),
+		atmo = {Density = 0.26, Offset = 0.2, Color = C(200, 218, 235), Decay = C(110, 140, 170), Glare = 0.2, Haze = 1},
+		bloom = {Intensity = 0.35, Size = 24, Threshold = 1.6},
+		grade = {Brightness = 0, Contrast = 0.06, Saturation = 0.08, TintColor = C(255, 255, 252)},
+	},
+	dawn = {
+		Ambient = C(72, 70, 88), OutdoorAmbient = C(132, 122, 140), Brightness = 1.5, ExposureCompensation = 0.2,
+		EnvironmentDiffuseScale = 0.6, EnvironmentSpecularScale = 0.9, ColorShift_Top = C(255, 190, 150),
+		atmo = {Density = 0.34, Offset = 0.15, Color = C(255, 196, 170), Decay = C(130, 120, 160), Glare = 0.3, Haze = 2},
+		bloom = {Intensity = 0.45, Size = 24, Threshold = 1.25},
+		grade = {Brightness = 0, Contrast = 0.06, Saturation = 0.1, TintColor = C(255, 242, 232)},
+	},
+}
+
+-- a copy of a keyframe set with some fields replaced (nested tables merged one level deep)
+local function variant(base, changes)
+	local out = {}
+	for name, frame in base do
+		local f = table.clone(frame)
+		for k, v in frame do
+			if type(v) == "table" then
+				f[k] = table.clone(v)
+			end
+		end
+		for k, v in changes[name] or {} do
+			if type(v) == "table" and type(f[k]) == "table" then
+				for k2, v2 in v do
+					f[k][k2] = v2
+				end
+			else
+				f[k] = v
+			end
+		end
+		out[name] = f
+	end
+	return out
+end
+
+-- MidnightWet: after-rain city. Same navy base, a touch more humid (fog, lamp halo), full environment specular so
+-- smooth / wet surfaces pick up the sky, slightly stronger grade so wet colours pop. Pairs with RoadLook "wet"
+-- (PattayaRoadLook follows the preset when the RoadLook attribute is not set). Day keyframe: humid overcast.
+local WET = variant(CLEAR, {
+	night = {Ambient = C(54, 62, 90), OutdoorAmbient = C(94, 108, 144), ExposureCompensation = 1.0,
+		EnvironmentDiffuseScale = 0.4, EnvironmentSpecularScale = 1.0,
+		atmo = {Density = 0.26, Color = C(72, 86, 122), Haze = 1.3},
+		bloom = {Intensity = 0.55, Threshold = 1.2},
+		grade = {Contrast = 0.14, Saturation = 0.16, TintColor = C(236, 242, 255)},
+		skyAtmo = {Haze = 2.0}, sky = {StarCount = 1500}},
+	dusk = {EnvironmentSpecularScale = 1.0, atmo = {Density = 0.34, Haze = 2.0}},
+	day = {Brightness = 2.2, OutdoorAmbient = C(132, 136, 146), EnvironmentSpecularScale = 1.0,
+		atmo = {Density = 0.32, Color = C(190, 200, 210), Haze = 1.6, Glare = 0.1},
+		grade = {Contrast = 0.08, Saturation = 0.06}},
+	dawn = {EnvironmentSpecularScale = 1.0, atmo = {Density = 0.38, Haze = 2.2}},
+})
+
+-- Dawn: the blue-hour / golden-hour candidate. Night is a lighter blue-hour navy with a soft horizon glow (the
+-- "TimeLock 19.6" look from docs/TIME_OF_DAY.md without touching the clock); dawn and dusk are warmer, more golden.
+local DAWN = variant(CLEAR, {
+	night = {Ambient = C(70, 80, 112), OutdoorAmbient = C(112, 128, 170), ColorShift_Top = C(130, 150, 210),
+		atmo = {Color = C(90, 110, 160), Decay = C(46, 60, 140)},
+		skyAtmo = {Offset = 0.26, Color = C(150, 120, 170), Decay = C(60, 78, 170), Haze = 2.0}, sky = {StarCount = 1500}},
+	dusk = {ColorShift_Top = C(255, 170, 100), atmo = {Color = C(255, 170, 120), Glare = 0.5, Haze = 2.4},
+		grade = {Saturation = 0.16, TintColor = C(255, 236, 220)}},
+	day = {ColorShift_Top = C(255, 232, 200), grade = {Saturation = 0.12, TintColor = C(255, 248, 236)}},
+	dawn = {ExposureCompensation = 0.3, ColorShift_Top = C(255, 180, 120),
+		atmo = {Color = C(255, 180, 140), Glare = 0.5, Haze = 2.4}, bloom = {Intensity = 0.5, Threshold = 1.2},
+		grade = {Saturation = 0.14, TintColor = C(255, 238, 222)}},
+})
+
+-- Daylight: the brightest, most readable set. Night ambient and exposure ABOVE the owner baseline (fallback if night
+-- is still too dark, e.g. on phones), crisp clear tropical day.
+local DAYLIGHT = variant(CLEAR, {
+	night = {Ambient = C(78, 86, 112), OutdoorAmbient = C(124, 134, 166), ExposureCompensation = 1.1,
+		EnvironmentDiffuseScale = 0.5, bloom = {Intensity = 0.4, Threshold = 1.35}, grade = {Contrast = 0.08},
+		skyAtmo = {Decay = C(44, 56, 120)}, sky = {StarCount = 2000}},
+	day = {Brightness = 3.0, OutdoorAmbient = C(150, 152, 158), atmo = {Density = 0.22, Haze = 0.8},
+		grade = {Contrast = 0.08, Saturation = 0.12}},
+})
+
+-- Street lamps (parts named Lamp and their SpotLights): warm sodium orange. brightness scales the builder's value
+-- (2.2 city, 1.8 promenade); no light is added. neon: NightNeon colours and NeonSign props whose hue is cyan-ish or
+-- magenta-ish are snapped to the owner palette; other hues (warm windows, signal lamps, yellow, green) are kept.
+local MIDNIGHT_LAMP = {light = C(255, 176, 96), part = C(255, 170, 80), brightness = 1.0}
+local MIDNIGHT_NEON = {cyan = C(0, 223, 255), magenta = C(255, 43, 214)}
+local HEAD_WARM = C(255, 241, 222) -- natural warm white (about 4,500 K), not blue-white
+local SETS = {
+	MidnightClear = {keys = CLEAR, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
+	MidnightWet = {keys = WET, lamp = {light = C(255, 176, 96), part = C(255, 170, 80), brightness = 1.15},
+		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "wet"},
+	Dawn = {keys = DAWN, lamp = MIDNIGHT_LAMP, neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
+	Daylight = {keys = DAYLIGHT, lamp = {light = C(255, 190, 120), part = C(255, 184, 104), brightness = 1.1},
+		neon = MIDNIGHT_NEON, head = HEAD_WARM, road = "dry"},
+	-- Legacy: lamps, neon and headlights exactly as the builders made them, road look off
+	Legacy = {keys = LEGACY, lamp = nil, neon = nil, head = C(255, 244, 220), road = "off"},
+}
+local DEFAULT_SET = "MidnightClear"
+local warnedPreset: any = nil
+local function currentSetName(): string
+	local v = Lighting:GetAttribute("LightingPreset")
+	if type(v) == "string" and SETS[v] then
+		return v
+	end
+	if v ~= nil and warnedPreset ~= v then
+		warnedPreset = v
+		warn(`[PattayaLighting] unknown LightingPreset {tostring(v)}; using {DEFAULT_SET} (MidnightClear, MidnightWet, Dawn, Daylight, Legacy)`)
+	end
+	return DEFAULT_SET
+end
+local activeName = currentSetName()
+local function activeSet()
+	return SETS[activeName]
+end
+local presetListeners = {}
+Lighting:GetAttributeChangedSignal("LightingPreset"):Connect(function()
+	local name = currentSetName()
+	if name == activeName then
+		return
+	end
+	activeName = name
+	print("[PattayaLighting] preset " .. name)
+	for _, fn in presetListeners do
+		task.spawn(fn)
+	end
+end)
 -- keyframes {ClockTime, preset}; blended linearly between neighbours
 local KEYS = {{0, "night"}, {4.8, "night"}, {6.2, "dawn"}, {8, "day"}, {16.5, "day"}, {18.3, "dusk"}, {19.6, "night"},
 	{24, "night"}}
@@ -137,24 +293,26 @@ local function findSky(): any
 end
 
 local function presetAt(t: number)
+	local keys = activeSet().keys
 	for i = 1, #KEYS - 1 do
 		local a, b = KEYS[i], KEYS[i + 1]
 		if t >= a[1] and t <= b[1] then
 			local f = if b[1] > a[1] then (t - a[1]) / (b[1] - a[1]) else 0
-			return PRESETS[a[2]], PRESETS[b[2]], f
+			return keys[a[2]], keys[b[2]], f, a[2], b[2]
 		end
 	end
-	return PRESETS.night, PRESETS.night, 0
+	return keys.night, keys.night, 0, "night", "night"
 end
 
 local presetsOn = false
 local function applyPreset()
-	local pa, pb, f = presetAt(Lighting.ClockTime % 24)
+	local pa, pb, f, na, nb = presetAt(Lighting.ClockTime % 24)
+	local nightFrame = activeSet().keys.night
 	for _, prop in LIGHTING_PROPS do
 		L[prop] = lerp(pa[prop], pb[prop], f)
 	end
 	-- how "night" the blend is: 1 in the night preset, ramping in and out across dusk and dawn
-	local w = (if pa == PRESETS.night then 1 - f else 0) + (if pb == PRESETS.night then f else 0)
+	local w = (if na == "night" then 1 - f else 0) + (if nb == "night" then f else 0)
 	-- live tuning knob: Lighting attribute NightExposure (e.g. 0.3 brighter, -0.3 darker) scaled by how "night" it is
 	local boost = Lighting:GetAttribute("NightExposure")
 	if type(boost) == "number" and boost ~= 0 then
@@ -163,7 +321,7 @@ local function applyPreset()
 	-- second knob: Lighting attribute NightSky (0..1, default 1) = how much of the night sky look is used
 	local skyKnob = Lighting:GetAttribute("NightSky")
 	local k = math.clamp(if type(skyKnob) == "number" then skyKnob else 1, 0, 1) * w
-	local skyAtmo = PRESETS.night.skyAtmo
+	local skyAtmo = nightFrame.skyAtmo
 	for key, e in effects do
 		local inst = e.inst
 		if e.created and inst.Parent ~= Lighting then
@@ -181,7 +339,7 @@ local function applyPreset()
 	if s then
 		for _, prop in SKY_PROPS do
 			-- from the template value by day to the night value at night (whole numbers for StarCount)
-			local v = math.floor(lerp(skySaved[prop], PRESETS.night.sky[prop], k) + 0.5)
+			local v = math.floor(lerp(skySaved[prop], nightFrame.sky[prop], k) + 0.5)
 			if s[prop] ~= v then
 				s[prop] = v
 			end
@@ -240,17 +398,32 @@ local function spotKnob(name: string): number
 	local v = workspace:GetAttribute(name)
 	return if type(v) == "number" then v else SPOT_DEFAULTS[name]
 end
-local spots: {[SpotLight]: {flood: boolean, pos: Vector3, on: boolean}} = {}
+type Spot = {flood: boolean, pos: Vector3, on: boolean, c0: Color3, b0: number}
+local spots: {[SpotLight]: Spot} = {}
+-- lamp SpotLights take the preset's lamp colour and a brightness scale of the builder's value (c0 / b0 kept, so
+-- Legacy and any later preset start from the original); floodlights (circuit) keep their own colour
+local function styleSpot(light: SpotLight, s: Spot)
+	if s.flood then
+		return
+	end
+	local lamp = activeSet().lamp
+	local col = if lamp then lamp.light else s.c0
+	local br = if lamp then s.b0 * lamp.brightness else s.b0
+	if light.Color ~= col then light.Color = col end
+	if light.Brightness ~= br then light.Brightness = br end
+end
 local function registerSpot(light: SpotLight, flood: boolean)
 	if spots[light] then
 		return
 	end
 	local p = light.Parent :: BasePart
-	spots[light] = {flood = flood, pos = p.Position, on = light.Enabled}
+	local s: Spot = {flood = flood, pos = p.Position, on = light.Enabled, c0 = light.Color, b0 = light.Brightness}
+	spots[light] = s
 	if light.Enabled and not night then
 		light.Enabled = false
-		spots[light].on = false
+		s.on = false
 	end
+	styleSpot(light, s)
 end
 local spotAcc = 1
 local function updateSpots()
@@ -309,11 +482,52 @@ local function applyFlood(part: BasePart)
 	end
 end
 -- NightNeon=true parts (circuit window bands, lamp heads): Neon + NightColor at night, SmoothPlastic + DayColor by day
+-- neon palette of the active preset: cyan-ish hues -> palette cyan, magenta/pink hues -> palette magenta; others kept
+local function neonColor(c: Color3): Color3
+	local pal = activeSet().neon
+	if not pal then
+		return c
+	end
+	local h, s, v = c:ToHSV()
+	if s < 0.45 or v < 0.35 then
+		return c
+	end
+	if h >= 0.45 and h <= 0.58 then
+		return pal.cyan
+	elseif h >= 0.80 and h <= 0.97 then
+		return pal.magenta
+	end
+	return c
+end
 local neons = setmetatable({}, {__mode = "k"})
 local function applyNeon(part: BasePart)
 	local col = part:GetAttribute(if night then "NightColor" else "DayColor")
 	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
-	if typeof(col) == "Color3" then part.Color = col end
+	if typeof(col) == "Color3" then
+		part.Color = if night then neonColor(col) else col
+	end
+end
+-- always-Neon sign props (PattayaBuilder "NeonSign"): recoloured through the palette, original colour kept
+local signOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
+local function applySign(part: BasePart)
+	local orig = signOrig[part]
+	if not orig then
+		orig = part.Color
+		signOrig[part] = orig
+	end
+	part.Color = neonColor(orig)
+end
+-- street-lamp heads (parts named Lamp): Neon in the preset's warm lamp colour at night, the builder colour by day
+local lampOrig: {[BasePart]: Color3} = setmetatable({}, {__mode = "k"}) :: any
+local function applyLamp(part: BasePart)
+	local orig = lampOrig[part]
+	if not orig then
+		orig = part.Color
+		lampOrig[part] = orig
+	end
+	local lamp = activeSet().lamp
+	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	part.Color = if night and lamp then lamp.part else orig
 end
 workspace.DescendantAdded:Connect(function(d)
 	if d:IsA("SpotLight") then
@@ -359,7 +573,7 @@ end)
 -- 4. Car lights ----------------------------------------------------------------------------------------------------
 local CAR_LIGHT_RANGE = 350 -- studs from the camera
 local MAX_LIT_CARS = 8 -- including your own
-local HEAD_COLOR, TAIL_COLOR = Color3.fromRGB(255, 244, 220), Color3.fromRGB(255, 30, 30)
+local TAIL_COLOR = Color3.fromRGB(255, 30, 30) -- head colour: the active preset's `head` (natural warm white)
 local lit = {} -- [chassis] = {Attachment}
 
 local function myChassis(): BasePart?
@@ -389,6 +603,7 @@ end
 local function addLights(chassis: BasePart, mine: boolean)
 	local half = chassis.Size.Z / 2
 	local w = math.min(chassis.Size.X / 2 - 0.8, 2.8)
+	local HEAD_COLOR = activeSet().head
 	local made = {}
 	local function att(name: string, cf: CFrame): Attachment
 		local a = Instance.new("Attachment")
@@ -490,9 +705,11 @@ local function apply(inst: Instance)
 			inst.StudsPerTileU, inst.StudsPerTileV = u, v
 		end
 	elseif inst:IsA("BasePart") and inst.Name == "Lamp" then
-		inst.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		applyLamp(inst)
 		local light = inst:FindFirstChildOfClass("SpotLight")
 		if light then registerSpot(light, false) end -- switched by the SpotLight budget (section 3)
+	elseif inst:IsA("BasePart") and inst.Name == "NeonSign" then
+		applySign(inst)
 	end
 end
 
@@ -505,6 +722,26 @@ local function applyAll()
 	end
 end
 onNightChanged(applyAll)
+
+-- LightingPreset changed: restyle what the preset colours (only registered parts and lights, no world scan); car
+-- lights are dropped and come back on the next car-light tick (0.3 s) with the new headlight colour
+table.insert(presetListeners, function()
+	for light, s in spots do
+		if light.Parent then styleSpot(light, s) end
+	end
+	for p in lampOrig do
+		if p.Parent then applyLamp(p) end
+	end
+	for p in signOrig do
+		if p.Parent then applySign(p) end
+	end
+	for p in neons do
+		if p.Parent then applyNeon(p) end
+	end
+	for c in lit do
+		removeLights(c)
+	end
+end)
 
 Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
 	local n = isNight()
@@ -521,7 +758,7 @@ if not world then
 	return
 end
 world.DescendantAdded:Connect(function(d)
-	if d:IsA("Texture") or d.Name == "Lamp" then
+	if d:IsA("Texture") or d.Name == "Lamp" or d.Name == "NeonSign" then
 		-- attributes/children may arrive a frame later when streamed
 		task.defer(apply, d)
 	end
