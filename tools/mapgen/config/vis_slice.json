@@ -1,0 +1,171 @@
+{
+  "name": "vis_slice",
+  "comment": "VIS-4 visual slice: modular facades for every procedural building between Pattaya Nuea and Pattaya Tai, Beach Road to Second Road (+ frontage). Read by tools/mapgen/vis_slice.py; the kit below is exported to build/vis_slice/roblox/manifest.luau and instantiated by ServerStorage.PattayaVisSliceBuilder.",
+  "inputs": {
+    "central": "build/central_pattaya",
+    "landmarks": "build/landmarks",
+    "furniture": "build/furniture/furniture.json",
+    "coast": "build/coast/roblox"
+  },
+  "out": "build/vis_slice",
+  "chunk_size_studs": 512,
+  "max_parts_per_chunk": 600,
+  "max_chunks_per_batch": 8,
+  "part_budget": 25000,
+  "slice": {
+    "roads": ["Pattaya Sai Nueng Road", "Pattaya Sai Song Road"],
+    "north_road": "Pattaya Nuea Road",
+    "south_road": "Pattaya Tai Road",
+    "frontage_studs": 110,
+    "skip_categories": ["temple"],
+    "min_side_studs": 6
+  },
+  "faces": {
+    "see_studs": 60,
+    "party_wall_probe_studs": 6,
+    "party_wall_min_fraction": 0.3,
+    "min_span_studs": 6,
+    "main_road_bonus_studs": 25
+  },
+  "level_studs": 8.571,
+  "ground_extra_studs": 3,
+  "lit": {"warm_pct": 65, "spread": 10, "hash_mod": 100003},
+  "neon": {"max_total_strips": 160, "max_per_building": 2},
+  "obstacles": {
+    "coast_stride_radius": {"umbrellas": [5, 5.0], "lamps": [4, 2.0], "towers": [4, 6.0], "boats": [5, 12.0], "huts": [5, 8.0], "kites": [6, 12.0]},
+    "gate_pad_studs": 0.5
+  },
+  "styles": {
+    "shophouse": {"cats": ["shophouse"], "ins": 1.2, "max_faces": 2, "second_face_needs_main_road": true,
+                  "ground": "shopfront_a", "ground_bay": 12, "mid": ["window_pair_ac_a"], "mid_bay": 12,
+                  "whole": [], "parapet": true, "roof": ["water_tank_a"], "lit_win": 35, "lit_shop": 75,
+                  "neon_pct": 12, "texts": "shop", "cap": 70},
+    "hotel":     {"cats": ["hotel"], "ins": 1.8, "max_faces": 2, "second_face_needs_main_road": true, "ground": "lobby_a", "ground_bay": 10,
+                  "mid": ["balcony_row_a"], "mid_bay": 10, "whole": [["band_glass_a", 0], ["fins_a", 30]],
+                  "parapet": true, "roof": ["roof_plant_a"], "lit_win": 30, "lit_shop": 90, "neon_pct": 0,
+                  "texts": "hotel", "cap": 170},
+    "condo":     {"cats": ["condo", "apartments"], "ins": 1.6, "max_faces": 2, "ground": "lobby_a", "ground_bay": 10,
+                  "mid": ["balcony_grid_a"], "mid_bay": 9, "whole": [["band_glass_a", 0], ["fins_a", 9]],
+                  "parapet": true, "roof": ["roof_plant_a", "water_tank_a"], "lit_win": 25, "lit_shop": 90,
+                  "neon_pct": 0, "texts": "condo", "cap": 200},
+    "commercial":{"cats": ["commercial", "mall", "public"], "ins": 0.8, "max_faces": 2, "ground": "shopfront_b",
+                  "ground_bay": 10, "mid": ["transom_a"], "mid_bay": 7, "whole": [["curtain_wall_a", 7]],
+                  "parapet": true, "roof": ["roof_plant_a"], "lit_win": 40, "lit_shop": 80, "neon_pct": 50,
+                  "neon_cats": ["commercial", "mall"], "texts": "commercial", "cap": 120},
+    "industrial":{"cats": ["industrial", "parking"], "ins": 0.6, "max_faces": 1, "ground": "garage_door_a",
+                  "ground_bay": 14, "mid": ["window_row_a"], "mid_bay": 10, "whole": [], "parapet": true,
+                  "roof": ["ac_pair_a"], "lit_win": 15, "lit_shop": 0, "neon_pct": 0, "texts": null, "cap": 50},
+    "house":     {"cats": ["house"], "ins": 0.8, "max_faces": 1, "ground": "house_front_a", "ground_bay": 10,
+                  "mid": ["window_row_a"], "mid_bay": 10, "whole": [], "parapet": false, "roof": [],
+                  "lit_win": 30, "lit_shop": 30, "neon_pct": 0, "texts": null, "cap": 30}
+  },
+  "colors": {
+    "glass": [36, 48, 66], "glassShop": [44, 56, 72], "glassBlue": [40, 62, 88], "glassLitDay": [58, 76, 98],
+    "trim": [228, 226, 218], "concrete": [168, 166, 160], "metal": [88, 92, 100], "shutter": [150, 154, 160],
+    "rail": [44, 46, 52], "ac": [214, 214, 208], "roof": [96, 96, 102], "tank": [52, 98, 170], "sign": [24, 26, 34],
+    "litWarm": [255, 214, 140], "litCool": [190, 225, 255],
+    "neonCyan": [0, 235, 255], "neonMagenta": [255, 40, 190], "neonCyanDay": [40, 120, 135], "neonMagentaDay": [140, 50, 110]
+  },
+  "accents": [[196, 52, 46], [38, 128, 82], [40, 92, 172], [228, 128, 40], [30, 148, 150], [226, 188, 52], [128, 40, 62]],
+  "sign_combos": [{"board": [24, 26, 34], "text": [255, 236, 170]}, {"board": [176, 34, 40], "text": [255, 255, 255]},
+                  {"board": [238, 236, 228], "text": [30, 60, 140]}, {"board": [20, 70, 120], "text": [255, 255, 255]}],
+  "texts": {
+    "shop": ["ร้านอาหาร\nRESTAURANT", "นวดแผนไทย\nTHAI MASSAGE", "มินิมาร์ท\nMINI MART", "แลกเงิน\nEXCHANGE",
+             "ร้านกาแฟ\nCOFFEE", "เช่ารถ\nBIKE RENT", "ร้านยา\nPHARMACY", "ตัดเสื้อ\nTAILOR", "บาร์เบียร์\nBEER BAR",
+             "อาหารทะเล\nSEAFOOD", "ทัวร์\nTOURS", "ร้านทอง\nGOLD SHOP", "โทรศัพท์\nMOBILE", "ซักรีด\nLAUNDRY",
+             "ข้าวมันไก่\nCHICKEN RICE", "ก๋วยเตี๋ยว\nNOODLES", "ผลไม้\nFRUIT", "ร้านตัดผม\nBARBER"],
+    "hotel": ["โรงแรม\nHOTEL", "BEACH HOTEL", "RESORT", "SUITES", "GUEST HOUSE", "INN", "ห้องพัก\nROOMS"],
+    "condo": ["RESIDENCE", "คอนโด\nCONDO", "APARTMENT"],
+    "commercial": ["SHOPPING", "CAFE & BAR", "CLINIC\nคลินิก", "SPA", "BAR & GRILL", "MARKET\nตลาด", "KARAOKE",
+                   "ELECTRONICS", "SEAFOOD\nอาหารทะเล", "EXCHANGE\nแลกเงิน"]
+  },
+  "materials": {
+    "DarkGlass": "Glass", "LitWindow": "SmoothPlastic", "PaintedMetal": "Metal", "NeonSurface": "SmoothPlastic",
+    "ConcreteSidewalk": "Concrete", "PaintedPlaster": "SmoothPlastic", "AwningFabric": "Fabric",
+    "SignPanel": "SmoothPlastic", "RoofConcrete": "Concrete"
+  },
+  "kit_comment": "Part spec: rep 0 = once per module instance (span), 1 = per bay, 2 = per bay edge (nb + 1, clamped to the span). u/v = [fa, oa, fb, ob]: from fa*cell+oa to fb*cell+ob (cell = span or bay width; v cell = module height). n = [c0, c1] studs from the core face outwards (clamped to the face inset, so nothing leaves the original box); nh = [h0, h1] studs from the original box face (<= 0). lit = 'win' | 'shop' (lit at night by the style's percentage), litOnly = emitted only when lit, neon = emitted only on buildings picked for neon, text = signboard (skipped where a city neon sign already hangs).",
+  "kit": {
+    "shopfront_a": {"slot": "shopfront_a", "parts": [
+      {"k": "Awning", "rep": 0, "shape": "wedge", "u": [0, 0, 1, 0], "v": [1, -3.7, 1, -2.5], "n": [0, 9], "col": "accent", "mat": "AwningFabric"},
+      {"k": "SignFrame", "rep": 0, "u": [0, 0.4, 1, -0.4], "v": [1, -2.4, 1, -0.3], "n": [0, 0.5], "col": "signBoard", "mat": "SignPanel", "text": true},
+      {"k": "NeonSign", "rep": 0, "u": [0, 0.6, 1, -0.6], "v": [1, -2.5, 1, -2.4], "nh": [-0.25, 0], "col": "neon", "mat": "NeonSurface", "neon": true},
+      {"k": "Shutter", "rep": 1, "u": [0, 0.7, 1, -0.7], "v": [0, 4.6, 1, -3.7], "n": [0, 0.12], "col": "shutter", "mat": "PaintedMetal"},
+      {"k": "ShopGlow", "rep": 1, "u": [0, 0.7, 1, -0.7], "v": [0, 0, 0, 4.6], "n": [0, 0.1], "col": "glassShop", "mat": "DarkGlass", "lit": "shop"},
+      {"k": "Pilaster", "rep": 2, "u": [0, -0.6, 0, 0.6], "v": [0, 0, 1, -3.7], "n": [0, 9], "col": "wallDark", "mat": "PaintedPlaster"}
+    ]},
+    "shopfront_b": {"slot": "shopfront_b", "parts": [
+      {"k": "SignFrame", "rep": 0, "u": [0, 0, 1, 0], "v": [1, -3.2, 1, -0.4], "n": [0, 9], "col": "signBoard", "mat": "SignPanel", "text": true},
+      {"k": "NeonSign", "rep": 0, "u": [0, 0.4, 1, -0.4], "v": [1, -3.45, 1, -3.25], "nh": [-0.2, 0], "col": "neon", "mat": "NeonSurface", "neon": true},
+      {"k": "NeonSign", "rep": 0, "u": [0, 0.4, 1, -0.4], "v": [1, -0.4, 1, -0.2], "nh": [-0.2, 0], "col": "neon", "mat": "NeonSurface", "neon": true},
+      {"k": "ShopGlass", "rep": 1, "u": [0, 0.3, 1, -0.3], "v": [0, 0, 1, -3.45], "n": [0, 0.1], "col": "glassShop", "mat": "DarkGlass", "lit": "shop"},
+      {"k": "Mullion", "rep": 2, "u": [0, -0.3, 0, 0.3], "v": [0, 0, 1, -3.45], "n": [0, 0.5], "col": "metal", "mat": "PaintedMetal"}
+    ]},
+    "lobby_a": {"slot": "lobby_a", "parts": [
+      {"k": "Canopy", "rep": 0, "u": [0, 0, 1, 0], "v": [1, -2.6, 1, -2.0], "n": [0, 9], "col": "trim", "mat": "ConcreteSidewalk"},
+      {"k": "SignFrame", "rep": 0, "u": [0.2, 0, 0.8, 0], "v": [1, -2.0, 1, -0.3], "n": [0, 0.4], "col": "signBoard", "mat": "SignPanel", "text": true},
+      {"k": "LobbyGlass", "rep": 1, "u": [0, 0.7, 1, -0.7], "v": [0, 0, 1, -2.6], "n": [0, 0.1], "col": "glassShop", "mat": "DarkGlass", "lit": "shop"},
+      {"k": "Pilaster", "rep": 2, "u": [0, -0.6, 0, 0.6], "v": [0, 0, 1, -2.6], "n": [0, 9], "col": "trim", "mat": "PaintedPlaster"}
+    ]},
+    "garage_door_a": {"slot": "garage_door_a", "parts": [
+      {"k": "Lintel", "rep": 0, "u": [0, 0, 1, 0], "v": [1, -3.0, 1, -2.0], "n": [0, 9], "col": "concrete", "mat": "ConcreteSidewalk"},
+      {"k": "RollerDoor", "rep": 1, "u": [0, 1.0, 1, -1.0], "v": [0, 0, 1, -3.0], "n": [0, 0.15], "col": "shutter", "mat": "PaintedMetal"}
+    ]},
+    "house_front_a": {"slot": "house_front_a", "parts": [
+      {"k": "Eave", "rep": 0, "shape": "wedge", "u": [0, 0, 1, 0], "v": [1, -1.4, 1, -0.4], "n": [0, 9], "col": "roof", "mat": "RoofConcrete"},
+      {"k": "Window", "rep": 1, "u": [0.2, 0, 0.8, 0], "v": [0, 3.0, 0, 8.0], "n": [0, 0.15], "col": "glass", "mat": "DarkGlass", "lit": "win"}
+    ]},
+    "window_pair_ac_a": {"slot": "window_pair_ac_a", "parts": [
+      {"k": "Sill", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 1.6, 0, 2.0], "n": [0, 0.35], "col": "trim", "mat": "ConcreteSidewalk"},
+      {"k": "Window", "rep": 1, "u": [0.1, 0, 0.42, 0], "v": [0, 2.0, 0, 6.8], "n": [0, 0.15], "col": "glass", "mat": "DarkGlass", "lit": "win"},
+      {"k": "Window", "rep": 1, "u": [0.5, 0, 0.82, 0], "v": [0, 2.0, 0, 6.8], "n": [0, 0.15], "col": "glass", "mat": "DarkGlass", "lit": "win"},
+      {"k": "ACUnit", "rep": 1, "u": [0.85, 0, 0.98, 0], "v": [0, 2.4, 0, 4.0], "n": [0, 1.0], "col": "ac", "mat": "PaintedMetal"}
+    ]},
+    "balcony_row_a": {"slot": "balcony_row_a", "parts": [
+      {"k": "BalconySlab", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0, 0, 0.5], "n": [0, 9], "col": "trim", "mat": "ConcreteSidewalk"},
+      {"k": "BalconyRail", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0.5, 0, 2.4], "nh": [-0.25, 0], "col": "rail", "mat": "PaintedMetal"},
+      {"k": "WindowLit", "rep": 1, "u": [0, 0.6, 1, -0.6], "v": [0, 0.6, 0, 7.6], "n": [0, 0.1], "col": "glassLitDay", "mat": "DarkGlass", "lit": "win", "litOnly": true}
+    ]},
+    "balcony_grid_a": {"slot": "balcony_grid_a", "parts": [
+      {"k": "BalconySlab", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0, 0, 0.5], "n": [0, 9], "col": "trim", "mat": "ConcreteSidewalk"},
+      {"k": "BalconyRail", "rep": 1, "u": [0, 0.6, 1, -0.6], "v": [0, 0.5, 0, 2.4], "nh": [-0.25, 0], "col": "rail", "mat": "PaintedMetal"},
+      {"k": "WindowLit", "rep": 1, "u": [0, 0.6, 1, -0.6], "v": [0, 0.6, 0, 7.6], "n": [0, 0.1], "col": "glassLitDay", "mat": "DarkGlass", "lit": "win", "litOnly": true}
+    ]},
+    "band_glass_a": {"slot": "band_glass_a", "parts": [
+      {"k": "GlassBand", "rep": 0, "u": [0, 0.2, 1, -0.2], "v": [0, 0, 1, 0], "n": [0, 0.06], "col": "glass", "mat": "DarkGlass"}
+    ]},
+    "fins_a": {"slot": "fins_a", "parts": [
+      {"k": "Fin", "rep": 2, "u": [0, -0.5, 0, 0.5], "v": [0, 0, 1, -1.3], "nh": [-9, -0.1], "col": "wall", "mat": "PaintedPlaster"}
+    ]},
+    "curtain_wall_a": {"slot": "curtain_wall_a", "parts": [
+      {"k": "CurtainGlass", "rep": 0, "u": [0, 0.2, 1, -0.2], "v": [0, 0, 1, 0], "n": [0, 0.06], "col": "glassBlue", "mat": "DarkGlass"},
+      {"k": "Mullion", "rep": 2, "u": [0, -0.25, 0, 0.25], "v": [0, 0, 1, -1.3], "n": [0, 0.45], "col": "metal", "mat": "PaintedMetal"}
+    ]},
+    "transom_a": {"slot": "transom_a", "parts": [
+      {"k": "Transom", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0, 0, 0.6], "n": [0, 0.4], "col": "metal", "mat": "PaintedMetal"},
+      {"k": "WindowLit", "rep": 1, "u": [0, 0.35, 1, -0.35], "v": [0, 0.8, 0, 7.8], "n": [0, 0.1], "col": "glassLitDay", "mat": "DarkGlass", "lit": "win", "litOnly": true}
+    ]},
+    "window_row_a": {"slot": "window_row_a", "parts": [
+      {"k": "Window", "rep": 1, "u": [0.2, 0, 0.8, 0], "v": [0, 2.4, 0, 6.6], "n": [0, 0.15], "col": "glass", "mat": "DarkGlass", "lit": "win"}
+    ]},
+    "parapet_a": {"slot": "parapet_a", "parts": [
+      {"k": "Parapet", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0, 1, 0], "n": [0, 9], "col": "wallTrim", "mat": "PaintedPlaster"}
+    ]}
+  },
+  "roof_kit_comment": "Roof modules: boxes in the building's local frame on top of the core (x across the width, y up from the roof, z across the depth); 'cyl' = vertical cylinder (size = [diameter, height, diameter]). They are the only parts above the original box height (non-colliding).",
+  "roof_kit": {
+    "roof_plant_a": {"slot": "roof_plant_a", "need": [10, 12], "parts": [
+      {"k": "ACCondenser", "c": [-1.8, 0.8, -3.0], "s": [2.4, 1.6, 1.8], "col": "ac", "mat": "PaintedMetal"},
+      {"k": "ACCondenser", "c": [1.8, 0.8, -3.0], "s": [2.4, 1.6, 1.8], "col": "ac", "mat": "PaintedMetal"},
+      {"k": "RoofPlant", "c": [0, 1.6, 2.0], "s": [4.0, 3.2, 4.0], "col": "roof", "mat": "RoofConcrete"}
+    ]},
+    "water_tank_a": {"slot": "water_tank_a", "need": [5, 5], "parts": [
+      {"k": "TankStand", "c": [0, 0.4, 0], "s": [3.0, 0.8, 3.0], "col": "metal", "mat": "PaintedMetal"},
+      {"k": "WaterTank", "shape": "cyl", "c": [0, 2.3, 0], "s": [2.6, 3.0, 2.6], "col": "tank", "mat": "PaintedMetal"}
+    ]},
+    "ac_pair_a": {"slot": "ac_pair_a", "need": [8, 4], "parts": [
+      {"k": "ACCondenser", "c": [-1.8, 0.8, 0], "s": [2.4, 1.6, 1.8], "col": "ac", "mat": "PaintedMetal"},
+      {"k": "ACCondenser", "c": [1.8, 0.8, 0], "s": [2.4, 1.6, 1.8], "col": "ac", "mat": "PaintedMetal"}
+    ]}
+  }
+}
