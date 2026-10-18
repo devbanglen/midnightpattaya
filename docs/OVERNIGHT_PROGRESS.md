@@ -19,6 +19,10 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 06:40 | Owner at Studio over remote desktop; viewport was on the **Server** DataModel (client not rendering). After the switch to Client, focus flickered: best 8-s window render rate 52.1, p50 16.7 ms, p99 67 ms (mixed focused/throttled frames), heartbeat 60, parts in view 6,033, InstanceCount 90,740, memory 6,542 MB. Not a clean focused measurement → still PENDING_OWNER_TEST (needs ~15 s uninterrupted focus on the Client view) | PENDING_OWNER_TEST | docs/VISUAL_PERFORMANCE.md §4 |
 | 06:45 | team7/mesh-opt started (instance-count reduction for the kit MeshParts; owns VisMesh.py / VisMeshBuilder / new gen_merged.py) | RUNNING | branch team7/mesh-opt in D:\ROBLOXRACE-world |
 
+| 06:55 | Regression drive after the slice rebuild: Beach Road north end → Bira, twice (201.6 s and 216.8 s at 150 studs/s): 396/396 and 425/426 probes on road; the one miss and the only tilt (up 0.88) are at a pre-existing Joint disc at world (24639, 428), outside the slice; second tilt 0.94 at (42576, 3476) corridor. No new obstacle from the mesh block or the palm colliders | TESTED | TK drive handles, tilt monitor |
+| 07:00 | tools/qa/offline_checks.py: luau-compile 125/125, asset manifest consistent (43/43/43), vis_slice export deterministic, footprint checks all 0, rollback entry points present | DONE / TESTED | commit b4d12cf |
+| 07:05 | team7/vis-kit2 merged (closed sign boards + awnings robust to reversed winding, coconut palms 2.3–2.7k tris, QA view sheets); 8 fixed .glb re-uploaded via Open Cloud → new ids in VisAssetsManifest (reason: Studio showed sign fronts missing; palms low-poly) | DONE (upload TESTED by operation ids) | commits 2f126b5, 96b9a29; build/vis_assets/qa/*_views.jpg |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
