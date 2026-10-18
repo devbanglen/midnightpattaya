@@ -23,6 +23,9 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 07:00 | tools/qa/offline_checks.py: luau-compile 125/125, asset manifest consistent (43/43/43), vis_slice export deterministic, footprint checks all 0, rollback entry points present | DONE / TESTED | commit b4d12cf |
 | 07:05 | team7/vis-kit2 merged (closed sign boards + awnings robust to reversed winding, coconut palms 2.3–2.7k tris, QA view sheets); 8 fixed .glb re-uploaded via Open Cloud → new ids in VisAssetsManifest (reason: Studio showed sign fronts missing; palms low-poly) | DONE (upload TESTED by operation ids) | commits 2f126b5, 96b9a29; build/vis_assets/qa/*_views.jpg |
 
+| 07:30 | Root cause of the see-through sign boards found in Studio: Roblox's glTF import bakes a 180-deg yaw into every mesh (RSD_Palm_A_Bark centre +0.969 x in the file loads at -0.97 x; MeshPart rotation reads 0). VisMeshBuilder now places kit parts with IMPORT_YAW (CFrame.Angles(0, pi, 0)) and puts sign labels on the Back face; it also requires a fresh VisAssetsManifest clone in Edit mode (stale ids made the new palms "unusable") | DONE / TESTED (ProbeMesh) | commits 8c4667c, 1e445cf |
+| 07:35 | Sample block rebuilt with the 8 fixed assets: 14 buildings 40 Parts + 1,612 MeshParts, 157 geometry palms (0 unusable), ProbeMesh all 0 | TESTED (probes) / captures PENDING_OWNER_TEST (Studio not in front) | docs/VISUAL_ACCEPTANCE.md §5 |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
