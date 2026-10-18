@@ -21,6 +21,12 @@ Rules that follow from the roles:
   `NightSky`, `LightingPreset`, `RoadLook`, `PattayaLighting = false`.
 
 ## VIS-7.1: lit windows, shopfronts and neon (written, not seen)
+
+> **Seen in Studio (leader, 2026-10-19):** installed and captured, see docs/VISUAL_ACCEPTANCE.md §5. Two changes after
+> looking: `NightStyles.LitWindow.large` = Neon × 0.68 (SmoothPlastic × 1.5 read as a flat beige wall), `NeonSign` adds
+> colorMul 0.75. And a bug older than VIS-7.1: the weak-keyed Instance tables in PattayaNightLights / PattayaRoadLook were
+> emptied by the GC (767 → 0 keys in 5 s), so preset and RoadLook switches restyled nothing already loaded; they are
+> strong tables cleared on DescendantRemoving now. Never key a weak table by Instance in these scripts.
 Problem (captures `vis_preset_midnightclear.jpg`, `vis_cap4_neon_district.jpg`): every lit pane was Neon, so large
 panes and shopfront glass rendered as flat, blown-out yellow / magenta blocks, i.e. as light sources. Even the
 owner's live retint to 150,118,70 (`vis_slice_v1_night_warm.jpg`) is still Neon and still blooms at the big panes.

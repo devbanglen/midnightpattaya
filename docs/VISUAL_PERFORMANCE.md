@@ -95,3 +95,20 @@ Run everything in a fresh Studio session with the Studio window in front. Use pr
 **Pass:** after-avg 60 FPS and 1% low ≥ 45 on the owner's PC (the PERFORMANCE_BUDGET target), and memory growth
 in line with the part count. If it fails, apply the cut list in section 2 one step at a time and re-measure.
 Mobile (≥ 30 FPS with profile `mobile`) is not measured in this phase.
+
+
+## 4. Measured (leader, 2026-10-19, Studio focused unless noted; Device Emulator viewport 830 × 439, vsync 60)
+`PattayaPerfProbe.run(10)` on the client, camera frozen, car parked.
+
+| Where | State | Render fps | p50 / p99 / worst frame (ms) | Heartbeat p99 | parts in view | InstanceCount | memory total (MB) |
+|---|---|---|---|---|---|---|---|
+| Neon district B (19570, 10, 1796) | MidnightClear, after lighting pass | 59.9 | 16.6 / 19.6 / 40.7 | 18.2 | 1,643 | 75,083 | 5,494 |
+| Neon district B | MidnightWet | 60.0 | 16.7 / 18.6 / 20.0 | 18.2 | 1,653 | 75,047 | 5,491 |
+| Sample block street cam (20980, 40, 8) | before mesh swap, Part slice, 21:00 | 59.9 | 16.7 / 19.1 / 37.7 | 18.3 | 4,657 | 81,750 | 5,281 |
+| Sample block street cam | after mesh swap (Studio **unfocused**: render throttled to 15 fps, invalid) | — | — | 18.5 | 6,030 | 83,451 | 5,582 |
+
+- 1 % low ≈ 1000 / p99: ~51 fps (Clear), ~54 fps (Wet), ~52 fps (sample block before). The first 10 s after a camera
+  jump shows streaming hitches (p99 67 ms, worst 113 ms at the sample block) — measure after the block has streamed in.
+- Wet vs dry: no measurable difference (Reflectance is a material parameter; the RoadLook Heartbeat only exists while
+  its queue drains).
+- The focused "after mesh" row is pending (needs the owner to click into the viewport ~15 s).

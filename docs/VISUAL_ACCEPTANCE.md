@@ -256,3 +256,61 @@ the full mesh shows up to 900 studs and the impostor stays hidden.
 - **Kit rows on 20.1-stud boxes** end 0.04 studs above the roof (the box height is rounded to 0.1, the kit grid is
   20.142). Allowed by the offline check (grid tolerance 0.05); ProbeMesh allows 0.06.
 - **Palm LOD** needs the client module above; palm heights differ from the Part palms (no rescale).
+
+
+## 5. VIS-7.1 Studio results (leader, 2026-10-19 — read with docs/NIGHT_LIGHTING.md and docs/VISUAL_PERFORMANCE.md §4)
+
+Installed on main (`team6/vis-lighting2` + `team6/vis-mesh` merged) and built in the place. All captures are from the
+Device Emulator viewport the owner left on (685 × 313), so they are small; the owner's own view is the real check.
+
+### 5.1 Lighting before / after (same frozen camera, TimeLock 21, same graphics level)
+| Spot | Camera (frozen, FOV 70) | Before (old scripts) | After |
+|---|---|---|---|
+| A Beach Road, car at (19640, 5, 1700) | `CFrame.new(19622.410, 6.753, 1697.891, -0.077, 0.125, -0.989, 0, 0.992, 0.125, 0.997, 0.010, -0.077)` | `vis71_before_beachroad_clear_t21.jpg`, `_wet_` | `vis71_after_beachroad_clear_t21.jpg`, `_wet_` |
+| B neon district, car at (19560, 3.8, 1810) heading (−0.58, 0, 0.81) | `CFrame.new(19569.891, 9.753, 1796.177, -0.813, -0.073, 0.577, 0, 0.992, 0.125, -0.582, 0.102, -0.807)` | `vis71_before_neon_clear_t21.jpg`, `_wet_` | `vis71_after_neon_clear_t21.jpg`, `_wet_`, `_legacy_`, `_road_off_`, `_road_dry_`, `vis71_after_neon_clear_t18_5.jpg` (dusk) |
+
+- **Bug found and fixed on the way (pre-dates VIS-7.1):** `PattayaRoadLook.recs` and `PattayaNightLights.neons /
+  signOrig / lampOrig` were weak-keyed tables with Instances as keys. Studio test: a weak table of 767 road parts was
+  empty within 5 s while the parts stayed in the world. So a preset or RoadLook change after start-up restyled nothing
+  that was already loaded — which is why the "before" wet and clear captures are identical. They are plain tables now,
+  cleared on `DescendantRemoving` (commit `f1bf51b`).
+- **Lit panes:** the team's "large pane = SmoothPlastic × 1.5" read as a flat beige wall under the navy ambient
+  (`vis71_exp_beachroad_large_pane_plastic15.jpg`); dim Neon × 0.68 reads as warm interior light without the old
+  blown-out yellow (`vis71_exp_neon_large_pane_neon068.jpg`), so `NightStyles.LitWindow.large` is now Neon × 0.68 and
+  the base-layer `NeonSign` slabs (PattayaBuilder Props, 20 × 6 studs) are dimmed × 0.75 (commit `918c44d`).
+- **Wet vs dry (after):** Road / Joint SmoothPlastic 26,28,34 R 0.25, Junction R 0.3, markings R 0.4 tinted, sidewalks
+  15 % darker, haze 1.5 / 2.2 — verified by reading the parts near the camera (dry: Asphalt 62,63,68 R 0;
+  off: builder look SmoothPlastic 46,47,52 restored exactly). Visible in the captures as a darker, smoother road with a
+  bluer haze; markings still readable ahead. No new parts or lights.
+- **Legacy:** `vis71_after_neon_legacy_t21.jpg` = the old purple sky + raw Neon panes + no road look (rollback intact).
+- Client log: 0 errors / warnings from the new scripts (the only warnings are the long-standing
+  "ContextActionService could not find the function passed in" lines, not from VIS-7.1).
+
+### 5.2 Kit MeshParts sample block + palms (built)
+- Export (`.venv\Scripts\python tools\mapgen\vis_slice.py tools\mapgen\config\vis_slice.json`): 23,786 parts, 59
+  chunks, checks all 0, sample 14 buildings 634 → 40 Parts + 1,612 MeshParts, 157 palms.
+- Rebuild: `V.Remove()` (768 boxes restored) → s1–s8 (6.9 s) → `V.Probe()`: 23,786 parts, touching road/sidewalk/disc
+  0, outside box 0, hull ≠ original 0, NightNeon 6,430, signboards 390 (as the exporter said).
+- `V.BuildMesh()` (35 s): assets 23 loaded, 0 unusable, loaded-vs-manifest max centre offset 15.65 studs / rotation 0°
+  (diagnostic only; the buildings sit where the Parts were, see the captures); 14 buildings 40 + 1,612 MeshParts, 0 Part
+  rows fell back, 10 signboards, 210 lit panes; palms 157 mesh (314 MeshParts), 942 Part palm parts moved to
+  `ServerStorage.VisMeshRemoved.Palms`. `V.ProbeMesh()`: outside box 0, touching road 0, size ≠ manifest 0, count
+  mismatches 0, palms 157/157.
+- Night styling reaches the MeshParts: 253 NightNeon MeshParts in the block at 21:00 (210 LitWindow Neon, 43
+  NeonSurface Neon); 0 client errors.
+- Palm LOD runs: near palm (55 studs) mesh visible, impostor + collider hidden; far palm mesh hidden (checked on the
+  client with `ReplicatedStorage.VisMeshPalmLOD` + `StarterPlayerScripts.VisMeshPalmLOD`, leader).
+- Captures (same camera, Edit mode, day): street `vis71_mesh_before_street_day.jpg` → `vis71_mesh_after_street_day.jpg`;
+  aerial `vis71_mesh_before_aerial_day.jpg` → `vis71_mesh_after_aerial_day.jpg`. Night (Play, 21:00):
+  `vis71_mesh_before_street_night.jpg`; the night "after", the hero shot from a car on the lane and the Thai-sign
+  close-up still need Studio focused (captures come back white otherwise) — pending.
+- **Part count did NOT go down** (the owner asked for the reduction): in the 160-stud block 1,018 vis parts → 2,074
+  (634 Parts → 40 Parts + 1,612 MeshParts; palms 942 Parts → 314 MeshParts + 314 impostors + 157 colliders).
+  InstanceCount 81,750 → 83,451. Kit modules are 7.14 studs wide where the Part bays were 10–14 and each module is
+  1–4 MeshParts, so the instance count is ~2.5× — the meshes are shared (20 assets) so they batch, but a citywide
+  swap this way would be ~60k instances. Decision for the owner: keep the sample as a look test only, or ask vis-mesh
+  for merged per-face assets before any wider use.
+- Thai signboards: 272 labels in the slice carry Thai text, all GothamBold (Gotham SSm); the close-up capture and the
+  BuilderSans comparison are pending Studio focus (docs/NIGHT_LIGHTING.md has the font recommendation).
+- Rollback: `V.RemoveMesh()` (mesh → Part rows, palms back), `V.Remove()` (whole slice → procedural boxes),
+  `RestoreReplaced`; `LightingPreset = Legacy`; `RoadLook = off`.
