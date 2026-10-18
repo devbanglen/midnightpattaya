@@ -51,8 +51,14 @@ ML.materials = {
 	DryAsphalt = {Material = Enum.Material.Asphalt, Color = C(62, 63, 68), Reflectance = 0,
 		variant = "PattayaDryAsphalt", variantMaterial = Enum.Material.Asphalt, studsPerTile = 12,
 		surfaceAppearance = maps(), maps = "asphalt"} :: Def,
-	-- wet: darker, smooth (sharp specular highlights from lamps and headlights), sky reflection 0.14
-	WetAsphalt = {Material = Enum.Material.SmoothPlastic, Color = C(34, 36, 42), Reflectance = 0.14,
+	-- wet (VIS-7.1): much darker than dry, smooth (no Asphalt grain, so it reads different at a glance; sharp
+	-- specular highlights from lamps and headlights), sky-only mirror 0.25 (Reflectance costs nothing extra)
+	WetAsphalt = {Material = Enum.Material.SmoothPlastic, Color = C(26, 28, 34), Reflectance = 0.25,
+		variant = "PattayaWetAsphalt", variantMaterial = Enum.Material.Asphalt, studsPerTile = 12,
+		surfaceAppearance = maps(), maps = "wet_asphalt"} :: Def,
+	-- junction discs when wet: a little more mirror than the slabs, so a junction reads as a shallow puddle
+	-- (no extra parts). Joint discs (the small fill discs at bends) stay WetAsphalt so no spots appear mid-road.
+	WetAsphaltJunction = {Material = Enum.Material.SmoothPlastic, Color = C(26, 28, 34), Reflectance = 0.3,
 		variant = "PattayaWetAsphalt", variantMaterial = Enum.Material.Asphalt, studsPerTile = 12,
 		surfaceAppearance = maps(), maps = "wet_asphalt"} :: Def,
 	ConcreteSidewalk = {Material = Enum.Material.Concrete, Color = C(150, 148, 142), Reflectance = 0,
@@ -60,12 +66,16 @@ ML.materials = {
 		surfaceAppearance = maps(), maps = "concrete"} :: Def,
 	RoadPaint = {Material = Enum.Material.SmoothPlastic, Color = C(242, 242, 236), Reflectance = 0,
 		surfaceAppearance = maps()} :: Def,
-	-- wet paint: a little sky reflection; the colour is taken from the marking (white / yellow) by RoadLook
-	RoadPaintWet = {Material = Enum.Material.SmoothPlastic, Color = C(250, 250, 246), Reflectance = 0.06,
+	-- wet paint (VIS-7.1): Reflectance 0.4 so lamp / headlight highlights read as wet; the colour is taken from the
+	-- marking (white / yellow) by RoadLook, brighter and tinted cyan (white) or amber (yellow). Knob: if the markings
+	-- read too dark at night (a sky mirror is dark at night), lower this to 0.2.
+	RoadPaintWet = {Material = Enum.Material.SmoothPlastic, Color = C(250, 250, 246), Reflectance = 0.4,
 		surfaceAppearance = maps()} :: Def,
 	DarkGlass = {Material = Enum.Material.Glass, Color = C(22, 30, 42), Reflectance = 0.3, Transparency = 0.1,
 		variant = "PattayaDarkGlass", variantMaterial = Enum.Material.Glass, studsPerTile = 16,
 		surfaceAppearance = maps(), maps = "dark_glass"} :: Def,
+	-- the generic "lit window" surface for one-off use; the vis-slice panes are styled at night by ML.NightStyles
+	-- below (not by this entry)
 	LitWindow = {Material = Enum.Material.Neon, Color = C(255, 196, 120), Reflectance = 0,
 		surfaceAppearance = maps()} :: Def,
 	PaintedMetal = {Material = Enum.Material.Metal, Color = C(70, 72, 78), Reflectance = 0.05,
@@ -85,6 +95,33 @@ ML.materials = {
 	CarPaintRed = {Material = Enum.Material.SmoothPlastic, Color = C(196, 24, 32), Reflectance = 0.22,
 		surfaceAppearance = maps()} :: Def,
 }
+
+-- Night styles (VIS-7.1), read by PattayaNightLights for every NightNeon part at night, keyed by the part's `Mat`
+-- attribute. Goal: lit panes read as warm interior light, not as light sources; neon stays neon without blooming to
+-- white. Fields (all optional):
+--   material  Enum.Material used at night (default Neon)
+--   palette   true = snap cyan-ish / magenta-ish hues to the preset's neon palette first (the old hue rule)
+--   colorMul  multiply NightColor's RGB (clamped to 1): < 1 dims a Neon pane, > 1 lifts a non-emissive pane so it
+--             still reads as lit under the navy ambient
+--   maxValue  cap the HSV value of the result (Neon colour V <= 0.85 keeps bloom from whiting it out)
+-- LitWindow is split by pane area (the two largest Size axes multiplied): <= smallArea studs^2 = `small`, else `large`.
+-- A LitWindow pane is a shopfront if it has attribute Shopfront = true or its name is in SHOPFRONT_NAMES (the kit's
+-- ground-floor glass: shopfront_a ShopGlow, shopfront_b ShopGlass, lobby_a LobbyGlass); shopfronts use `Shopfront`.
+-- `_default`: NightNeon parts with no Mat or an unknown Mat (circuit window bands, landmark / furniture lamps):
+-- unchanged behaviour. `NeonSign`: the always-Neon sign props (PattayaBuilder), colour cap only.
+-- The Legacy preset ignores this table (rollback = Neon + raw NightColor, exactly as before).
+ML.NightStyles = {
+	LitWindow = {
+		smallArea = 20,
+		small = {material = Enum.Material.Neon, colorMul = 0.68},
+		large = {material = Enum.Material.SmoothPlastic, colorMul = 1.5},
+	},
+	Shopfront = {material = Enum.Material.Glass, colorMul = 1.4},
+	NeonSurface = {material = Enum.Material.Neon, palette = true, maxValue = 0.85},
+	NeonSign = {palette = true, maxValue = 0.85},
+	_default = {material = Enum.Material.Neon, palette = true},
+}
+ML.SHOPFRONT_NAMES = {ShopGlow = true, ShopGlass = true, LobbyGlass = true}
 
 ML.PALETTE = {cyan = C(0, 223, 255), magenta = C(255, 43, 214), lamp = C(255, 176, 96), head = C(255, 241, 222)}
 

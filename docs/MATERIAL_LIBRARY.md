@@ -1,7 +1,7 @@
 # Material library and road look (VIS-3)
 
-**Status: written, not run in Studio.** The PBR maps are generated and checked here (previews below). Nothing has
-been uploaded and nothing has been seen in Studio.
+**Status:** VIS-3 road look captured by the leader. **VIS-7.1 wet road values and `NightStyles`: written, not
+seen.** The PBR maps are generated and checked here (previews below).
 
 | File | What |
 |---|---|
@@ -14,12 +14,13 @@ been uploaded and nothing has been seen in Studio.
 | Name | Material | Color | Reflectance | Transparency | MaterialVariant (if it exists) | PBR maps |
 |---|---|---|---|---|---|---|
 | DryAsphalt | Asphalt | 62,63,68 | 0 | – | PattayaDryAsphalt (base Asphalt) | asphalt |
-| WetAsphalt | SmoothPlastic (Asphalt when the variant exists) | 34,36,42 | 0.14 | – | PattayaWetAsphalt (base Asphalt) | wet_asphalt |
+| WetAsphalt | SmoothPlastic (Asphalt when the variant exists) | 26,28,34 | 0.25 | – | PattayaWetAsphalt (base Asphalt) | wet_asphalt |
+| WetAsphaltJunction | as WetAsphalt (Junction discs only) | 26,28,34 | 0.3 | – | PattayaWetAsphalt | wet_asphalt |
 | ConcreteSidewalk | Concrete | 150,148,142 | 0 | – | PattayaConcrete | concrete |
 | RoadPaint | SmoothPlastic | 242,242,236 (RoadLook keeps the marking's own colour, slightly brighter) | 0 | – | – | – |
-| RoadPaintWet | SmoothPlastic | 250,250,246 (same rule) | 0.06 | – | – | – |
+| RoadPaintWet | SmoothPlastic | 250,250,246 (RoadLook: marking colour ×1.1 + 0.06, 15 % toward cyan 205,240,255 for white or amber 255,186,90 for yellow) | 0.4 | – | – | – |
 | DarkGlass | Glass | 22,30,42 | 0.3 | 0.1 | PattayaDarkGlass | dark_glass |
-| LitWindow | Neon | 255,196,120 | 0 | – | – | – |
+| LitWindow | Neon | 255,196,120 | 0 | – | – | – (generic entry; slice panes use `NightStyles` below) |
 | PaintedMetal | Metal | 70,72,78 | 0.05 | – | PattayaPaintedMetal | painted_metal (+ metalness) |
 | Vegetation | Grass | 58,120,56 | 0 | – | – | – |
 | NeonSurface | Neon | 0,223,255 (#00DFFF); pass `{color = magenta #FF2BD6}` | 0 | – | – | – |
@@ -40,28 +41,57 @@ ML.restore(part, saved)
 MaterialService (the lookup is cached). On a **MeshPart**, it clones `ReplicatedStorage.MaterialLibraryAssets.<Name>`
 (a SurfaceAppearance) into the part, if that template exists and the part has no SurfaceAppearance of its own.
 
+## Night styles (`ML.NightStyles`, VIS-7.1)
+The data table PattayaNightLights uses at night for every NightNeon part, keyed by its `Mat` attribute. Full
+rationale and the before/after protocol: `docs/NIGHT_LIGHTING.md`.
+
+| Key | Selection | material | colorMul | maxValue | palette |
+|---|---|---|---|---|---|
+| `LitWindow.small` | `Mat = LitWindow`, pane face ≤ `smallArea` (20 studs²) | Neon | 0.68 | – | – |
+| `LitWindow.large` | `Mat = LitWindow`, pane face > 20 studs² | SmoothPlastic | 1.5 | – | – |
+| `Shopfront` | `Mat = LitWindow` and name in `ML.SHOPFRONT_NAMES` (ShopGlow, ShopGlass, LobbyGlass) or attribute `Shopfront = true` | Glass | 1.4 | – | – |
+| `NeonSurface` | `Mat = NeonSurface` (slice neon strips) | Neon | – | 0.85 | yes |
+| `NeonSign` | always-Neon `NeonSign` props without NightNeon (colour only) | (unchanged) | – | 0.85 | yes |
+| `_default` | NightNeon without a known `Mat` | Neon | – | – | yes |
+
+- `colorMul` multiplies NightColor's RGB (clamped); `maxValue` caps the HSV value after that; `palette` applies the
+  preset's cyan / magenta hue rule first. Order: palette → colorMul → maxValue.
+- Legacy ignores the table. By day every NightNeon part is SmoothPlastic + DayColor.
+- A new `Mat` with its own night look = one new row here; no script change.
+
 ## Road look (`PattayaRoadLook`)
 ```lua
 game.Lighting:SetAttribute("RoadLook", "wet")   -- "dry" | "wet" | "off"; nil = follow LightingPreset
 _G.PattayaRoadLook.stats()                       -- client: {mode, registered, styled, queued}
 ```
-- **Which parts:** BaseParts named `Road` (slabs and fill wedges), `Junction` and `Joint` (discs) get DryAsphalt or
-  WetAsphalt. Markings named `Centre`, `Dash` and `ZebraStripe` get RoadPaint or RoadPaintWet in their own hue,
-  with value ×1.05 + 0.03. Only parts under `workspace.PattayaWorld` are touched. **Sidewalks are never touched,**
-  and neither is the circuit track (a later pass could add its names).
+- **Which parts** (only under `workspace.PattayaWorld`; the circuit track is not touched):
+
+  | Part name | dry | wet (VIS-7.1) |
+  |---|---|---|
+  | `Road` (slabs, fill wedges), `Joint` (bend discs) | DryAsphalt: Asphalt 62,63,68, Refl 0 | WetAsphalt: SmoothPlastic 26,28,34, Refl 0.25 |
+  | `Junction` (discs) | DryAsphalt | WetAsphaltJunction: Refl 0.3 (reads as a shallow puddle) |
+  | `Centre`, `Dash`, `ZebraStripe` | RoadPaint, own hue, value ×1.05 + 0.03 | RoadPaintWet, Refl 0.4, value ×1.1 + 0.06, 15 % cyan (white) / amber (yellow) tint |
+  | `Sidewalk` | builder look (untouched) | own colour 15 % darker, material untouched |
+
+  Joint discs stay at the slab value on purpose: they sit mid-road at bends, and a different shine would show as
+  spots. Wet looks different from dry without any extra parts, decals or transparent planes: no grain vs Asphalt
+  grain, 26 vs 62 grey, sky sheen and sharp SpotLight highlights.
 - **Default without the attribute:**
   - MidnightWet → wet
   - Legacy → off
   - every other preset → dry
-- **Reversible:** each part's builder values are saved the first time the script sees it, and `off` writes them
-  back exactly.
+- **Reversible and live:** each part's builder values (Material, MaterialVariant, Color, Reflectance, Transparency)
+  are saved the first time the script sees it; `off` writes them back exactly, and dry ↔ wet ↔ off switch live from
+  either attribute (`RoadLook`, or `LightingPreset` when `RoadLook` is nil).
 - **Cost:**
   - Parts register on stream-in (`DescendantAdded` on PattayaWorld). At start there is one scan in batches of 5,000
     instances per frame.
   - Parts are styled from a queue, **400 parts per Heartbeat**. The Heartbeat connection exists only while the
     queue has work, so steady driving costs nothing per frame.
-  - Changing the look re-queues every registered part: about 3,000–6,000 loaded road and marking parts, so 8–15
-    frames.
+  - Changing the look re-queues every registered part whose look differs: about 3,000–6,000 loaded road and
+    marking parts plus the sidewalks (roughly as many again), so about 10–30 frames once, then nothing.
+  - **Per-frame cost after the queue has drained: none** (no Heartbeat connection; `_G.PattayaRoadLook.stats()`
+    shows `heartbeat = false`). Reflectance is a material parameter, not an extra render pass.
   - No parts, planes or lights are created.
 - **Measure:** `workspace:SetAttribute("PerfProbe", 10)` (server), at the same spot with `RoadLook = "off"` and
   then `"wet"`. Compare heartbeat p99 and the render CPU/GPU times. Shift+F5 for render FPS with Studio in front.
