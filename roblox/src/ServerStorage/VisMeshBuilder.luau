@@ -23,6 +23,12 @@
 -- LOD_PropRange like the Part palms), a 2-part impostor (PalmTrunk cylinder + flat PalmFrond card, attribute
 -- VisMeshImpostor, Transparency 1 until the client VisMeshPalmLOD shows it beyond palmFullRange) and an invisible
 -- VisMeshPalmCollider (the old trunk collided).
+-- mesh-opt (team7, WRITTEN, NOT BUILT IN STUDIO): the export carries two mesh tiers per building: `m` = merged rows
+-- (wide W-bay x H-floor kit assets from tools/blender/gen_merged.py, BLD_<G>_<Variant>W<w>H<h>, one row repeated every
+-- H floors) and `mb` = the VIS-7.1 1-bay kit rows. Per Part row group: merged when every merged asset of the group is
+-- usable, else the 1-bay kit, else the Part kit (V.BuildMesh({merged = false}) forces the 1-bay kit). Merged tiles
+-- split their glass into Glass + GlassAlt; each lit-hashes on its own (pi = 7 x glass ordinal). Palms: with
+-- vm.palmImpostorCollides the impostor trunk (cylinder at the trunk foot) is the collider (4 instances per palm).
 local InsertService = game:GetService("InsertService")
 local ServerStorage = game:GetService("ServerStorage")
 
@@ -223,25 +229,53 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 	local man = ctx.man
 	local mesh = b.mesh
 	local FACE = I.FACE
-	-- groups that mesh: every mesh row of the group has its asset
+	-- tiers per Part row group: "m" merged rows usable, else "b" 1-bay kit rows usable, else the Part kit (nil)
+	local Q = mesh.q
+	local Mm: {any} = mesh.m
+	local Mb: {any} = mesh.mb or mesh.m
+	if ctx.useMerged == false then
+		Mm = Mb
+	end
+	local oneTier = Mm == Mb
 	local hasRows: {[number]: boolean} = {}
-	local blocked: {[number]: boolean} = {}
-	local Mrows, Q = mesh.m, mesh.q
-	for r = 0, #Mrows // 10 - 1 do
-		local g = Mrows[r * 10 + 8]
-		local name = vm.assets[Mrows[r * 10 + 2]].name
-		if g ~= 0 then
-			hasRows[g] = true
-			if not A.tpl[name] then blocked[g] = true end
+	local function scan(M: {any}): ({[number]: boolean}, {[number]: boolean}, boolean)
+		local has, blk, cornerOk = {}, {}, true
+		for r = 0, #M // 10 - 1 do
+			local g = M[r * 10 + 8]
+			local ok = A.tpl[vm.assets[M[r * 10 + 2]].name] ~= nil
+			if g ~= 0 then
+				has[g] = true
+				hasRows[g] = true
+				if not ok then blk[g] = true end
+			elseif not ok then
+				cornerOk = false
+			end
+		end
+		return has, blk, cornerOk
+	end
+	local hasM, blkM, cornerM = scan(Mm)
+	local hasB, blkB, cornerB = scan(Mb)
+	local tier: {[number]: string} = {}
+	for g in hasM do
+		if not blkM[g] then
+			tier[g] = "m"
+		elseif not oneTier and hasB[g] and not blkB[g] then
+			tier[g] = "b"
 		end
 	end
 	for r = 0, #Q // 6 - 1 do
 		local g = Q[r * 6 + 6]
 		hasRows[g] = true
-		if not A.tpl[vm.assets[Q[r * 6 + 1]].name] then blocked[g] = true end
+		tier[g] = if A.tpl[vm.assets[Q[r * 6 + 1]].name] then "q" else nil
 	end
+	-- corner stacks (group 0): the merged set when all of it loads, else the 1-bay set (unusable rows skipped)
+	local cornerTier = if cornerM or oneTier then "m" else (if cornerB then "b" else "m")
 	local function meshed(g: number): boolean
-		return g ~= 0 and hasRows[g] == true and not blocked[g]
+		return g ~= 0 and tier[g] ~= nil
+	end
+	local nMergedRows, nBaseRows = 0, 0
+	for g, t in tier do
+		if t == "m" and not oneTier then nMergedRows += 1 elseif t == "b" or (t == "m" and oneTier) then nBaseRows += 1 end
 	end
 	-- Part rows that stay (no mesh, or their mesh group fell back)
 	local keepP, fallbackRows = {}, 0
@@ -319,7 +353,8 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 		mp:SetAttribute("SlotInst", inst)
 	end
 
-	-- facade rows: face, asset, uc, v0, nv, dv, scale, group, flags, column
+	-- facade rows: face, asset, uc, v0, nv, dv, scale, group, flags, column (tier "m" from Mm, tier "b" from Mb)
+	local function emit(Mrows: {any}, which: string)
 	for r = 0, #Mrows // 10 - 1 do
 		local q = r * 10
 		local f, ai, uc, v0, nv, dv, sc, g, fl, j =
@@ -327,7 +362,12 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 			Mrows[q + 9], Mrows[q + 10]
 		local a = vm.assets[ai]
 		local tpl = A.tpl[a.name]
-		if not tpl or (g ~= 0 and not meshed(g)) then continue end
+		if not tpl then continue end
+		if g == 0 then
+			if cornerTier ~= which then continue end
+		elseif tier[g] ~= which then
+			continue
+		end
 		local face = FACE[f]
 		local dist = (if face.half == "w" then b.w else b.d) / 2
 		local ins = mesh.ins[f]
@@ -343,8 +383,9 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 			local y = v0 + k * dv
 			local origin = base * CFrame.fromMatrix(face.n * (dist - ins) + face.u * uc + Vector3.new(0, y, 0), face.u,
 				Vector3.yAxis, -face.n)
-			local hsh = V.litHash(b.osm, f, 900 + ai, k, j, 0, litCfg.hash_mod) -- twin: VisMesh.mesh_lit_hash
 			for _, sp in a.parts do
+				-- twin: VisMesh.mesh_lit_hash (GlassAlt = glass ordinal 1 -> pi 7, 49 off mod 100)
+				local hsh = V.litHash(b.osm, f, 900 + ai, k, j, 7 * (sp.gi or 0), litCfg.hash_mod)
 				local mp = newMeshPart(tpl[sp.short], origin, sp, sc, model)
 				local lit = litKind ~= nil and sp.mp == "MP_Glass" and hsh % 100 < pct
 				dress(mp, sp, a, slot, ("m%d:%d:%d"):format(r + 1, k, j), lit, hsh,
@@ -358,13 +399,18 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 			end
 		end
 	end
+	end
+	emit(Mm, "m")
+	if not oneTier then
+		emit(Mb, "b")
+	end
 	-- roof rows: asset, x, z, yaw (deg), scale, group
 	for r = 0, #Q // 6 - 1 do
 		local q = r * 6
 		local ai, x, z, yaw, sc, g = Q[q + 1], Q[q + 2], Q[q + 3], Q[q + 4], Q[q + 5], Q[q + 6]
 		local a = vm.assets[ai]
 		local tpl = A.tpl[a.name]
-		if not tpl or not meshed(g) then continue end
+		if not tpl or tier[g] ~= "q" then continue end
 		local origin = base * CFrame.new(x, b.h, z) * CFrame.Angles(0, math.rad(yaw), 0)
 		local rr = b.r[(g - 1001) * 3 + 1]
 		local slot = man.roofModules[rr].slot
@@ -380,7 +426,9 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 	model:SetAttribute("ExpectParts", nParts)
 	model:SetAttribute("ExpectMeshParts", nMesh)
 	model:SetAttribute("FallbackRows", fallbackRows)
-	return model, {parts = nParts, meshParts = nMesh, fallback = fallbackRows, signs = nSigns, lit = nLit}
+	model:SetAttribute("MeshTier", if oneTier then "base" elseif nBaseRows == 0 then "merged" else "mixed")
+	return model, {parts = nParts, meshParts = nMesh, fallback = fallbackRows, signs = nSigns, lit = nLit,
+		mergedRows = if oneTier then 0 else nMergedRows, baseRows = nBaseRows}
 end
 
 -- palms -----------------------------------------------------------------------------------------------------------------
@@ -504,24 +552,37 @@ local function buildPalms(V: any, ctx: any, vm: any, A: Assets): any
 		end
 		local barkMp = model:FindFirstChild("PalmTrunk") :: BasePart?
 		local leafMp = model:FindFirstChild("PalmFrond") :: BasePart?
+		local impCollides = vm.palmImpostorCollides == true
 		if bark and barkMp then
 			local h = bark.size[2]
-			imp("PalmTrunk", Vector3.new(h, 1.6, 1.6),
-				cf * CFrame.new(bark.centre[1], h / 2, bark.centre[3]) * CFrame.Angles(0, 0, math.pi / 2), barkMp.Color)
+			-- mesh-opt: with palmImpostorCollides the trunk impostor stands at the trunk foot and is the collider (the
+			-- old Part trunk collided too); far away it is the visible trunk, near it is invisible but still solid
+			local at = if impCollides then cf * CFrame.new(0, h / 2, 0) else cf * CFrame.new(bark.centre[1], h / 2, bark.centre[3])
+			imp("PalmTrunk", Vector3.new(h, 1.6, 1.6), at * CFrame.Angles(0, 0, math.pi / 2), barkMp.Color)
+			if impCollides then
+				for _, c in model:GetChildren() do
+					if c:IsA("Part") and c:GetAttribute("VisMeshImpostor") and c.Name == "PalmTrunk" then
+						c.CanCollide, c.CanQuery = true, true
+						c:SetAttribute("VisMeshPalmCollider", true)
+					end
+				end
+			end
 		end
 		if leaf and leafMp then
 			local d = 0.8 * math.max(leaf.size[1], leaf.size[3])
 			imp("PalmFrond", Vector3.new(0.4, d, d), cf * CFrame.new(v3(leaf.centre)) * CFrame.Angles(0, 0, math.pi / 2),
 				leafMp.Color)
 		end
-		local cs = vm.palmCollider
-		local col = Instance.new("Part")
-		col.Name = "VisMeshPalmCollider"
-		col.Size = Vector3.new(cs[1], cs[2], cs[3])
-		col.CFrame = cf * CFrame.new(0, cs[2] / 2, 0)
-		col.Transparency = 1
-		col.Anchored, col.CanCollide, col.CanQuery, col.CanTouch, col.CastShadow = true, true, true, false, false
-		col.Parent = model
+		if not (impCollides and bark and barkMp) then
+			local cs = vm.palmCollider
+			local col = Instance.new("Part")
+			col.Name = "VisMeshPalmCollider"
+			col.Size = Vector3.new(cs[1], cs[2], cs[3])
+			col.CFrame = cf * CFrame.new(0, cs[2] / 2, 0)
+			col.Transparency = 1
+			col.Anchored, col.CanCollide, col.CanQuery, col.CanTouch, col.CastShadow = true, true, true, false, false
+			col.Parent = model
+		end
 		model.Parent = root
 		res.built += 1
 		if i % 40 == 0 then task.wait() end
@@ -538,6 +599,7 @@ function M.BuildMesh(V: any, opts: any): string
 	assert(world, "PattayaVisSliceBuilder: build the city first (PattayaBuilder.Build())")
 	local root = world:FindFirstChild(I.ROOT_NAME)
 	local ctx = I.context(man, opts)
+	ctx.useMerged = opts.merged ~= false
 	local wantOsm, wantChunk = wantedSet(vm, opts.only)
 	local doBuildings = opts.buildings ~= false
 	local doPalms = opts.palms ~= false and opts.only == nil or opts.palms == true
@@ -552,8 +614,9 @@ function M.BuildMesh(V: any, opts: any): string
 			for _, b in cd.buildings do
 				if b.mesh and (wantChunk ~= nil or wantOsm[b.osm]) then
 					table.insert(todo, {id = id, src = cd.src, b = b})
-					for r = 0, #b.mesh.m // 10 - 1 do
-						names[vm.assets[b.mesh.m[r * 10 + 2]].name] = true
+					local rowsM = if ctx.useMerged then b.mesh.m else (b.mesh.mb or b.mesh.m)
+					for r = 0, #rowsM // 10 - 1 do
+						names[vm.assets[rowsM[r * 10 + 2]].name] = true
 					end
 					for r = 0, #b.mesh.q // 6 - 1 do
 						names[vm.assets[b.mesh.q[r * 6 + 1]].name] = true
@@ -568,11 +631,34 @@ function M.BuildMesh(V: any, opts: any): string
 		end
 	end
 	local A = prepareAssets(vm, names)
+	-- merged asset unusable -> its buildings need the 1-bay kit assets as well: load those too (second pass)
+	if ctx.useMerged and next(A.failed) then
+		local more: {[string]: boolean} = {}
+		for _, t in todo do
+			local mb = t.b.mesh.mb
+			if mb then
+				for r = 0, #mb // 10 - 1 do
+					local n = vm.assets[mb[r * 10 + 2]].name
+					if not names[n] then more[n] = true end
+				end
+			end
+		end
+		if next(more) then
+			local B2 = prepareAssets(vm, more)
+			for n, tp in B2.tpl do A.tpl[n] = tp end
+			for n, why in B2.failed do A.failed[n] = why end
+			A.loadedNow += B2.loadedNow
+			A.cached += B2.cached
+			A.offsetMax = math.max(A.offsetMax, B2.offsetMax)
+			A.rotMax = math.max(A.rotMax, B2.rotMax)
+		end
+	end
 	for n, why in A.failed do
 		warn(("VisMesh: asset %s unusable (%s): its rows fall back to Parts"):format(n, why))
 	end
 
 	local nB, nSkip, nMissing, parts, meshParts, fallback, signs, lit = 0, 0, 0, 0, 0, 0, 0, 0
+	local mergedRows, baseRows = 0, 0
 	local removedB = child(child(ServerStorage, REMOVED, true) :: Instance, "Buildings", true) :: Instance
 	local originals: {[string]: {[number]: BasePart}} = {}
 	for _, t in todo do
@@ -606,6 +692,8 @@ function M.BuildMesh(V: any, opts: any): string
 		fallback += r.fallback
 		signs += r.signs
 		lit += r.lit
+		mergedRows += r.mergedRows
+		baseRows += r.baseRows
 		task.wait()
 	end
 	local palmMsg = "palms not requested"
@@ -619,9 +707,10 @@ function M.BuildMesh(V: any, opts: any): string
 		table.insert(failedList, n)
 	end
 	table.sort(failedList)
-	return ("vismesh: assets %d loaded now, %d from ServerStorage.%s, %d unusable [%s] (loaded vs manifest: max centre offset %.3f studs, max rotation %.1f deg); buildings %d built (%d Parts + %d MeshParts, %d Part rows fell back, %d signboards, %d lit panes), %d already mesh, %d chunks missing; expected when every asset loads: %d Parts + %d MeshParts for the %d sample buildings; %s")
+	return ("vismesh: assets %d loaded now, %d from ServerStorage.%s, %d unusable [%s] (loaded vs manifest: max centre offset %.3f studs, max rotation %.1f deg); buildings %d built (%d Parts + %d MeshParts, %d Part rows fell back, %d signboards, %d lit panes; Part rows on merged tiles %d, on the 1-bay kit %d), %d already mesh, %d chunks missing; expected when every asset loads: %d Parts + %d MeshParts (1-bay kit: %d, BuildMesh({merged = false})) for the %d sample buildings; %s")
 		:format(A.loadedNow, A.cached, CACHE, #failedList, table.concat(failedList, ", "), A.offsetMax, A.rotMax, nB, parts, meshParts,
-			fallback, signs, lit, nSkip, nMissing, vm.expected.parts, vm.expected.meshParts, #vm.sample, palmMsg)
+			fallback, signs, lit, mergedRows, baseRows, nSkip, nMissing, vm.expected.parts, vm.expected.meshParts,
+			vm.expected.meshPartsBase or vm.expected.meshParts, #vm.sample, palmMsg)
 end
 
 function M.RemoveMesh(V: any, opts: any): string
@@ -714,6 +803,7 @@ function M.ProbeMesh(V: any, opts: any): string
 	params.FilterDescendantsInstances = roads
 	local root = world:FindFirstChild(I.ROOT_NAME)
 	local nB, nParts, nMesh, outside, onRoad, sizeBad, countBad, vsExport, fallback = 0, 0, 0, 0, 0, 0, 0, 0, 0
+	local mixed = 0
 	local checked = 0
 	for _, chunk in (if root then root:GetChildren() else {}) do
 		for _, m in chunk:GetChildren() do
@@ -771,9 +861,12 @@ function M.ProbeMesh(V: any, opts: any): string
 					tostring(m:GetAttribute("ExpectParts")), tostring(m:GetAttribute("ExpectMeshParts"))))
 			end
 			local e = exp[m:GetAttribute("OsmBuilding") :: number]
-			if e and (np ~= e.parts or nm ~= e.meshParts) then
+			local tierName = m:GetAttribute("MeshTier")
+			local wantM = if e and tierName == "base" then (e.meshPartsBase or e.meshParts) else (e and e.meshParts)
+			if e and tierName ~= "mixed" and (np ~= e.parts or nm ~= wantM) then
 				vsExport += 1
 			end
+			if tierName == "mixed" then mixed += 1 end
 		end
 	end
 	-- palms
@@ -786,7 +879,7 @@ function M.ProbeMesh(V: any, opts: any): string
 		for _, p in pm:GetChildren() do
 			if p:IsA("MeshPart") then nPalmMesh += 1 end
 			if p:GetAttribute("VisMeshImpostor") then nImp += 1 end
-			if p.Name == "VisMeshPalmCollider" then nCol += 1 end
+			if p.Name == "VisMeshPalmCollider" or p:GetAttribute("VisMeshPalmCollider") then nCol += 1 end
 		end
 		local i = tonumber(string.sub(pm.Name, 9))
 		local row = i and vm.palms[i]
@@ -809,9 +902,9 @@ function M.ProbeMesh(V: any, opts: any): string
 			end
 		end
 	end
-	return ("vismesh probe: %d mesh buildings (sample %d): %d Parts + %d MeshParts (export expects %d + %d with every asset); MeshParts outside their box %d; touching road/sidewalk/disc %d; size != manifest x scale %d; buildings whose counts differ from the builder %d, from the export %d; Part rows on fallback %d | palms %d (of %d), %d MeshParts, %d impostor parts, %d colliders, Part palms still at a mesh palm %d")
+	return ("vismesh probe: %d mesh buildings (sample %d): %d Parts + %d MeshParts (export expects %d + %d with every asset); MeshParts outside their box %d; touching road/sidewalk/disc %d; size != manifest x scale %d; buildings whose counts differ from the builder %d, from the export %d (%d on mixed merged / 1-bay tiers, not compared); Part rows on fallback %d | palms %d (of %d), %d MeshParts, %d impostor parts, %d colliders (separate or impostor trunk), Part palms still at a mesh palm %d")
 		:format(nB, #vm.sample, nParts, nMesh, vm.expected.parts, vm.expected.meshParts, outside, onRoad, sizeBad, countBad,
-			vsExport, fallback, nPalm, #vm.palms, nPalmMesh, nImp, nCol, partLeft)
+			vsExport, mixed, fallback, nPalm, #vm.palms, nPalmMesh, nImp, nCol, partLeft)
 end
 
 return M

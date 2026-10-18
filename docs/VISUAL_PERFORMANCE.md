@@ -112,3 +112,49 @@ Mobile (≥ 30 FPS with profile `mobile`) is not measured in this phase.
 - Wet vs dry: no measurable difference (Reflectance is a material parameter; the RoadLook Heartbeat only exists while
   its queue drains).
 - The focused "after mesh" row is pending (needs the owner to click into the viewport ~15 s).
+
+## 5. Mesh instance optimisation (team7/mesh-opt, 2026-10-19 — exporter numbers, NOT built in Studio)
+Problem (§4 / VISUAL_ACCEPTANCE §5.2): the VIS-7.1 kit swap made the 14-building sample block 634 Parts → 40 Parts +
+1,612 MeshParts (1-bay modules, 1–4 MeshParts each). Fix: **merged kit modules**. `tools/blender/gen_merged.py` (pure
+Python, no bpy) copies W × H cells of a validated kit `.glb` into one asset `BLD_<G>_<Variant>W<w>H<h>` (W bays of
+7.143, H floors of 8.571; same geometry, UVs, normals, MP_* materials; one MeshPart per material; the glass split into
+`_Glass` + `_GlassAlt` so lit panes still vary). `VisMesh.merge_rows` cuts every run of equal adjacent 1-bay modules
+greedily into widths {4,3,2,1} × floor bands {4,3,2,1} (one row repeated every H floors); signboard-text columns,
+wide/centre modules (HotelLobby, Commercial7Bay) and roof items stay as they were; corner stacks merge vertically.
+Every merged instance passes the same footprint checks; the VisHull / VisCore / Part-kit fallback are unchanged.
+
+| Sample block (14 buildings) | Parts | MeshParts | total |
+|---|---|---|---|
+| Part slice (before) | 634 | 0 | 634 |
+| VIS-7.1 1-bay kit (`BuildMesh({merged = false})`) | 40 | 1,612 | 1,652 |
+| **mesh-opt merged (default)** | 40 | **508** | **548** |
+| rejected: one MeshPart per kit module (vertex colour / atlas, loses per-part Material + lit panes) | 40 | 481 | 521 |
+| rejected: one unique asset per building (17 uploads here, 604 citywide / ~230 MB glb) | 40 | 127 | 167 |
+
+Biggest three: hotel tower 1209261453 (29 fl) 156 Parts → 2 + 515 (VIS-7.1) → **2 + 111**; hotel 317141439 (25 fl)
+129 → 2 + 364 → **2 + 50**; corner commercial 422398694 (11 fl) 65 → 2 + 143 → **2 + 67**. Triangles are unchanged
+(cells are copies): 49,382 for the 14 buildings (hotel tower 14,544). Merged assets: 36 for the sample (1.29 MB glb,
+16,972 tris, max 2,400 per asset = CondoBalcony W4H4; ≤ 10,000 per asset enforced) on top of the 20 kit assets already
+uploaded. Palms: the impostor trunk cylinder (at the trunk foot) is now the collider: 5 → 4 instances per palm
+(157 palms: 785 → 628). Block count (14 buildings + the 8 palms within 160 studs of (21100, 41)): 682 before →
+1,692 VIS-7.1 → **580** (the leader's Studio 1,018 / 2,074 used a different area; re-measure with the same query).
+
+Citywide estimate (all 507 slice buildings through the mesh path; `mesh_sample.json` `citywide_estimate`):
+
+| Tiles (W × H) | Parts + MeshParts | MeshParts / building mean, p90, max | merged assets | merged glb |
+|---|---|---|---|---|
+| Part slice today | 23,786 + 0 | — | — | — |
+| 1-bay kit (VIS-7.1) | 1,763 + 76,382 = 78,145 | 151, 366, 2,793 | 0 | — |
+| 1–3 × 1–3 | 26,334 | 49, 104, 583 | 66 | 2.7 MB |
+| **1–4 × 1–4 (default)** | **21,896** | 40, 83, 359 | **111** | **6.2 MB** |
+| 1–4 × 1–4, glass not split | 19,306 | 35, 70, 287 | 111 | 6.2 MB |
+| 1,2,4,8 × 1,2,4,8 | 24,278 | 44, 91, 337 | 86 | 7.8 MB |
+| 1–8 × 1–8 | 17,395 | 31, 57, 158 | 250 | 35.8 MB |
+
+Memory: mesh data is shared per asset (sample: 0.82 MB kit + 1.29 MB merged glb ≈ GPU vertex + index data of the same
+order); the instance saving is ~1,100 instances in the block and ~56 k citywide vs the 1-bay kit. Per-instance memory
+and draw-call batching of the merged tiles are **not measured** — run §3 at the street camera with
+`BuildMesh()` and `BuildMesh({merged = false})`.
+LOD: no new far variant; Roblox's own MeshPart LOD (RenderFidelity Automatic) applies per merged mesh, and the palm
+impostor switch (client VisMeshPalmLOD) is unchanged. Beyond that, `Model.LevelOfDetail = StreamingMesh` would only
+help with StreamingEnabled (not used now).

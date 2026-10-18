@@ -724,6 +724,7 @@ def main(cfg_path):
                'sampleChunks': sorted({c['id'] for c in chunks for B in c['items'] if B['b']['osm'] in mesh_out}),
                'moduleW': VisMesh.MW, 'camera': camera, 'palmAssets': vm_cfg['palms']['assets'],
                'palmFullRange': vm_cfg['palms']['full_range'], 'palmCollider': vm_cfg['palms']['collider'],
+               'palmImpostorCollides': bool(vm_cfg['palms'].get('impostor_collides')),
                'palms': [[r['x'], r['z'], r['v'], r['yaw'], r['h']] for r in palm_rows],
                'palmSrc': [r['src'] for r in palm_rows], 'castShadowMinHeight': vm_cfg['cast_shadow_min_height'],
                'expected': {'parts': sum(o['parts'] for o in mesh_out.values()),

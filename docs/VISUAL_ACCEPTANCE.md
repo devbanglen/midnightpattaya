@@ -258,6 +258,29 @@ the full mesh shows up to 900 studs and the impostor stays hidden.
 - **Palm LOD** needs the client module above; palm heights differ from the Part palms (no rescale).
 
 
+### 4.8 mesh-opt: merged kit tiles (team7/mesh-opt; written, not built in Studio)
+The sample block now uses merged assets (`BLD_<G>_<Variant>W<w>H<h>`: W bays × H floors of one kit module, one
+MeshPart per material, glass split into `_Glass` + `_GlassAlt`; docs/VISUAL_PERFORMANCE.md §5). Export: 634 Parts →
+**40 Parts + 508 MeshParts** (VIS-7.1: 40 + 1,612); palms 4 instances each (the impostor trunk collides; no
+`VisMeshPalmCollider` part). Per Part row the builder uses merged tiles when all their assets load, else the 1-bay
+kit, else the Part kit.
+
+Leader steps (edit mode, save first):
+1. Upload the 36 files in `build/vis_assets/merged/*.glb` (names, sizes, sha1: `build/vis_assets/merged/upload_patch.json`)
+   like the kit (Open Cloud, Model, `model/gltf-binary`); add `["<name>"] = <Model asset id>` for each to
+   `ServerStorage.VisAssetsManifest`. Copy the regenerated `build/vis_slice/roblox/*` into `PattayaDataVisSlice`
+   and `roblox/src/ServerStorage/VisMeshBuilder.luau` into `ServerStorage.VisMeshBuilder`.
+2. `V.RemoveMesh()` (1-bay buildings and mesh palms out, Part ones back), then `print(V.BuildMesh())`.
+   Expected: `assets 56 loaded now …` (36 merged + 17 kit + 3 palms; fewer if cached), `0 unusable`,
+   `buildings 14 built (40 Parts + 508 MeshParts, 0 Part rows fell back, 10 signboards, 80 lit panes; Part rows on
+   merged tiles …, on the 1-bay kit …)`, `palms: 157 mesh palms built (314 MeshParts)`.
+3. `print(V.ProbeMesh())`: outside box 0, touching road 0, size ≠ manifest 0, count mismatches 0 / 0, palms 157,
+   314 MeshParts, 314 impostor parts, 157 colliders (the impostor trunks), Part palms left 0.
+4. A/B: `V.RemoveMesh(); V.BuildMesh({merged = false})` = the VIS-7.1 build (40 + 1,612; only the 20 kit assets).
+Check: tiles line up with each other and with 1-bay columns (no seams / overlaps at tile edges); the 180° importer yaw
+is compensated on merged parts as on the kit (fronts face the street); at night lit panes vary inside a tile (about
+half of a tile's windows light together); a car still stops at a palm trunk.
+
 ## 5. VIS-7.1 Studio results (leader, 2026-10-19 — read with docs/NIGHT_LIGHTING.md and docs/VISUAL_PERFORMANCE.md §4)
 
 Installed on main (`team6/vis-lighting2` + `team6/vis-mesh` merged) and built in the place. All captures are from the
