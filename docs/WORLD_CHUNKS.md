@@ -111,3 +111,9 @@ already in the place. Check `#workspace.PattayaWorld.WideJunctions:GetChildren()
 corridor's discs are missing, a handful (4-6) = the wide ones are missing. After step 4 it should be 2,500 (1,380 + 4
 junctions, 1,104 wide + 12 corridor joints; node 6949621434 is in both). The new builder adds every missing disc, so
 step 4 repairs either case.
+- **Road fix applied by the leader (Studio):** new PattayaBuilder, 72 wide chunk modules + `joints`, corridor
+  manifest + 8 chunks + `joints`, corridor `traffic.luau` (84 + 3 loops); the 80 chunk models were deleted and rebuilt
+  in groups of 8 (wide 10,406 parts, corridor 3,489 parts, 3 s, no errors). `WideJunctions` went from 1,380 to 2,500
+  (the corridor's discs had been missing: the old Extend only built the junction model once). 7 corridor road signs
+  built. Re-probe of every wide + corridor edge: **26,234 points, 5 misses (0.02%)**, all five central-slice sidewalks
+  over new roads at the seam.
