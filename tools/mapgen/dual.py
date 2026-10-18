@@ -52,6 +52,7 @@ MARGIN = 2.0               # a hidden centreline must lie this far inside the me
 TAPER_GAP = 20.0           # merged centreline: the shift fades out over this much extra gap
 PIN_RAMP = 60.0            # ... and over this many studs before an end where the road continues un-merged
 SMOOTH_SIGMA = 6.0         # studs; smoothing of the sideways shift along the kept edge
+BUILDING_CLEAR = 1.0       # fill triangles keep this far from every building box
 SHIFT_SLOPE = 0.3          # ... and its steepest change per stud (the merged line turns <= 17 deg off the old one)
 OFFSET_CLEAR = 2.0         # rule b: extra clearance between the two slabs (+ sidewalks)
 OFFSET_RAMP = 60.0         # rule b: transition length at each end of the shifted stretch
@@ -755,7 +756,7 @@ def fill_triangles(poly, min_area=0.5):
     return out
 
 
-def apply_chunk(edges, discs, plan, rc, smooth=None, keep_points=(), log=print):
+def apply_chunk(edges, discs, plan, rc, smooth=None, keep_points=(), blockers=(), log=print):
     """road_fix.py rule D: merged centrelines / hidden edges / cuts / fills on the exported chunk edges (road_fix edge
     dicts: 'pts' arrays of the chunk line, width, ...). Sets per edge: pts (kept edges), merged, oneway, lanes, sidewalk
     (kept), hidden, cutA, cutB, fill. Returns stats."""
@@ -989,6 +990,9 @@ def apply_chunk(edges, discs, plan, rc, smooth=None, keep_points=(), log=print):
     for x, z, r, key in disc_list:
         surf.append(Point(x, z).buffer(r, 32)); owner.append(-1)
     tree = STRtree(surf)
+    # building boxes (every chunk module's buildings): fill triangles keep BUILDING_CLEAR studs away from them
+    bl = [b.buffer(BUILDING_CLEAR + 0.4, join_style=2) for b in blockers]   # + the 0.3 simplify of fill_triangles
+    btree = STRtree(bl) if bl else None
     # places that must stay on the road (job stands, Road Fight bosses, the race grid, the spawn: they are not moved):
     # where one would now lie off the narrower merged slab, the old slab of its edge is kept there as fill (+-25 studs)
     extra = defaultdict(list)
@@ -1029,6 +1033,13 @@ def apply_chunk(edges, discs, plan, rc, smooth=None, keep_points=(), log=print):
         region = shapely.union_all(polys)
         others = [surf[k] for k in tree.query(region)] + [f for f in fills_done if f.intersects(region)]
         rest = region.difference(shapely.union_all(others)) if others else region
+        if btree is not None:
+            near = [bl[k] for k in btree.query(rest)]
+            if near:
+                cut_ = rest.intersection(shapely.union_all(near)).area
+                if cut_ > 0.01:
+                    stats['fill_area_clipped_at_buildings'] += int(round(cut_))
+                    rest = rest.difference(shapely.union_all(near))
         tris = fill_triangles(rest)
         if tris:
             e['fill'] = [v for t_ in tris for v in t_]
