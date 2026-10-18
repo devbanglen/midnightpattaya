@@ -62,3 +62,7 @@ Junctions 441 → 495, WideJunctions 2,500 → 2,853; Road parts 15,005 (438 sho
 
 Lesson for the install procedure: after replacing a ModuleScript's Source in Edit mode, builders must require a
 Clone() (now built into RebuildChunks/Extend `fresh`), or the old module is served silently.
+
+**Drive regression after pass 2 (Play):** Central Loop, physics autopilot at 120 studs/s over the rebuilt city chunks:
+13,290 studs in 115.5 s, 227/227 probes on road, up vector min 1.00, every gate counted (lap completed, 67 nitro
+bonuses), no script errors. Server probe of RacePath: 332/332 road.
