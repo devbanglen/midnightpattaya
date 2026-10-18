@@ -30,6 +30,16 @@ if #list == 0 then
 	warn("[Circuit] no circuit definitions could be loaded")
 	return
 end
+-- tell the client map where each venue's entrance really is (the world-map export only has a placeholder)
+local worldMap = ReplicatedStorage:FindFirstChild("PattayaWorldMap")
+if worldMap then
+	for _, c in list do
+		local e = c.def.entrance
+		if e then
+			worldMap:SetAttribute("Circuit_" .. c.id, Vector3.new(e.x, 0, e.z))
+		end
+	end
+end
 
 -- test surfaces ------------------------------------------------------------------------------------------------------
 local root = workspace:FindFirstChild("Circuits")
