@@ -190,10 +190,10 @@ function Route.carOf(plr: Player): BasePart?
 	return nil
 end
 
--- true when the player is already in a race, sprint or job
+-- true when the player is already in a race, sprint, job or circuit session
 function Route.busy(plr: Player): boolean
 	return plr:GetAttribute("RaceState") == "racing" or plr:GetAttribute("SprintActive") == true
-		or plr:GetAttribute("JobActive") == true
+		or plr:GetAttribute("JobActive") == true or plr:GetAttribute("CircuitActive") == true
 end
 
 return Route

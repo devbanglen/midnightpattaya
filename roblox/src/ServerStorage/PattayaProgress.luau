@@ -20,6 +20,9 @@ local function expToNext(level: number): number
 end
 Progress.expToNext = expToNext
 
+-- generic saved fields (GetData/SetData), saved as `data` in the same record; old records without it still load
+local extra: {[Player]: {[string]: any}} = {}
+
 local function stats(plr: Player)
 	return plr:FindFirstChild("leaderstats")
 end
@@ -62,7 +65,7 @@ local function save(plr: Player)
 		return
 	end
 	local data = {level = ls.Level.Value, money = ls.Money.Value, exp = ls.EXP.Value, title = ls.Title.Value,
-		roadFight = plr:GetAttribute("RoadFight") or 0}
+		roadFight = plr:GetAttribute("RoadFight") or 0, data = extra[plr]}
 	pcall(function()
 		(store :: any):SetAsync("p" .. plr.UserId, data)
 	end)
@@ -92,6 +95,22 @@ function Progress.SetTitle(plr: Player, title: string)
 	if ls then
 		ls.Title.Value = title
 	end
+end
+
+-- Generic saved values (circuit personal bests, ratings, ...). Values must be DataStore-safe (numbers, strings,
+-- booleans, tables of those with string keys). Saved with the rest of the record when the player leaves.
+function Progress.GetData(plr: Player, key: string): any
+	local t = extra[plr]
+	return t and t[key]
+end
+
+function Progress.SetData(plr: Player, key: string, value: any)
+	local t = extra[plr]
+	if not t then
+		t = {}
+		extra[plr] = t
+	end
+	t[key] = value
 end
 
 local started = false
