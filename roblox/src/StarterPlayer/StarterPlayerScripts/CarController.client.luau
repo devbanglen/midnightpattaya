@@ -19,6 +19,9 @@ local CONFIG = {
 	reverseSpeed = 45,
 	brake = 130,
 	coastDrag = 0.25,
+	-- idle hold: no throttle and slower than this -> the brakes hold the car (no creep on the grid or at lights)
+	idleHoldSpeed = 3,      -- studs/s
+	idleHoldRate = 20,      -- 1/s: how fast the hold bleeds off the remaining speed (capped by the car's brake)
 	turnRate = 2.3,         -- rad/s at full lock
 	grip = 9,               -- how fast sideways speed is killed
 	driftGrip = 1.4,
@@ -202,7 +205,10 @@ local function step(dt)
 			local springVel = chassis:GetVelocityAtPosition(origin):Dot(up)
 			local force = k * compression - c * springVel
 			if force > 0 then
-				chassis:ApplyImpulseAtPosition(up * force * dt, origin)
+				-- push along the ground normal, not the chassis up: a slightly pitched chassis (driver or body mass
+				-- off the mounts' centre) would otherwise get a constant forward/back push of g * sin(pitch)
+				local push = if hit.Normal:Dot(up) > 0.5 then hit.Normal else up
+				chassis:ApplyImpulseAtPosition(push * force * dt, origin)
 			end
 		end
 		-- wheel visual: suspension travel, steering on the front, spin from speed
@@ -236,6 +242,9 @@ local function step(dt)
 			elseif fs > -tune.reverseSpeed then
 				accel = tune.accel * 0.6 * throttle
 			end
+		elseif math.abs(fs) < CONFIG.idleHoldSpeed then
+			-- idle and almost stopped: hold the car (coastDrag alone has no static hold, so any small push creeps)
+			accel = -math.clamp(fs * CONFIG.idleHoldRate, -tune.brake, tune.brake)
 		else
 			accel = -fs * tune.coastDrag
 		end
