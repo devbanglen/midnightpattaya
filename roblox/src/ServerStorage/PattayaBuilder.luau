@@ -356,6 +356,99 @@ local function buildRoadSigns(folder: Instance, signs: {any})
 	end
 end
 
+-- Roadside dressing (corridor chunk_d* modules, tools/circuit/corridor_dress.py): trees {x, z, variant}, utility
+-- poles {x, z, ax, az, wire} (a = unit direction to the next pole, wire = distance to it, 0 = no wire), road signs
+-- {x, z, dx, dz, text} (the buildRoadSigns look) and gantries {x, z, dx, dz, span, text, subText} over the road.
+-- Generic geometry and plain text only (no logos). Trunks, poles and gantry posts collide; canopies, wires, arms and
+-- boards do not and stay out of raycasts.
+local TREE_TRUNK = Color3.fromRGB(96, 74, 52)
+local TREE_LEAF = {Color3.fromRGB(52, 112, 48), Color3.fromRGB(70, 128, 56), Color3.fromRGB(44, 98, 52), Color3.fromRGB(86, 136, 60)}
+local POLE_CONCRETE = Color3.fromRGB(150, 148, 142)
+local WIRE = Color3.fromRGB(30, 30, 32)
+local GANTRY = Color3.fromRGB(88, 92, 100)
+local GROUND_Y = ROAD_TOP - 3 -- terrain surface along the corridor (ground filled up to -4, renders at -2)
+
+local function boardText(board: BasePart, text: string, color: Color3)
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 24
+	gui.LightInfluence = 0.2
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Text = text
+	label.TextColor3 = color
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft = UDim.new(0.04, 0)
+	pad.PaddingRight = UDim.new(0.04, 0)
+	pad.PaddingTop = UDim.new(0.1, 0)
+	pad.PaddingBottom = UDim.new(0.1, 0)
+	pad.Parent = label
+	label.Parent = gui
+	gui.Parent = board
+end
+
+local function buildDress(chunk: Instance, data: any)
+	local trees, poles = data.trees or {}, data.poles or {}
+	local roadSigns, gantries = data.roadSigns or {}, data.gantries or {}
+	if #trees == 0 and #poles == 0 and #roadSigns == 0 and #gantries == 0 then
+		return
+	end
+	local folder = Instance.new("Model")
+	folder.Name = "Dressing"
+	for i = 1, #trees, 3 do
+		local x, z, v = trees[i], trees[i + 1], trees[i + 2]
+		local h = 9 + v * 1.5 -- trunk height by variant (0..3)
+		local r = 5.5 + (v % 2) * 1.5 -- canopy radius <= 7 (the exporter keeps 7 studs clear of roads)
+		local trunk = newPart(folder, "TreeTrunk", Vector3.new(h, 1.4, 1.4), CFrame.new(x, GROUND_Y + h / 2, z) * CFrame.Angles(0, 0, math.rad(90)), TREE_TRUNK, true)
+		trunk.Shape = Enum.PartType.Cylinder
+		local canopy = newPart(folder, "TreeCanopy", Vector3.one * (r * 2), CFrame.new(x, GROUND_Y + h + r * 0.6, z), TREE_LEAF[v + 1], false)
+		canopy.Shape = Enum.PartType.Ball
+		canopy.CanQuery = false
+	end
+	for i = 1, #poles, 5 do
+		local x, z, ax, az, wire = poles[i], poles[i + 1], poles[i + 2], poles[i + 3], poles[i + 4]
+		local base = CFrame.lookAt(Vector3.new(x, GROUND_Y, z), Vector3.new(x + ax, GROUND_Y, z + az))
+		newPart(folder, "UtilityPole", Vector3.new(0.9, 26, 0.9), base * CFrame.new(0, 13, 0), POLE_CONCRETE, true)
+		local arm = newPart(folder, "PoleArm", Vector3.new(6, 0.5, 0.5), base * CFrame.new(0, 24.5, 0), POLE_CONCRETE, false)
+		arm.CanQuery = false
+		if wire > 0 then
+			local a = Vector3.new(x, GROUND_Y + 24.8, z)
+			local b = a + Vector3.new(ax, 0, az) * wire
+			local w = newPart(folder, "PoleWire", Vector3.new(0.15, 0.15, wire), CFrame.lookAt((a + b) / 2, b), WIRE, false)
+			w.CanQuery = false
+		end
+	end
+	if #roadSigns > 0 then
+		buildRoadSigns(folder, roadSigns)
+	end
+	for _, g in gantries do
+		local x, z, dx, dz, span, text, sub = g[1], g[2], g[3], g[4], g[5], g[6], g[7]
+		local pos = Vector3.new(x, GROUND_Y, z)
+		local face = CFrame.lookAt(pos, pos - Vector3.new(dx, 0, dz)) -- front looks back at the oncoming drivers
+		local gantry = Instance.new("Model")
+		gantry.Name = "Gantry"
+		gantry:SetAttribute("Text", text)
+		for _, side in {-1, 1} do
+			newPart(gantry, "GantryPost", Vector3.new(1.4, 31, 1.4), face * CFrame.new(side * span / 2, 15.5, 0), GANTRY, true)
+		end
+		local beam = newPart(gantry, "GantryBeam", Vector3.new(span + 1.4, 1.4, 1.4), face * CFrame.new(0, 23, 0), GANTRY, false)
+		beam.CanQuery = false
+		local bw = math.min(span - 4, 48)
+		local board = newPart(gantry, "GantryBoard", Vector3.new(bw, 6, 0.5), face * CFrame.new(0, 26.2, -1), Color3.fromRGB(22, 26, 34), false)
+		board.CanQuery = false
+		boardText(board, text, Color3.fromRGB(255, 255, 255))
+		local strip = newPart(gantry, "GantrySponsor", Vector3.new(math.min(bw, 30), 2.4, 0.5), face * CFrame.new(0, 30.6, -1), Color3.fromRGB(22, 26, 34), false)
+		strip.CanQuery = false
+		boardText(strip, sub, Color3.fromRGB(0, 220, 255)) -- placeholder sponsor (MIDNIGHT PATTAYA), no real marks
+		gantry.Parent = folder
+	end
+	folder.Parent = chunk
+end
+
 -- Landmark proxies (handcrafted, separate from procedural buildings).
 local function buildLandmarks(world: Instance, man: any)
 	if not man.landmarks then
@@ -593,8 +686,10 @@ end
 --   B.Extend({roads = false, terrain = false, removeBaseConflicts = true}) -- remove the seam buildings it lists
 --   B.RemoveExtension()                                    -- undo: wide chunks, discs and wide terrain
 --   B.Extend({terrain = false, only = {}})                 -- no chunks: adds missing junction/joint discs and road signs
+--   B.Extend({folder = "PattayaDataCorridor", roads = false, groundKey = "dressGroundRects"}) -- corridor dressing ground
+--   B.Extend({folder = "PattayaDataCorridor", terrain = false, batch = "dress1"})  -- dressing chunks, dress1..dress9
 --   (an existing WideJunctions model only gets the discs it lacks; a data folder with `signs` gets RoadSigns_<name>)
-local function extendTerrain(man: any)
+local function extendTerrain(man: any, rects: {any})
 	local terrain = workspace.Terrain
 	local o = Builder.ORIGIN
 	local function replace(x0: number, x1: number, z0: number, z1: number, y0: number, y1: number, from: Enum.Material, to: Enum.Material)
@@ -602,7 +697,7 @@ local function extendTerrain(man: any)
 		terrain:ReplaceMaterial(region, 4, from, to)
 	end
 	local TILE = 2048
-	for _, r in man.groundRects do
+	for _, r in rects do
 		local rx0, rx1, rz0, rz1 = r[1], r[2], r[3], r[4]
 		for x0 = rx0, rx1 - 1, TILE do
 			for z0 = rz0, rz1 - 1, TILE do
@@ -632,7 +727,7 @@ local function extendTerrain(man: any)
 end
 
 function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolean?, only: {string}?, batch: string?,
-	removeBaseConflicts: boolean?}?)
+	removeBaseConflicts: boolean?, groundKey: string?}?)
 	local options = (opts or {}) :: any -- same fields as the annotation ({} alone does not unify with it)
 	local data = game:GetService("ServerStorage"):WaitForChild(options.folder or "PattayaDataWide")
 	local man = require(data:WaitForChild("manifest")) :: any
@@ -719,6 +814,7 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 				end
 				buildBuildings(chunk, chunkData.buildings or {}, man)
 				buildProps(chunk, chunkData.palms or {}, chunkData.lights or {}, chunkData.signs or {})
+				buildDress(chunk, chunkData)
 				chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
 				for _, d in chunk:GetDescendants() do
 					if d:IsA("BasePart") then parts += 1 end
@@ -763,7 +859,8 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 		end
 	end
 	if options.terrain ~= false then
-		extendTerrain(man)
+		-- groundKey picks another manifest list, e.g. "dressGroundRects" (corridor dressing: only the new ground)
+		extendTerrain(man, man[options.groundKey or "groundRects"] or {})
 	end
 	return ("wide: %d chunks built now (%d parts), %d base buildings removed; %d chunks in manifest"):format(built, parts, removed, #man.chunks)
 end
@@ -784,7 +881,11 @@ function Builder.RemoveExtension(folderName: string?)
 	if data then
 		local man = require(data:WaitForChild("manifest")) :: any
 		local o = Builder.ORIGIN
-		for _, r in man.groundRects do
+		local rects = table.clone(man.groundRects)
+		for _, r in man.dressGroundRects or {} do -- corridor dressing ground (Extend groundKey = "dressGroundRects")
+			table.insert(rects, r)
+		end
+		for _, r in rects do
 			for x0 = r[1], r[2] - 1, 2048 do
 				for z0 = r[3], r[4] - 1, 2048 do
 					local region = Region3.new(o + Vector3.new(x0, -16, z0), o + Vector3.new(math.min(x0 + 2048, r[2]), 8, math.min(z0 + 2048, r[4]))):ExpandToGrid(4)

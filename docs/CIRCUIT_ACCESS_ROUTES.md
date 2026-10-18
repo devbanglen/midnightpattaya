@@ -87,7 +87,7 @@ Which route most real visitors drive is **unverified**. Ours is the shortest by 
 - A straight line from the corridor's end to the ring (instead of the transition road) drops the car 4 studs onto
   terrain beside the road, from which the car cannot climb back (first attempt in the test). A low kerb or ground
   blending along the transition road would be a sensible later polish.
-- Not done: the corridor has no buildings or props other than the street lights and signs below (traffic: see below); the return trip was driven on 2026-10-19 (see "Tested: return trip" below); the Highway 36 alternative is not generated; the world-map UI
+- Not done: the corridor had no buildings or props other than the street lights and signs below (traffic: see below; dressing written 2026-10-19, built in Studio by the leader afterwards: see "Corridor dressing" at the end); the return trip was driven on 2026-10-19 (see "Tested: return trip" below); the Highway 36 alternative is not generated; the world-map UI
   (menu with a map icon for the circuit) is still pending, GPS is key-driven for now.
 
 ## Tested: return trip from the paddock (leader, 2026-10-19, Studio Play)
@@ -154,3 +154,196 @@ Config: `corridor_life` in `tools/circuit/config/bira.json`.
   original artwork) into `workspace.PattayaWorld.RoadSigns_bira_corridor`; `Extend` calls it when the manifest has
   `signs` and that model does not exist yet.
 - Also new: `joints.luau` (13 joint discs, see `docs/ROAD_SYSTEM.md`). Studio steps: `docs/WORLD_CHUNKS.md`, "Road fix".
+
+## Corridor dressing: buildings, trees, poles, venue approach (team4/corridor-dress, 2026-10-19; written, NOT built in Studio)
+Nothing in this section has been run in Studio. The numbers come from the exporter and its shapely checks. The
+Luau changes have not been compiled or run.
+
+**Data.** `data/osm/raw/bira_corridor_buildings_2026-10-19.json`: 660 elements, **OSM base 2026-10-18T17:42:21Z**,
+downloaded 2026-10-19 from overpass-api.de with curl.exe, like every other raw file. Map data © OpenStreetMap
+contributors, ODbL 1.0. The attribution is in the manifest as `dressAttribution` / `dressOsmBase` and in every
+`chunk_d*` header. The query `data/osm/queries/bira_corridor_buildings.overpassql` is written by
+`tools/circuit/corridor_dress_query.py`. Its search area is a polygon: the 33 corridor road ways buffered by 220 m,
+127 vertices, 8.6 km². We could not use `way(around.<ways>:r)`, because overpass-api.de returned nothing for it on
+2026-10-19 while another instance returned 153 buildings. The file holds building footprints (546 ways),
+landuse / natural / leisure areas (41 residential, 1 commercial, 1 retail, 11 wood/forest, 5 scrub, 9 water,
+4 park, 1 golf course, 2 cemetery, …), 5 `natural=tree` nodes and power features (21 poles/towers, 4 lines; not
+used). It contains no relations: a separate check found 0 landuse/natural/building multipolygons in the area.
+**OSM building coverage east of Sukhumvit is thin**: most mapped buildings along the corridor are in the wide
+world's area. Large residential landuse polygons have few or no footprints inside them. We generate no fill-in
+buildings, so the corridor stays mostly open country with trees, poles and lights. That is the data, not a filter.
+
+**Rules** (`tools/circuit/corridor_dress.py`, config `corridor_dress` in `tools/circuit/config/bira.json`):
+- **Buildings, from OSM only.** We keep a footprint when its centre is within **150 m** (268 studs) of a road that
+  the corridor dataset builds. The pipeline is the wide world's (`tools/mapgen/buildings.py`): the city's
+  projection (x0.5, 0.28 m/stud, the same `origin_utm` as the roads). Every road corridor (width/2 + sidewalk +
+  3 studs) of the wide world and of the corridor is cut out of the footprint, and so is every node disc. For the
+  corridor's one-way carriageways the 10-stud sidewalk counts here even though the export drops it. Then the
+  minimum rotated rectangle is shrunk until it is clear. Category and height come from OSM `height` /
+  `building:levels`, otherwise from the category default, **capped at 6 storeys** (the city's 8–22-storey
+  "hotel" default would put towers on a rural road). Last, the wide world's LOD runs (merge small neighbours,
+  ≤ 140 per chunk). Footprints inside the wide world's clip polygon belong to the wide build and are skipped
+  (441). So are boxes that touch a wide or central building box or the venue's terrain grid.
+- **Trees.** A roadside row every 60 studs on both sides, 14–40 studs past the kerb, where the point is inside an
+  OSM wood / forest / scrub / orchard / park / garden / golf course / cemetery / grass area. Inside wood, forest
+  and orchard a second row stands 22 studs further out. Behind these rows, a jittered grid fills
+  wood/forest (34 studs), park (48) and golf course (60), up to 110 studs past the kerb. Every OSM
+  `natural=tree` node gets a tree (none were usable), and `tree_row` ways get one every 20 studs (none in the
+  data). Nothing grows inside OSM water.
+- **Palms.** One every 90 studs, 6 studs outside the sidewalk, where the point is within 25 studs of OSM
+  landuse=residential / commercial / retail (housing-estate and shop frontages).
+- **Utility poles.** One every 90 studs (about 50 m real) on the driver's left of every built corridor road (the
+  kerb side of a one-way carriageway), 7 studs outside the sidewalk. Each pole has a crossarm and a wire to the
+  next pole on the same stretch. 77 spots were skipped because they were not clear.
+- **Clearances.** Every prop is clear of every road + sidewalk + 1.5 studs and of every junction disc. A tree also
+  keeps its 7-stud canopy radius off the road. Props are also clear of every building (corridor, wide, central),
+  of the corridor street lights and signs, of the city's palms/lights/signs, and of each other.
+- **Venue approach** (last km of the outbound route): two boards with the `buildRoadSigns` look, "BIRA CIRCUIT
+  1 km" (23,401.9, 3,819.9) and "BIRA CIRCUIT 500 m" (24,070.2, 3,326.4), on the driver's left. One **generic
+  gantry** stands 300 m before the venue junction on Thammasat Rd (24,379.8, 3,144.7). Its posts are 69 studs
+  apart, across both carriageways. A dark board says "BIRA CIRCUIT" and a small strip above it says "MIDNIGHT
+  PATTAYA" (the placeholder sponsor). All of it is plain text and grey/dark geometry: no Bira logo, no official
+  artwork, no real sponsor. Nothing is placed inside the venue's DEM terrain grid (local x ≥ 24,576), because the
+  team2 entrance signs cover that stretch.
+- **Budget** (Parts as PattayaBuilder builds them):
+
+  | item | count | Parts |
+  |---|---|---|
+  | buildings (box + roof slab on 27 taller ones; 244 facade Textures, not Parts) | 62 (shophouse 39, commercial 18, hotel 4, house 1) | 89 |
+  | trees (trunk + canopy) | 532 (154 roadside rows, 378 grid fill) | 1,064 |
+  | palms (trunk + 5 fronds, the city palm) | 48 | 288 |
+  | utility poles (pole + arm + wire to the next) | 233 (223 wires) | 689 |
+  | approach boards (post + board) | 2 | 4 |
+  | gantry (2 posts, beam, board, sponsor strip) | 1 | 5 |
+  | **total** | | **2,139** |
+
+  These Parts are in **67 new chunks** (largest `d39_5` with 211 Parts, then `d39_6` 189, then `d42_7` 104; all
+  the others ≤ 82). The configured caps are 560 Parts per chunk and 5,500 in total. The exporter asserts the total
+  cap and thins trees, then palms, in any chunk that goes over its cap (nothing was thinned).
+- **Export-time check (shapely, asserted).** 0 building boxes touch a road slab (width/2), sidewalk or junction /
+  joint disc of the wide world or the corridor. 0 tree trunks, palms or poles touch one. 0 dressing buildings
+  overlap each other, and 0 overlap a wide or central building. Check image: `build/bira/corridor_dress_check.png`
+  (whole corridor) plus `_1` … `_5` zooms.
+
+**Output and what changed** (`build/bira/roblox_corridor/`; the previous build is kept as
+`build/bira/roblox_corridor_prev/`):
+- **Byte-identical to the previous export:** all 11 road chunk modules (`24_2 34_6 36_7 40_4 42_7 44_6 45_7 46_7
+  47_5 48_5 48_6`), `joints`, `graph`, `graph_part_1/2`, `corridormap`, and `traffic` (rerun of
+  `corridor_traffic.py`). The offline road probe (`road_check.py pattaya_wide.json --corridor`) is unchanged:
+  24,404 probes, 24,400 on road, 3 on base-slice sidewalks at the seam, 1 hairline, 0 none.
+- **New modules: 67 `chunk_d<cx>_<cz>`.** The ids carry a `d` prefix, so they can never collide with a road or
+  wide chunk id. Each module has `buildings`, `palms`, `trees`, `poles`, `roadSigns`, `gantries` and an empty
+  `edges` list. The models are built into `workspace.PattayaWorld.WideChunks.Chunk_d…` (Atomic streaming).
+- **`manifest` changed only by additions.** `chunks` and `batches.all` gain the 67 ids. `batches.roads` holds the
+  11 road ids, and `dress1` … `dress9` hold ≤ 8 dressing chunks each (`batchOrder`). At the end it gains
+  `dressAttribution`, `dressOsmBase`, `levelStuds`, `palettes`, `facades`, `facadesNight` and `facadeMinHeight`
+  (the wide world's values, needed by `buildBuildings`). It also gains `dressGroundRects`: 159 rectangles of flat
+  ground under dressing that lies outside the wide frame (x ≥ 9,072), outside the existing corridor strips and
+  outside the venue grid. `junctions`, `joinNodes`, `groundRects` and `signs` are unchanged, so the existing
+  `RoadSigns_bira_corridor` model stays valid.
+- **Rerun determinism:** a second run of `export_corridor.py` gives a byte-identical directory.
+- **`PattayaBuilder.luau`:** new `buildDress`, called by `Extend` for every chunk (road chunks have no dressing
+  fields and are unaffected). `Extend` gains the option `groundKey` (which manifest rectangle list the terrain
+  step fills; default `groundRects`, as before). `RemoveExtension` now also clears `dressGroundRects`.
+  `Build()` and everything else are unchanged.
+
+Commands (repo root): `.venv\Scripts\python tools\circuit\corridor_dress_query.py tools\circuit\config\bira.json`
+(only when the area changes), then `.venv\Scripts\python tools\circuit\export_corridor.py
+tools\circuit\config\bira.json build\pattaya_wide`. It needs `build/pattaya_wide` and `build/central_pattaya` from
+the mapgen pipeline.
+
+### Leader build steps (save the place first; groups of ≤ 8 chunks as before)
+1. `ServerStorage.PattayaBuilder` ← `roblox/src/ServerStorage/PattayaBuilder.luau`.
+2. `ServerStorage.PattayaDataCorridor`: replace `manifest` with `build/bira/roblox_corridor/manifest.luau` and add
+   the 67 `chunk_d*.luau` modules (same JSON-bundle / HttpListener method as before). Leave the road chunk
+   modules, `joints` and `traffic` as they are: they are unchanged.
+3. Ground under the dressing (159 small rectangles; nothing else is touched):
+   `require(game.ServerStorage.PattayaBuilder).Extend({folder = "PattayaDataCorridor", roads = false, groundKey = "dressGroundRects"})`
+4. Chunks, 9 calls (each skips chunks that already exist; the 11 road chunks are never rebuilt):
+   ```lua
+   local B = require(game.ServerStorage.PattayaBuilder)
+   print(B.Extend({folder = "PattayaDataCorridor", terrain = false, batch = "dress1"}))
+   -- ... then "dress2" ... "dress9", one call each (or: only = {"d39_5", "d39_6", ...}, at most 8 ids)
+   ```
+   Always pass `terrain = false` here. Without it the call refills all 970 corridor ground strips (harmless but
+   slow).
+5. Run the probes below. Undo the dressing alone with
+   `for _, m in workspace.PattayaWorld.WideChunks:GetChildren() do if m.Name:match("^Chunk_d") then m:Destroy() end end`.
+   Do not use `RemoveExtension`, which removes every wide and corridor chunk.
+
+### Probes for the leader (Command Bar, after step 4)
+```lua
+-- 1) no dressing part touches a road, sidewalk or disc (expected: 0 of N), plus the counts
+local world = workspace.PattayaWorld
+local roads = {}
+for _, d in world:GetDescendants() do
+	if d:IsA("BasePart") and (d.Name == "Road" or d.Name == "Sidewalk" or d.Name == "Junction" or d.Name == "Joint") then
+		table.insert(roads, d) -- dressing chunks contain no parts with these names
+	end
+end
+local params = OverlapParams.new()
+params.FilterType = Enum.RaycastFilterType.Include
+params.FilterDescendantsInstances = roads
+local n, hits, counts = 0, 0, {}
+for _, ch in world.WideChunks:GetChildren() do
+	if ch.Name:match("^Chunk_d") then
+		for _, p in ch:GetDescendants() do
+			if p:IsA("BasePart") then
+				n += 1
+				counts[p.Name] = (counts[p.Name] or 0) + 1
+				local beam = p.Name == "GantryBeam" or p.Name == "GantryBoard" or p.Name == "GantrySponsor" or p.Name == "PoleWire"
+				if not beam and #workspace:GetPartsInPart(p, params) > 0 then
+					hits += 1
+					warn("touches road:", p:GetFullName())
+				end
+			end
+		end
+	end
+end
+print(("dressing parts %d, touching road/sidewalk/disc %d"):format(n, hits)) -- expected 2139, 0
+for k, v in counts do print(k, v) end -- expected: TreeTrunk/TreeCanopy 532, UtilityPole/PoleArm 233, PoleWire 223, PalmTrunk 48, ...
+```
+```lua
+-- 2) the road probe is unchanged: rays every 25 studs along every corridor edge never stop on dressing
+local data = game.ServerStorage.PattayaDataCorridor
+local man = require(data.manifest)
+local o = Vector3.new(20000, 0, 0)
+local rp = RaycastParams.new()
+local function inDress(x: Instance?): boolean
+	while x and x ~= workspace do
+		if x.Name:match("^Chunk_d") then return true end
+		x = x.Parent
+	end
+	return false
+end
+local total, onDress, miss = 0, 0, 0
+for _, id in man.batches.roads do
+	for _, e in require(data["chunk_" .. id]).edges do
+		local pts = e.pts
+		for i = 1, #pts - 3, 2 do
+			local a, b = Vector3.new(pts[i], 0, pts[i + 1]), Vector3.new(pts[i + 2], 0, pts[i + 3])
+			local len = (b - a).Magnitude
+			for s = 0, len - 0.01, 25 do
+				local p = a + (b - a).Unit * s + o
+				local r = workspace:Raycast(p + Vector3.new(0, 80, 0), Vector3.new(0, -120, 0), rp)
+				total += 1
+				if not r then miss += 1
+				elseif inDress(r.Instance) then onDress += 1 end
+			end
+		end
+	end
+end
+print(("corridor probes %d, on dressing %d, no hit %d"):format(total, onDress, miss)) -- expected on dressing 0, no hit 0
+```
+For a visual check, drive the corridor or fly along it: buildings sit along Sukhumvit Pattaya 47 east of the wide
+world; the wooded and golf-course stretch is x 19,800–22,300 (Sukhumvit Pattaya 47 into Thammasat Rd); the boards and the gantry are on the
+last 1.1 km before the venue junction.
+
+**Open risks / not done:** nothing has been built or seen in Studio. Canopies, poles and the gantry may need a
+size or colour pass once seen. The gantry beam is at y ≈ 23. Its right post stands beyond the return carriageway
+(span 69); check that no street-light arm pokes into it. Pole wires are straight chords, so on tight bends a wire
+can pass over the road edge (it is at y ≈ 25, CanCollide and CanQuery off). The corridor still looks sparse
+where OSM has no footprints or green landuse (mainly the Sukhumvit Pattaya 47 middle stretch and the last
+2 km), and we did not invent anything there. The OSM power poles/lines (21/4) are not used; the poles are
+rule-based. The return direction gets no approach boards. The building check is 2-D (footprints against road
+outlines); probe 1 is the 3-D check.
