@@ -54,6 +54,7 @@ local GRID_TIME = 3
 local LIGHT_INTERVAL = 1
 local HOLD_MIN, HOLD_MAX = 0.5, 2.0
 local JUMP_DIST = 4
+local JUMP_SETTLE = 0.75 -- s after the lights start before jump starts are judged (client ownership handoff)
 local JUMP_PENALTY = 5
 local CUT_PENALTY = 3
 local LIMIT_FREE_WARNINGS = 2
@@ -969,6 +970,7 @@ local function startLights(s)
 		if not p.gone then
 			release(p)
 			p.jumped = false
+			p.jumpRef = nil
 		end
 	end
 	s.lightsAt = t
@@ -1091,8 +1093,12 @@ local function stepFormal(s, t: number)
 			end
 			if not carOk(p) then
 				dropPart(p, "Left the car")
+			elseif t - s.lightsAt < JUMP_SETTLE then
+				-- the car was just released to its driver's client: let the ownership handoff and suspension settle
+			elseif not p.jumpRef then
+				p.jumpRef = p.chassis.Position
 			elseif not p.jumped then
-				local d = p.chassis.Position - p.slot.Position
+				local d = p.chassis.Position - p.jumpRef
 				if Vector3.new(d.X, 0, d.Z).Magnitude > JUMP_DIST then
 					p.jumped = true
 					penalise(s, p, JUMP_PENALTY, "JUMP START")
