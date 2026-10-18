@@ -71,3 +71,8 @@ Prerequisite: save the place (or rely on version history). Studio memory/time be
 - `removeBaseConflicts` was NOT run: the 8 seam buildings listed in the manifest are still there.
 - Build in small `only` groups from now on: one 69-chunk call crashed Studio once (64 GB machine, Studio at 3.4 GB,
   so not memory); 8-chunk calls never did.
+- **Play test (fresh session):** no script errors; 25 job stands; routing on the 2,941-node graph takes 5–6 ms per
+  route (heap Dijkstra); the car drove from the central grid to the Jomtien Beach stand (7,742 studs, Thappraya →
+  Jomtien) in 65 s with the physics autopilot: 129 probes, 123 on road, 6 on terrain (it started 139 studs off the
+  route line and cut across once; not re-checked), car upright, Heartbeat 60/s throughout. The minimap drew 515 road
+  segments, 31 POIs and 6 district labels from `PattayaWorldMap`.
