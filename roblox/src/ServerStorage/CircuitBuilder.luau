@@ -10,7 +10,7 @@
 local Builder = {}
 
 local SLAB = 4.0 -- thickness of track / run-off / road slabs (their tops are what the cars ride on)
-local RUNOFF_DROP = 0.15 -- run-off top below the asphalt: grass verge, never above the track
+local RUNOFF_DROP = 0.6 -- run-off top below the asphalt: grass verge, never above the track (see EXT_MAX)
 local PIT_DROP = 0.02 -- pit lane top below the asphalt where they overlap at the merges
 local SERVICE_DROP = 0.04
 local CURB_H = 0.1 -- curb top above the asphalt: low and flat so raycast wheels roll over it
@@ -18,6 +18,8 @@ local CURB_THICK = 0.6
 local WALL_H = 3.6 -- ~1 m concrete barrier
 local WALL_T = 1.2
 local OVERLAP = 0.3 -- studs each strip part is lengthened at both ends so joints never open
+local EXT_MAX = 12 -- studs: cap on the bend extension of a strip part. A wide slab extended by half its width keeps its
+-- own pitch, so on a sloping bend its tail rose up to 4 studs above the next part (seen at Bira T2 in Studio)
 local MERGE_TOL = 0.08 -- studs: consecutive centreline points this close to a straight 3D line share one part
 local MERGE_MAX = 60 -- studs: longest merged part
 local POLE_H = 70
@@ -148,7 +150,7 @@ local function strip(parent: Instance, name: string, pts: {Vector3}, widths: {nu
 		local d1, d2 = flat(q[k] - q[k - 1]), flat(q[k + 1] - q[k])
 		if d1.Magnitude > 1e-6 and d2.Magnitude > 1e-6 then
 			local turn = math.acos(math.clamp(d1.Unit:Dot(d2.Unit), -1, 1))
-			ext[k] = math.min(widths[keep[k]] / 2 * math.tan(turn / 2), widths[keep[k]] / 2) + OVERLAP
+			ext[k] = math.min(widths[keep[k]] / 2 * math.tan(turn / 2), widths[keep[k]] / 2, EXT_MAX) + OVERLAP
 		end
 	end
 	for k = 1, m - 1 do
