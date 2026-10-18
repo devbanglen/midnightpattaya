@@ -338,6 +338,7 @@ local nameLabel = C.label({parent = cardPanel, name = "Name", text = player.Disp
 local levelLabel = C.label({parent = cardPanel, name = "Level", text = "", font = "display", rich = true,
 	textSize = Theme.size.title + 2, align = "right", anchor = Vector2.new(1, 0), position = UDim2.new(1, -14, 0, 12),
 	size = UDim2.fromOffset(86, 28)})
+levelLabel.TextTruncate = Enum.TextTruncate.None -- rich text (no TextScaled): "LV. 100+" may overhang left, never "…"
 local titleLabel = C.label({parent = cardPanel, name = "Title", text = "", font = "body", textSize = Theme.size.label,
 	color = col.textDim, position = UDim2.fromOffset(112, 40), size = UDim2.new(1, -126, 0, 18), fit = true, minSize = 10})
 C.label({parent = cardPanel, name = "ExpCaption", text = "EXP", font = "bold", textSize = Theme.size.caption,

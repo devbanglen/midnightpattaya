@@ -198,7 +198,7 @@ end
 -- label --------------------------------------------------------------------------------------------------------------
 -- props: parent, text, size, position, anchor, textSize, font ("display"|"bold"|"body"|"mono"|Enum.Font), color,
 -- align ("left"|"center"|"right"), vAlign ("top"|"center"|"bottom"), wrap, fit (TextScaled up to textSize, never
--- below minSize), autoX (width follows the text), rich, transparency, name, zIndex, layoutOrder
+-- below minSize; no ellipsis unless truncate = true), autoX (width follows the text), rich, transparency, name, zIndex, layoutOrder
 local XALIGN = {left = Enum.TextXAlignment.Left, center = Enum.TextXAlignment.Center, right = Enum.TextXAlignment.Right}
 local YALIGN = {top = Enum.TextYAlignment.Top, center = Enum.TextYAlignment.Center, bottom = Enum.TextYAlignment.Bottom}
 function C.label(props: Props): TextLabel
@@ -217,7 +217,12 @@ function C.label(props: Props): TextLabel
 	t.Text = props.text or ""
 	place(t, props)
 	if props.fit then
+		-- shrink-to-fit instead of an ellipsis (owner fix: "Missions"/"Settings" showed "…" at 88 px / HUD scale 0.62);
+		-- truncate = true keeps the ellipsis for free text that can be longer than the box (toast lines)
 		t.TextScaled = true
+		if not props.truncate then
+			t.TextTruncate = Enum.TextTruncate.None
+		end
 		local lim = Instance.new("UITextSizeConstraint")
 		lim.MaxTextSize = props.textSize or Theme.size.body
 		lim.MinTextSize = props.minSize or 9
@@ -507,8 +512,8 @@ function C.iconButton(props: Props): TextButton
 	ic.Position = if hasLabel then UDim2.fromScale(0.5, 0.4) else UDim2.fromScale(0.5, 0.5)
 	if hasLabel then
 		C.label({parent = b, name = "Label", text = props.label, font = "bold", textSize = Theme.size.label,
-			align = "center", fit = true, minSize = 10, anchor = Vector2.new(0.5, 1),
-			position = UDim2.new(0.5, 0, 1, -8), size = UDim2.new(1, -10, 0, Theme.size.label + 4)})
+			align = "center", fit = true, minSize = 8, anchor = Vector2.new(0.5, 1),
+			position = UDim2.new(0.5, 0, 1, -8), size = UDim2.new(1, -6, 0, Theme.size.label + 4)})
 	end
 	local hint = C.label({parent = b, name = "Hint", text = props.hint or "", font = "bold",
 		textSize = Theme.size.caption - 1, color = col.textDim, align = "center",
@@ -616,9 +621,9 @@ function C.toastCard(props: Props): GuiObject
 	iconHolder.Size = UDim2.fromOffset(32, 32)
 	iconHolder.Parent = f
 	C.label({parent = f, name = "Title", text = "", font = "bold", textSize = Theme.size.body + 1, rich = true,
-		position = UDim2.fromOffset(58, 10), size = UDim2.new(1, -68, 0, 22), fit = true, minSize = 11})
+		position = UDim2.fromOffset(58, 10), size = UDim2.new(1, -68, 0, 22), fit = true, minSize = 11, truncate = true})
 	C.label({parent = f, name = "Body", text = "", font = "body", textSize = Theme.size.caption, color = col.textDim,
-		position = UDim2.fromOffset(58, 34), size = UDim2.new(1, -68, 0, 18), fit = true, minSize = 9})
+		position = UDim2.fromOffset(58, 34), size = UDim2.new(1, -68, 0, 18), fit = true, minSize = 9, truncate = true})
 	C.setToast(f, props.title or "", props.body or "", props.kind, props.icon)
 	f.Parent = props.parent
 	return f

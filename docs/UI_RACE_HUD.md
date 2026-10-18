@@ -195,6 +195,21 @@ Setup:
 - The RaceHUD idle line "Drive through the white gate to start" no longer shows. The gold/white gate posts still
   mark the start.
 - Sprint toasts (rewards, finish text) stay centre-screen. ui-core's toasts may show the same reward a second time.
-- The circuit timing tower stays at its old spot (16, 268) under ui-core's player card. Move it if they overlap.
+- The circuit timing tower: see "Owner fixes" below (moved under the player card while MidnightHUD is on).
 - GPS distance uses its own nearest-point walk along the route (window of 60 points from the last match). A long
   teleport mid-route could leave it behind until the next route update.
+
+## Owner fixes (team5/ui-fix, written, not run in Studio)
+
+- **Text stroke.** MidnightActivity `text()`: text under 16 px gets no outline (mode subtitle "OPEN WORLD • FREE ROAM",
+  "LOOP RACE • 2 LAPS", "TIME ATTACK", sector labels); the wordmark's UIStroke is 1 px at 0.4 transparency.
+- **Circuit menu.** CircuitRaceClient shows the "MIDNIGHT PATTAYA CIRCUITS" menu only when asked: P / the CIRCUIT
+  button, the paddock ProximityPrompt (seen client-side through ProximityPromptService.PromptTriggered on a
+  `Paddock_*` model) or Bus `circuit.open`; the answer must arrive within 5 s. Any other `menu` payload (join through
+  the remote / test kit, the refresh after join/leave/invite) only re-renders it. Side effect: after pressing a join
+  button the menu stays closed (before, the server's refresh re-opened it).
+- **Timing tower.** While `MidnightHUD == true` it sits 8 px under the `TopLeft` anchor (player card), or under
+  `TopRight` (quick menu) on touch, scaled by that anchor's UIScale, in Theme surface/line/text and the mono font.
+  Logic and the results screen unchanged; `MidnightHUD == false` restores the old place (16, 268) and look.
+- PattayaGPSClient's own remaining distance (minimap header) now projects onto the nearest route segment; the
+  activity strip's walk above is unchanged.

@@ -263,18 +263,31 @@ local function focusPart(chassis: BasePart?): BasePart?
 	return char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 end
 
--- distance left along the route (from the first point ahead), not as the crow flies
+-- distance left along the route, not as the crow flies: project the car onto the nearest route segment (XZ) and
+-- add the gap to it, the rest of that segment and every segment after it (the old version counted from the first
+-- point more than 25 studs away, which is the route start once the car has left it, so the number never fell)
 local function remainingStuds(pos: Vector3, pts: {Vector3}): number
-	local remaining = 0
-	local started = false
-	for i = 1, #pts - 1 do
-		if not started and Vector3.new(pts[i].X - pos.X, 0, pts[i].Z - pos.Z).Magnitude > 25 then
-			started = true
-			remaining += Vector3.new(pts[i].X - pos.X, 0, pts[i].Z - pos.Z).Magnitude
+	local n = #pts
+	if n == 0 then
+		return 0
+	elseif n == 1 then
+		return Vector3.new(pts[1].X - pos.X, 0, pts[1].Z - pos.Z).Magnitude
+	end
+	local bestD, bestI, bestT = math.huge, 1, 0
+	for i = 1, n - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local dx, dz = b.X - a.X, b.Z - a.Z
+		local l2 = dx * dx + dz * dz
+		local t = if l2 > 0 then math.clamp(((pos.X - a.X) * dx + (pos.Z - a.Z) * dz) / l2, 0, 1) else 0
+		local ex, ez = pos.X - (a.X + dx * t), pos.Z - (a.Z + dz * t)
+		local d = ex * ex + ez * ez
+		if d < bestD then
+			bestD, bestI, bestT = d, i, t
 		end
-		if started then
-			remaining += (pts[i + 1] - pts[i]).Magnitude
-		end
+	end
+	local remaining = math.sqrt(bestD) + (pts[bestI + 1] - pts[bestI]).Magnitude * (1 - bestT)
+	for i = bestI + 1, n - 1 do
+		remaining += (pts[i + 1] - pts[i]).Magnitude
 	end
 	return remaining
 end

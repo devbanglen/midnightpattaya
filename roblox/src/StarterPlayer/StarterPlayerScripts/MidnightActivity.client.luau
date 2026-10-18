@@ -119,7 +119,9 @@ local function text(parent: Instance, group: Group?, props): TextLabel
 	t.TextColor3 = props.color or C.text
 	t.TextXAlignment = props.alignX or Enum.TextXAlignment.Center
 	t.TextStrokeColor3 = C.navy
-	t.TextStrokeTransparency = props.stroke or 0.5 -- readable over a sunlit sky and at night
+	-- readable over a sunlit sky and at night; small text (< 16 px) gets no outline at all (owner fix: the stroke
+	-- looked too heavy on the mode subtitle) and relies on the panel / scrim behind it
+	t.TextStrokeTransparency = if t.TextSize < 16 then 1 else (props.stroke or 0.5)
 	t.Text = props.text or ""
 	t.ZIndex = props.z or 3
 	t.Parent = parent
@@ -168,8 +170,8 @@ local function wordLine(str: string, y: number, h: number, size: number, c0: Col
 	gr.Parent = t
 	local s = Instance.new("UIStroke") -- glyph outline (Contextual) so the wordmark reads on a bright sky
 	s.Color = C.navy
-	s.Thickness = Theme.stroke.thick
-	s.Transparency = 0.2
+	s.Thickness = 1 -- owner fix: at most a 1 px outline at 0.4 on the wordmark
+	s.Transparency = 0.4
 	s.Parent = t
 	return t
 end
