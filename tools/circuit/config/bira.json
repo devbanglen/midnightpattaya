@@ -98,5 +98,28 @@
       "return_text": "PATTAYA",
       "return_km": [12, 7, 3]
     }
+  },
+  "corridor_dress_note": "roadside dressing (export_corridor.py, docs/CIRCUIT_ACCESS_ROUTES.md): OSM building footprints within building_band_m of the built corridor roads (buildings.py pipeline: x0.5 projection, road/sidewalk corridors cut out, box shrunk until clear), rule-based trees / palms / utility poles from OSM landuse/natural; approach boards and a gantry on the last km. Budgets are Parts as PattayaBuilder builds them.",
+  "corridor_dress": {
+    "raw": "data/osm/raw/bira_corridor_buildings_2026-10-19.json",
+    "query_buffer_m": 220,
+    "building_band_m": 150,
+    "max_building_parts_per_chunk": 140,
+    "default_levels_max": 6,
+    "max_parts_per_chunk": 560,
+    "max_total_parts": 5500,
+    "tree_step_studs": 60,
+    "tree_offset_studs": [14, 40],
+    "palm_step_studs": 90,
+    "palm_near_studs": 25,
+    "tree_fill_depth_studs": 110,
+    "pole_step_studs": 90,
+    "pole_offset_studs": 7,
+    "approach_km": [1.0, 0.5],
+    "approach_text": "BIRA CIRCUIT",
+    "gantry_before_venue_m": 300,
+    "gantry_text": "BIRA CIRCUIT",
+    "gantry_sub_text": "MIDNIGHT PATTAYA",
+    "check_crops": [[4500, -1200, 6500, 1400], [10000, -800, 12500, 1200], [13000, 1000, 15500, 3200], [19800, 2600, 22300, 4600], [22300, 2600, 24900, 4300]]
   }
 }
