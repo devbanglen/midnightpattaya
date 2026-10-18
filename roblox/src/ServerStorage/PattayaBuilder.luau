@@ -373,7 +373,8 @@ local function buildLandmarks(world: Instance, man: any)
 			local cf = CFrame.lookAt(Vector3.new(lm.x, ROAD_TOP, lm.z), Vector3.new(lm.x, ROAD_TOP, lm.z) + fwd)
 			local half = lm.span / 2
 			for _, s in {-1, 1} do
-				newPart(model, "Pillar", Vector3.new(3, 30, 3), cf * CFrame.new(s * half, 15, 0), Color3.fromRGB(40, 40, 48), true)
+				-- the pillars now stand beside the road on the terrain (y = -2), not on the slab: 4 studs longer, sunk
+				newPart(model, "Pillar", Vector3.new(3, 34, 3), cf * CFrame.new(s * half, 13, 0), Color3.fromRGB(40, 40, 48), true)
 			end
 			newPart(model, "Beam", Vector3.new(lm.span + 3, 3, 3), cf * CFrame.new(0, 31.5, 0), Color3.fromRGB(40, 40, 48), true)
 			local board = newPart(model, "Board", Vector3.new(lm.span * 0.7, 7, 1), cf * CFrame.new(0, 26, 0), Color3.fromRGB(20, 20, 30), false)
@@ -404,6 +405,24 @@ local function buildLandmarks(world: Instance, man: any)
 		model.Parent = folder
 	end
 	folder.Parent = world
+end
+
+-- Rebuilds only workspace.PattayaWorld.Landmarks from the (possibly re-installed) manifest, e.g. after the Walking
+-- Street gate placement changed (2026-10-19). The manifest is required from a clone so Edit mode's require cache
+-- does not hand back the old module.
+function Builder.RebuildLandmarks(): string
+	local world = workspace:FindFirstChild("PattayaWorld")
+	assert(world, "no workspace.PattayaWorld")
+	local data = game:GetService("ServerStorage"):FindFirstChild("PattayaData")
+	assert(data, "no ServerStorage.PattayaData")
+	local man = require(data:WaitForChild("manifest"):Clone()) :: any
+	local old = world:FindFirstChild("Landmarks")
+	if old then
+		old:Destroy()
+	end
+	buildLandmarks(world, man)
+	local f = world:FindFirstChild("Landmarks")
+	return ("landmarks rebuilt: %d models, %d parts"):format(f and #f:GetChildren() or 0, f and #f:GetDescendants() or 0)
 end
 
 -- Race infrastructure from the generated layout: checkpoint gates (invisible trigger plane + visible arch posts),

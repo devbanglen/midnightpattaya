@@ -2,89 +2,278 @@
   "name": "central_pattaya",
   "source": "data/osm/raw/central_pattaya_2026-10-18.json",
   "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
-
-  "slice_bbox_s_w_n_e": [12.921, 100.862, 12.953, 100.893],
+  "slice_bbox_s_w_n_e": [
+    12.921,
+    100.862,
+    12.953,
+    100.893
+  ],
   "crs": "EPSG:32647",
-
   "meters_per_stud": 0.28,
   "compression": 0.5,
-
   "road_classes": {
-    "trunk":          {"tier": "express",   "lanes": 6, "keep": true},
-    "trunk_link":     {"tier": "express",   "lanes": 2, "keep": true},
-    "primary":        {"tier": "main",      "lanes": 4, "keep": true},
-    "primary_link":   {"tier": "main",      "lanes": 2, "keep": true},
-    "secondary":      {"tier": "main",      "lanes": 4, "keep": true},
-    "secondary_link": {"tier": "main",      "lanes": 2, "keep": true},
-    "tertiary":       {"tier": "main",      "lanes": 2, "keep": true},
-    "tertiary_link":  {"tier": "main",      "lanes": 2, "keep": true},
-    "residential":    {"tier": "soi",       "lanes": 2, "keep": true},
-    "unclassified":   {"tier": "soi",       "lanes": 2, "keep": true},
-    "living_street":  {"tier": "soi",       "lanes": 1, "keep": true}
+    "trunk": {
+      "tier": "express",
+      "lanes": 6,
+      "keep": true
+    },
+    "trunk_link": {
+      "tier": "express",
+      "lanes": 2,
+      "keep": true
+    },
+    "primary": {
+      "tier": "main",
+      "lanes": 4,
+      "keep": true
+    },
+    "primary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "secondary": {
+      "tier": "main",
+      "lanes": 4,
+      "keep": true
+    },
+    "secondary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "tertiary": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "tertiary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "residential": {
+      "tier": "soi",
+      "lanes": 2,
+      "keep": true
+    },
+    "unclassified": {
+      "tier": "soi",
+      "lanes": 2,
+      "keep": true
+    },
+    "living_street": {
+      "tier": "soi",
+      "lanes": 1,
+      "keep": true
+    }
   },
-  "coastal_road_names_en": ["Pattaya Sai Nueng Road", "Beach Road"],
-
+  "coastal_road_names_en": [
+    "Pattaya Sai Nueng Road",
+    "Beach Road"
+  ],
   "lane_width_studs": 13,
   "min_lane_width_studs": 11,
-  "sidewalk_studs": {"express": 0, "main": 10, "soi": 6},
-
+  "sidewalk_studs": {
+    "express": 0,
+    "main": 10,
+    "soi": 6
+  },
   "min_soi_length_m": 60,
   "drop_dead_end_sois_shorter_m": 120,
-
-  "smoothing": {"chaikin_iterations": 3, "resample_studs": 6},
-
+  "smoothing": {
+    "chaikin_iterations": 3,
+    "resample_studs": 6
+  },
   "chunk_size_studs": 512,
-
   "layout": {
     "race_id": "central_loop",
     "race_name": "Pattaya Central Loop",
     "laps": 2,
     "race_legs": [
-      {"names": ["Pattaya Sai Nueng Road", "Beach Road"]},
-      {"names": ["Pattaya Tai Road"]},
-      {"names": ["Pattaya Sai Song Road"]},
-      {"names": ["Pattaya Klang Road"]}
+      {
+        "names": [
+          "Pattaya Sai Nueng Road",
+          "Beach Road"
+        ]
+      },
+      {
+        "names": [
+          "Pattaya Tai Road"
+        ]
+      },
+      {
+        "names": [
+          "Pattaya Sai Song Road"
+        ]
+      },
+      {
+        "names": [
+          "Pattaya Klang Road"
+        ]
+      }
     ],
     "checkpoint_spacing_studs": 300,
     "grid_slots": 6,
     "palm_spacing_studs": 34,
     "light_spacing_studs": 70,
-    "signs": {"centre_osm_id": 1207751537, "radius_studs": 900, "probability": 0.75, "max": 450},
+    "signs": {
+      "centre_osm_id": 1207751537,
+      "radius_studs": 900,
+      "probability": 0.75,
+      "max": 450
+    },
     "landmarks": [
-      {"id": "walking_street_gate", "kind": "gate", "label": "WALKING STREET", "at": "poi", "osm_id": 1207751537}
+      {
+        "id": "walking_street_gate",
+        "kind": "gate",
+        "label": "WALKING STREET",
+        "at": "gantry_way",
+        "osm_id": 1207751537,
+        "min_span": 18,
+        "clear_margin": 2
+      }
     ],
     "job_stands": [
-      {"id": "central_festival", "kind": "taxi", "label": "Central Festival", "osm_id": 415291919},
-      {"id": "terminal21", "kind": "taxi", "label": "Terminal 21", "osm_id": 9739900840},
-      {"id": "bali_hai", "kind": "taxi", "label": "Bali Hai Pier", "osm_id": 1199397671},
-      {"id": "walking_street", "kind": "taxi", "label": "Walking Street", "osm_id": 1207751537},
-      {"id": "alcazar", "kind": "taxi", "label": "Alcazar Cabaret", "osm_id": 153538106},
-      {"id": "tiffanys", "kind": "taxi", "label": "Tiffany's Show", "osm_id": 279387367},
-      {"id": "art_in_paradise", "kind": "taxi", "label": "Art in Paradise", "osm_id": 211144566},
-      {"id": "police_station", "kind": "taxi", "label": "Pattaya Police Station", "osm_id": 153538034},
-      {"id": "night_plaza", "kind": "delivery", "label": "Made in Thailand Night Plaza", "osm_id": 167314167},
-      {"id": "bua_khao", "kind": "delivery", "label": "Bua Khao Market", "osm_id": 170594051},
-      {"id": "chai_mongkhon", "kind": "delivery", "label": "Wat Chai Mongkhon Market", "osm_id": 311526196},
-      {"id": "hong_tu_la", "kind": "delivery", "label": "Hong Tu La Night Market", "osm_id": 27487186},
-      {"id": "windy_plaza", "kind": "delivery", "label": "Windy Plaza", "osm_id": 153537963}
+      {
+        "id": "central_festival",
+        "kind": "taxi",
+        "label": "Central Festival",
+        "osm_id": 415291919
+      },
+      {
+        "id": "terminal21",
+        "kind": "taxi",
+        "label": "Terminal 21",
+        "osm_id": 9739900840
+      },
+      {
+        "id": "bali_hai",
+        "kind": "taxi",
+        "label": "Bali Hai Pier",
+        "osm_id": 1199397671
+      },
+      {
+        "id": "walking_street",
+        "kind": "taxi",
+        "label": "Walking Street",
+        "osm_id": 1207751537
+      },
+      {
+        "id": "alcazar",
+        "kind": "taxi",
+        "label": "Alcazar Cabaret",
+        "osm_id": 153538106
+      },
+      {
+        "id": "tiffanys",
+        "kind": "taxi",
+        "label": "Tiffany's Show",
+        "osm_id": 279387367
+      },
+      {
+        "id": "art_in_paradise",
+        "kind": "taxi",
+        "label": "Art in Paradise",
+        "osm_id": 211144566
+      },
+      {
+        "id": "police_station",
+        "kind": "taxi",
+        "label": "Pattaya Police Station",
+        "osm_id": 153538034
+      },
+      {
+        "id": "night_plaza",
+        "kind": "delivery",
+        "label": "Made in Thailand Night Plaza",
+        "osm_id": 167314167
+      },
+      {
+        "id": "bua_khao",
+        "kind": "delivery",
+        "label": "Bua Khao Market",
+        "osm_id": 170594051
+      },
+      {
+        "id": "chai_mongkhon",
+        "kind": "delivery",
+        "label": "Wat Chai Mongkhon Market",
+        "osm_id": 311526196
+      },
+      {
+        "id": "hong_tu_la",
+        "kind": "delivery",
+        "label": "Hong Tu La Night Market",
+        "osm_id": 27487186
+      },
+      {
+        "id": "windy_plaza",
+        "kind": "delivery",
+        "label": "Windy Plaza",
+        "osm_id": 153537963
+      }
     ],
     "job_stand_max_snap_studs": 220,
     "road_fight": [
-      {"id": "boss_south", "order": 1, "boss": "Walking Street Wolf", "district": "South Pattaya", "label": "Road Master: South Pattaya",
-       "osm_id": 1557021548, "car": "jdm_coupe", "vmax": 128, "grip": 140, "course_min": 1800, "course_max": 2400,
-       "line": "New face in South Pattaya? Let's see what you've got."},
-      {"id": "boss_central", "order": 2, "boss": "Beach Road Baron", "district": "Central Pattaya", "label": "Road Master: Central Pattaya",
-       "osm_id": 259502643, "car": "muscle", "vmax": 142, "grip": 150, "course_min": 2000, "course_max": 2600,
-       "line": "Beach Road is mine. Nobody passes me here."},
-      {"id": "boss_north", "order": 3, "boss": "Naklua Night Hawk", "district": "North Pattaya", "label": "Road Master: North Pattaya",
-       "osm_id": 284964061, "car": "gt_sedan", "vmax": 155, "grip": 165, "course_min": 2200, "course_max": 2800,
-       "line": "You beat the Baron? Luck. Try me."},
-      {"id": "boss_king", "order": 4, "boss": "Road King", "district": "Pattaya", "label": "ROAD KING",
-       "osm_id": 278056967, "car": "supercar", "vmax": 172, "grip": 185, "course_min": 2800, "course_max": 3600,
-       "line": "Three Road Masters down. Now race the King."}
+      {
+        "id": "boss_south",
+        "order": 1,
+        "boss": "Walking Street Wolf",
+        "district": "South Pattaya",
+        "label": "Road Master: South Pattaya",
+        "osm_id": 1557021548,
+        "car": "jdm_coupe",
+        "vmax": 128,
+        "grip": 140,
+        "course_min": 1800,
+        "course_max": 2400,
+        "line": "New face in South Pattaya? Let's see what you've got."
+      },
+      {
+        "id": "boss_central",
+        "order": 2,
+        "boss": "Beach Road Baron",
+        "district": "Central Pattaya",
+        "label": "Road Master: Central Pattaya",
+        "osm_id": 259502643,
+        "car": "muscle",
+        "vmax": 142,
+        "grip": 150,
+        "course_min": 2000,
+        "course_max": 2600,
+        "line": "Beach Road is mine. Nobody passes me here."
+      },
+      {
+        "id": "boss_north",
+        "order": 3,
+        "boss": "Naklua Night Hawk",
+        "district": "North Pattaya",
+        "label": "Road Master: North Pattaya",
+        "osm_id": 284964061,
+        "car": "gt_sedan",
+        "vmax": 155,
+        "grip": 165,
+        "course_min": 2200,
+        "course_max": 2800,
+        "line": "You beat the Baron? Luck. Try me."
+      },
+      {
+        "id": "boss_king",
+        "order": 4,
+        "boss": "Road King",
+        "district": "Pattaya",
+        "label": "ROAD KING",
+        "osm_id": 278056967,
+        "car": "supercar",
+        "vmax": 172,
+        "grip": 185,
+        "course_min": 2800,
+        "course_max": 3600,
+        "line": "Three Road Masters down. Now race the King."
+      }
     ]
   },
-
   "traffic": {
     "seed": 11,
     "routes": 36,
@@ -92,11 +281,17 @@
     "max_loop_studs": 7000,
     "main_road_bias": 0.85,
     "studs_per_car": 420,
-    "speed_studs_s": [38, 55],
-    "kind_weights": [5, 3, 2],
+    "speed_studs_s": [
+      38,
+      55
+    ],
+    "kind_weights": [
+      5,
+      3,
+      2
+    ],
     "kinds_note": "0 sedan/taxi, 1 songthaew (baht bus), 2 van"
   },
-
   "buildings": {
     "level_height_m": 3.2,
     "vertical_scale": 0.75,

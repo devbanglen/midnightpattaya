@@ -393,6 +393,58 @@ def main(cfg_path):
                               'source': f"OSM node {lm['osm_id']} ({poi['name']}) snapped to way {e['way']}",
                               'snap_studs': round(ln.distance(pt), 1)})
             continue
+        if lm['at'] == 'gantry_way':
+            # the OSM way IS the gantry (man_made=gantry, 2 nodes = the pillars), e.g. the Walking Street entrance sign
+            # 1207751537. After the 0.5 compression and the road widening the real pillars sit inside the junction's
+            # slabs (found 2026-10-19: one pillar stood in the middle of Beach Road), so the gate is moved along the
+            # pedestrian street's own direction (junction node -> gantry midpoint) until both pillars are clear of
+            # every road slab + sidewalk (+ clear_margin) and of every building box. The street itself is not a road
+            # in the graph (highway=pedestrian), so the gate stands at its mouth, facing the junction.
+            raw = json.load(open(os.path.join(ROOT, cfg['source']), encoding='utf-8'))
+            way = next((e for e in raw['elements'] if e['type'] == 'way' and e['id'] == lm['osm_id']), None)
+            if way is None or len(way.get('geometry', [])) < 2:
+                print(f"landmark {lm['id']}: OSM way {lm['osm_id']} (gantry) not in the raw data, skipped")
+                continue
+            pa, pb = [tf.transform(q['lon'], q['lat']) for q in way['geometry'][:2]]
+            pa = ((pa[0] - ox) * kk, -(pa[1] - oy) * kk)
+            pb = ((pb[0] - ox) * kk, -(pb[1] - oy) * kk)
+            mid = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+            nid = min(g['nodes'], key=lambda k: (g['nodes'][k][0] - mid[0]) ** 2 + (g['nodes'][k][1] - mid[1]) ** 2)
+            jn = np.array(g['nodes'][nid])
+            d = np.array(mid) - jn
+            d /= np.linalg.norm(d)
+            span = max(math.hypot(pb[0] - pa[0], pb[1] - pa[1]), lm.get('min_span', 18))
+            margin = lm.get('clear_margin', 2)
+            slabs = [LineString(e['pts']).buffer(e['width'] / 2 + e['sidewalk'] + margin) for e in edges]
+            bfile = os.path.join(ROOT, 'build', cfg['name'], 'buildings_game.json')
+            boxes = []
+            if os.path.exists(bfile):
+                import shapely.affinity as _aff
+                for bb in json.load(open(bfile, encoding='utf-8'))['buildings']:
+                    box = Polygon([(-bb['w'] / 2, -bb['d'] / 2), (bb['w'] / 2, -bb['d'] / 2), (bb['w'] / 2, bb['d'] / 2), (-bb['w'] / 2, bb['d'] / 2)])
+                    box = _aff.rotate(box, -bb['yaw'], origin=(0, 0), use_radians=False)
+                    boxes.append(_aff.translate(box, bb['x'], bb['z']).buffer(margin))
+            perp = np.array([-d[1], d[0]])
+            placed = None
+            for dist in range(0, 160, 2):
+                c = jn + d * dist
+                pil = [Point(c + perp * s * span / 2) for s in (-1, 1)]
+                if any(P.contains(q) for P in slabs for q in pil):
+                    continue
+                if any(P.contains(q) for P in boxes for q in pil):
+                    continue
+                placed = (c, dist)
+                break
+            if placed is None:
+                print(f"landmark {lm['id']}: no clear spot within 160 studs of node {nid}, skipped")
+                continue
+            c, dist = placed
+            landmarks.append({'id': lm['id'], 'kind': lm['kind'], 'label': lm['label'], 'x': round(float(c[0]), 2), 'z': round(float(c[1]), 2),
+                              'dx': round(float(d[0]), 3), 'dz': round(float(d[1]), 3), 'span': round(span, 1),
+                              'source': f"OSM way {lm['osm_id']} (gantry '{way.get('tags', {}).get('name', '')}'), moved {dist} studs from junction node {nid} to clear the roads",
+                              'moved_studs': dist})
+            print(f"landmark {lm['id']}: gantry way {lm['osm_id']} span {span:.1f}, placed {dist} studs from node {nid} at ({c[0]:.1f}, {c[1]:.1f})")
+            continue
         if lm['at'] == 'road_end_near':
             cand = [e for e in edges if named(e, lm['road'])]
             other = nodes_of(lm['near_road'])
