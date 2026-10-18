@@ -296,15 +296,19 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 	count += 1
 
 	local litCfg = man.lit
-	local warmPct = litCfg.warm_pct
 	local spread = litCfg.spread
-	local warm, cool = cols.litWarm, cols.litCool
+	local tones: {Color3} = {}
+	for _, t in litCfg.tones do
+		table.insert(tones, rgb(t))
+	end
+	local upperTone = rgb(litCfg.upper_tone)
+	local upperStyle = table.find(litCfg.upper_styles, style.name) ~= nil
 	local neonNight = if b.neon == 2 then cols.neonMagenta else cols.neonCyan
 	local neonDay = if b.neon == 2 then cols.neonMagentaDay else cols.neonCyanDay
 	local text = if b.txt > 0 then man.texts[b.txt] else nil
 	local textColour = rgb(man.signCombos[b.sc].text)
 
-	local function finish(p: BasePart, sp: any, slot: string, inst: string, lit: boolean, hsh: number)
+	local function finish(p: BasePart, sp: any, slot: string, inst: string, lit: boolean, hsh: number, upper: boolean)
 		local matName = sp.mat
 		if sp.neon then
 			p.Color = neonDay
@@ -319,7 +323,8 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 			p.Material = Enum.Material.SmoothPlastic
 			p:SetAttribute("NightNeon", true)
 			p:SetAttribute("DayColor", day)
-			p:SetAttribute("NightColor", if (math.floor(hsh / 100) % 100) < warmPct then warm else cool)
+			-- warm amber, one of the manifest tones per pane; hotel/condo upper floors a slightly cooler tone
+			p:SetAttribute("NightColor", if upper then upperTone else tones[math.floor(hsh / 100) % #tones + 1])
 		else
 			p.Color = colour(sp.col)
 			p.Material = ctx.mats[matName] or Enum.Material.SmoothPlastic
@@ -390,7 +395,8 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 					local pos = face.n * nm + face.u * um + Vector3.new(0, vm, 0)
 					local cf = base * CFrame.fromMatrix(pos, face.u, Vector3.yAxis, -face.n)
 					local p = newPart(model, sp.k, Vector3.new(ub - ua, vtop - va, n1 - n0), cf, sp.shape)
-					finish(p, sp, mod.slot, ("%d:%d:%d"):format(pIndex, k, j), lit, hsh)
+					local upper = upperStyle and v0 > 0 and nv > 1 and k >= nv // 2
+					finish(p, sp, mod.slot, ("%d:%d:%d"):format(pIndex, k, j), lit, hsh, upper)
 					count += 1
 				end
 			end
@@ -412,7 +418,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 				size = Vector3.new(s[2], s[1], s[3])
 			end
 			local p = newPart(model, sp.k, size, cf, sp.shape)
-			finish(p, sp, mod.slot, ("r%d"):format(rIndex), false, 0)
+			finish(p, sp, mod.slot, ("r%d"):format(rIndex), false, 0, false)
 			count += 1
 		end
 	end
