@@ -1,0 +1,69 @@
+{
+  "name": "furniture",
+  "note": "Street furniture layer (tools/mapgen/furniture.py). All positions come from OSM nodes or from the rules below, relative to the road graph (centreline + width + sidewalk). Distances in studs (map-local, x0.5 compression, 0.28 m per stud) unless named _m.",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+  "raw": "data/osm/raw/pattaya_furniture_2026-10-19.json",
+  "query": "data/osm/queries/pattaya_furniture.overpassql",
+  "crs": "EPSG:32647",
+  "compression": 0.5,
+  "meters_per_stud": 0.28,
+  "chunk_size_studs": 512,
+  "inputs": {
+    "central": "central_pattaya",
+    "wide": "pattaya_wide",
+    "corridor_graph": "bira/corridor_graph_game.json",
+    "corridor_roblox": "bira/roblox_corridor"
+  },
+  "out_dir": "furniture",
+  "kerb_margin_studs": 3.0,
+  "prop_clearance_studs": 1.5,
+  "building_clearance_studs": 0.5,
+  "signals": {
+    "snap_to_junction_studs": 45,
+    "cluster_studs": 50,
+    "midblock_snap_studs": 14,
+    "rule_major_classes": ["trunk", "primary", "secondary"],
+    "rule_min_major_edges": 3,
+    "rule_min_gap_to_signal_studs": 120,
+    "setback_studs": 4,
+    "arm_max_studs": 24
+  },
+  "crossings": {
+    "snap_studs": 4,
+    "depth_studs": 6,
+    "bar_width_studs": 2.0,
+    "bar_gap_studs": 2.0,
+    "edge_inset_studs": 1.2,
+    "merge_studs": 14,
+    "skip_tags": {"crossing": ["no", "unmarked"], "crossing:markings": ["no"]},
+    "rule_at_signal_approaches": true,
+    "rule_skip_if_osm_within_studs": 25
+  },
+  "name_signs": {
+    "require_main_tier": true,
+    "min_distinct_names": 2,
+    "board_width_studs": 10
+  },
+  "bus": {
+    "snap_studs": 60,
+    "width_studs": 12,
+    "depth_studs": 5
+  },
+  "taxi": {
+    "snap_studs": 60,
+    "width_studs": 6,
+    "depth_studs": 3
+  },
+  "poles": {
+    "classes": ["residential", "unclassified"],
+    "min_edge_length_studs": 120,
+    "step_studs": 90,
+    "max_wire_factor": 1.6
+  },
+  "budget": {
+    "max_total_parts": 10000,
+    "pole_target_total_parts": 9600,
+    "max_parts_per_chunk": 600,
+    "batch_size_chunks": 8
+  }
+}
