@@ -57,6 +57,7 @@ local state = {
 	spin = 0,
 	fuel = 100,
 	boosting = false,
+	speed = 0,  -- forward speed of the last physics step (studs/s, signed), for the HUD telemetry below
 }
 
 local params = RaycastParams.new()
@@ -126,6 +127,20 @@ carLabel.TextXAlignment = Enum.TextXAlignment.Right
 carLabel.Text = ""
 carLabel.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
+
+-- Legacy hide (docs/UI_CONTRACT.md): while LocalPlayer attribute MidnightHUD == true (set locally by ui-core, per player,
+-- never replicated state) the new HUD (MidnightSpeedo / MidnightActivity + ui-core's key prompts) draws speed, nitro, car name and the key hint, so these step aside. The
+-- labels keep updating underneath; setting the attribute false brings them straight back.
+local function applyLegacyHide()
+	local show = player:GetAttribute("MidnightHUD") ~= true
+	speedLabel.Visible = show
+	nitroBack.Visible = show
+	nitroLabel.Visible = show
+	carLabel.Visible = show
+	hint.Visible = show
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
+applyLegacyHide()
 
 -- Actions (CAS also gives mobile buttons) ----------------------------------------
 local current -- {seat, chassis, mounts, wheels}
@@ -284,6 +299,7 @@ local function step(dt)
 	nitroFill.Size = UDim2.fromScale(state.fuel / tune.nitroMax, 1)
 	nitroFill.BackgroundColor3 = if state.boosting then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(0, 200, 255)
 	speedLabel.Text = string.format("%d km/h%s", math.floor(math.abs(fs) * 1.0 + 0.5), state.boosting and " NOS" or "")
+	state.speed = fs
 end
 
 -- Enter / exit ------------------------------------------------------------------
@@ -316,6 +332,10 @@ local function pickTune()
 		text ..= ("  ·  CAP %d"):format(cap)
 	end
 	carLabel.Text = text
+	-- HUD telemetry: what the car is (the model's own attributes, set by RaceCarServer from CarSpecs)
+	player:SetAttribute("HUD_CarName", if spec then spec.name else model.Name)
+	player:SetAttribute("HUD_Class", model:GetAttribute("Class") or "")
+	player:SetAttribute("HUD_PI", model:GetAttribute("PI") or 0)
 end
 player:GetAttributeChangedSignal("Equalised"):Connect(pickTune)
 player:GetAttributeChangedSignal("SpeedCap"):Connect(pickTune)
@@ -338,10 +358,13 @@ local function enter(seat)
 	gui.Enabled = true
 end
 
+local hudTelemetryReset -- forward (telemetry block below)
+
 local function exit()
 	current = nil
 	unbindActions()
 	gui.Enabled = false
+	hudTelemetryReset()
 end
 
 local function watchCharacter(character)
@@ -370,8 +393,46 @@ task.spawn(function()
 	end
 end)
 
+-- HUD telemetry (docs/UI_RACE_HUD.md) -------------------------------------------------------------------------------
+-- Published as LocalPlayer attributes at <= 20 Hz, only when a value changes. Read-only for the HUD scripts; nothing
+-- here feeds back into driving. HUD_SpeedKmh keeps the game's convention (studs/s shown 1:1 as km/h). Only measured
+-- values are published: there is no gearbox or engine model, so no gear / RPM attribute exists (owner rule).
+local TELEMETRY_DT = 1 / 20
+local tele = {acc = 0, last = {}}
+
+local function publish(name: string, value: any)
+	if tele.last[name] ~= value then
+		tele.last[name] = value
+		player:SetAttribute(name, value)
+	end
+end
+
+hudTelemetryReset = function()
+	publish("HUD_InCar", false)
+	publish("HUD_SpeedKmh", 0)
+	publish("HUD_Boosting", false)
+	publish("HUD_Drifting", false)
+end
+hudTelemetryReset()
+
+local function publishTelemetry()
+	local fs = state.speed
+	publish("HUD_InCar", true)
+	publish("HUD_SpeedKmh", math.floor(math.abs(fs) + 0.5))
+	-- percent of this car's tank (the muscle car's tank is 120): the same fraction the old CarHUD bar shows
+	publish("HUD_Nitro", math.floor(state.fuel / math.max(tune.nitroMax, 1) * 100 + 0.5))
+	publish("HUD_Boosting", state.boosting == true)
+	-- drifting = handbrake held while actually moving (the same > 40 studs/s rule that gives the drift nitro refill)
+	publish("HUD_Drifting", state.drift == true and math.abs(fs) > 40)
+end
+
 RunService.Heartbeat:Connect(function(dt)
 	if current and current.chassis.Parent then
 		step(math.min(dt, 1 / 30))
+		tele.acc += dt
+		if tele.acc >= TELEMETRY_DT then
+			tele.acc = 0
+			publishTelemetry()
+		end
 	end
 end)

@@ -43,6 +43,16 @@ if Style then
 end
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- Legacy hide (docs/UI_CONTRACT.md, docs/UI_RACE_HUD.md): while LocalPlayer attribute MidnightHUD == true (set locally
+-- by ui-core) the new MidnightActivity strip draws the event call (title, countdown, ring distance, J to join, round), so the
+-- EventHUD banner steps aside (the beacon arrow and the J binding stay). Everything keeps updating underneath and the
+-- attribute going false shows it again; remotes, bindings and world effects are unchanged.
+local function applyLegacyHide()
+	gui.Enabled = player:GetAttribute("MidnightHUD") ~= true
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
+applyLegacyHide()
+
 local function inCar(): BasePart?
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 	local seat = hum and hum.SeatPart
