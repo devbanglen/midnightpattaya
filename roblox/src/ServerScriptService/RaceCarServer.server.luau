@@ -249,6 +249,11 @@ local function buildCar(cf, color, id, opts)
 			return
 		end
 		if plr then hideDriver(hum.Parent) end
+		-- SetNetworkOwner errors on an anchored assembly (a car held on a race grid, mid reset or travel); whoever
+		-- un-anchors it hands it over (PattayaStreetRace, RaceSessionService)
+		if not chassis:CanSetNetworkOwnership() then
+			return
+		end
 		if plr then
 			chassis:SetNetworkOwner(plr)
 		elseif chassis:IsDescendantOf(workspace) then

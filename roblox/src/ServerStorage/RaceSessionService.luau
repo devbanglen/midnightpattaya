@@ -189,7 +189,9 @@ local function placeChassis(plr: Player, chassis: BasePart, surface: CFrame, hol
 		task.delay(0.5, function()
 			if chassis.Parent and chassis.Anchored then
 				chassis.Anchored = false
-				pcall(function() chassis:SetNetworkOwner(plr) end)
+				-- a driver who got out meanwhile must not keep simulating the parked car
+				local owner = if Route.carOf(plr) == chassis then plr else nil
+				pcall(function() chassis:SetNetworkOwner(owner) end)
 			end
 		end)
 	end
@@ -199,7 +201,8 @@ local function release(part)
 	local chassis = part.chassis
 	if chassis and chassis.Parent and chassis.Anchored then
 		chassis.Anchored = false
-		pcall(function() chassis:SetNetworkOwner(part.plr) end)
+		local owner = if Route.carOf(part.plr) == chassis then part.plr else nil
+		pcall(function() chassis:SetNetworkOwner(owner) end)
 	end
 end
 
@@ -262,7 +265,11 @@ local function newSession(c, kind: string, mode: string, opts, owner: Player?)
 		end
 		if next(allowed) == nil then allowed = nil end
 	end
-	local laps = math.clamp(math.floor(tonumber(opts.laps) or 3), 1, MAX_LAPS)
+	local lapsIn = tonumber(opts.laps)
+	if lapsIn ~= lapsIn or lapsIn == math.huge or lapsIn == -math.huge then
+		lapsIn = nil -- NaN / inf from a client: NaN laps never finish and the safety time limit is NaN too
+	end
+	local laps = math.clamp(math.floor(lapsIn or 3), 1, MAX_LAPS)
 	local collisions
 	if mode == "PrivateRoom" then
 		collisions = opts.collisions ~= false

@@ -25,6 +25,8 @@ Progress.expToNext = expToNext
 local extra: {[Player]: {[string]: any}} = {}
 -- players whose saved record could not be read: never overwrite their record with session defaults
 local loadFailed: {[Player]: boolean} = {}
+-- players whose record has been read (or there is no store): until then the values are defaults, never save them
+local loaded: {[Player]: boolean} = {}
 
 local function stats(plr: Player)
 	return plr:FindFirstChild("leaderstats")
@@ -50,11 +52,26 @@ local function setup(plr: Player)
 	ls.Parent = plr
 	extra[plr] = {}
 	if store then
-		local ok, data = pcall(function()
-			return (store :: any):GetAsync("p" .. plr.UserId)
-		end)
+		local ok, data
+		for attempt = 1, 3 do -- a single transient DataStore error used to disable saving for the whole session
+			ok, data = pcall(function()
+				return (store :: any):GetAsync("p" .. plr.UserId)
+			end)
+			if ok or not plr.Parent then
+				break
+			end
+			task.wait(attempt)
+		end
+		if not plr.Parent then
+			-- left while the record was loading: PlayerRemoving has run already, don't leave state behind
+			extra[plr] = nil
+			loadFailed[plr] = nil
+			return
+		end
 		if not ok then
 			loadFailed[plr] = true
+			warn(("PattayaProgress: could not load %s's progress (%s); it will not be saved this session")
+				:format(plr.Name, tostring(data)))
 		end
 		if ok and type(data) == "table" then
 			level.Value = data.level or 1
@@ -67,19 +84,23 @@ local function setup(plr: Player)
 			end
 		end
 	end
+	loaded[plr] = true
 	plr:SetAttribute("ProgressLoaded", true) -- GetData is meaningful from here on
 end
 
 local function save(plr: Player)
 	local ls = stats(plr)
-	if not (store and ls and extra[plr]) or loadFailed[plr] then
+	if not (store and ls and extra[plr] and loaded[plr]) or loadFailed[plr] then
 		return
 	end
 	local data = {level = ls.Level.Value, money = ls.Money.Value, exp = ls.EXP.Value, title = ls.Title.Value,
 		roadFight = plr:GetAttribute("RoadFight") or 0, extra = extra[plr]}
-	pcall(function()
+	local ok, err = pcall(function()
 		(store :: any):SetAsync("p" .. plr.UserId, data)
 	end)
+	if not ok then
+		warn(("PattayaProgress: saving %s's progress failed: %s"):format(plr.Name, tostring(err)))
+	end
 end
 
 -- Returns the number of levels gained.
@@ -138,6 +159,7 @@ function Progress.Start()
 		save(p) -- builds the record before it yields
 		extra[p] = nil
 		loadFailed[p] = nil
+		loaded[p] = nil
 	end)
 	game:BindToClose(function()
 		for _, p in Players:GetPlayers() do
