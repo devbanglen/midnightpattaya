@@ -4,6 +4,8 @@
 
 Writes data/osm/normalized/<name>.json with roads, coastline, buildings, landuse/water/beach areas and named POIs.
 Nothing is moved or simplified here; gameplay changes happen later in road_graph.py on a separate layer.
+A config may list several raw files under "sources" (e.g. the central download plus the wide-world parts); elements
+are merged by (type, id) and the first file that has an element wins, so the central data stays exactly as built.
 """
 import json, os, sys
 
@@ -12,7 +14,18 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 def main(cfg_path):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
-    raw = json.load(open(os.path.join(ROOT, cfg['source']), encoding='utf-8'))
+    if 'sources' in cfg:
+        raws = [json.load(open(os.path.join(ROOT, f), encoding='utf-8')) for f in cfg['sources']]
+        seen, elements = set(), []
+        for r in raws:
+            for e in r['elements']:
+                if (e['type'], e['id']) not in seen:
+                    seen.add((e['type'], e['id'])); elements.append(e)
+        bases = sorted({r.get('osm3s', {}).get('timestamp_osm_base') or '?' for r in raws})
+        raw = {'elements': elements, 'osm3s': {'timestamp_osm_base': bases[0] if len(bases) == 1 else ' / '.join(bases)}}
+        print(f"merged {len(cfg['sources'])} raw files: {sum(len(r['elements']) for r in raws)} elements -> {len(elements)} unique")
+    else:
+        raw = json.load(open(os.path.join(ROOT, cfg['source']), encoding='utf-8'))
     out = {'name': cfg['name'], 'attribution': cfg['attribution'], 'source': cfg['source'],
            'osm_base': raw.get('osm3s', {}).get('timestamp_osm_base'),
            'roads': [], 'coastline': [], 'buildings': [], 'areas': [], 'pois': []}

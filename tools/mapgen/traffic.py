@@ -6,6 +6,8 @@ Writes build/<name>/traffic.json: closed driving loops (random walk on the direc
 roads, closed with a shortest path back), already offset into the left-hand lane (Thailand drives on the left).
 The client moves cars along them as a pure function of server time, so every player sees the same traffic with no
 network traffic. One-way roads are respected (edge a -> b).
+With a "base" block (wide world) the base build's loops are copied verbatim first and the new loops start on new
+(non-base) main roads; they may run through the base slice like real traffic does.
 """
 import hashlib, heapq, json, math, os, random, sys
 from collections import defaultdict
@@ -50,6 +52,8 @@ def main(cfg_path):
             out[e['b']].append((i, e['a'], False))
     elen = [plen(e['pts']) for e in edges]
     main_edges = [i for i, e in enumerate(edges) if e['tier'] == 'main' and elen[i] > 40]
+    if 'base' in cfg:
+        main_edges = [i for i in main_edges if not edges[i].get('base')]
 
     def back_path(src, dst):
         """directed Dijkstra src -> dst; sois cost more."""
@@ -127,6 +131,10 @@ def main(cfg_path):
                        'speed': round(rng.uniform(*T['speed_studs_s']), 1), 'cars': cars,
                        'kinds': [rng.choices(range(len(T['kind_weights'])), T['kind_weights'])[0] for _ in range(cars)],
                        'phase': round(rng.uniform(0, L), 1)})
+    if 'base' in cfg:
+        base_routes = json.load(open(os.path.join(ROOT, cfg['base']['build'], 'traffic.json'), encoding='utf-8'))['routes']
+        print(f'{len(base_routes)} base loops copied from {cfg["base"]["build"]}; {len(routes)} new loops')
+        routes = base_routes + routes
     ghash = hashlib.sha1(open(gpath, 'rb').read()).hexdigest()
     out_path = os.path.join(ROOT, 'build', cfg['name'], 'traffic.json')
     json.dump({'graph_sha1': ghash, 'routes': routes}, open(out_path, 'w', encoding='utf-8'))
