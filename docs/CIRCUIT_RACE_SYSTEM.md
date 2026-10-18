@@ -522,5 +522,13 @@ car's own raycast suspension handled the hills):**
 - Venue geometry before this: 5,106 raycast probes (centre + both track edges) hit track at every point, mean error
   0.02 studs, max 0.29, max step between points 0.66 — after the run-off fix in `CircuitBuilder` (see
   BIRA_CIRCUIT_DESIGN.md).
-- Not tested: pit entry/exit on Bira, a race on Bira, two players, performance (FPS) at the venue, the drive from
-  the city (the corridor is not yet merged into the road graph).
+- **Pit lap on Bira:** driven round to the pit entry, through the 378-point pit lane at ≤48 studs/s (server showed
+  `CircuitPit` from the entry gate to the exit), rejoined and crossed the line: lap valid, 107.77 s. So pit entry and
+  exit are usable and a pit lap counts.
+- The lap before it (lap 3) was reported invalid for "wrong way": that lap included a two-minute pause on a slope
+  between test runs, and the parked car most likely rolled backwards more than 30 studs (`CircuitWrongWay` was
+  clear afterwards). Probable cause only, not reproduced.
+- FPS at the venue in that long (20-minute, 2.9 GB) session: 15 average, worst frame 71 ms. Long sessions degraded
+  before, so the number from a fresh session is the one that counts (see the status row).
+- Not tested: a race on Bira, two players, the drive from the city (the corridor is not yet merged into the road
+  graph).
