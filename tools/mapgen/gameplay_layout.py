@@ -248,6 +248,35 @@ def main(cfg_path):
                               'dx': round(d[0], 3), 'dz': round(d[1], 3), 'span': round(e['width'] + 2 * e['sidewalk'] + 4, 1),
                               'source': f"OSM way {e['way']} ({e['name_en'] or e['name']})"})
 
+    # --- job stands (taxi pick-up / delivery depots, RayCity-style missions) at real POIs ---------------------------
+    # the stand sits in the kerb lane of the nearest road, on the side the POI is on
+    stands = []
+    for js in L.get('job_stands', []):
+        poi = next((p for p in src['pois'] if p['id'] == js['osm_id']), None)
+        if poi is None:
+            print(f"job stand {js['id']}: OSM node {js['osm_id']} not in the data, skipped")
+            continue
+        x, y = tf.transform(poi['lon'], poi['lat'])
+        pt = Point((x - ox) * kk, -(y - oy) * kk)
+        e = min((e for e in edges if e['tier'] != 'express'), key=lambda e: LineString(e['pts']).distance(pt))
+        ln = LineString(e['pts'])
+        snap = ln.distance(pt)
+        if snap > L.get('job_stand_max_snap_studs', 120):
+            print(f"job stand {js['id']}: nearest road is {snap:.0f} studs away, skipped")
+            continue
+        s = min(max(ln.project(pt), 8), max(ln.length - 8, 8))   # keep off the junction at the edge ends
+        p = ln.interpolate(s)
+        a_, b_ = ln.interpolate(max(s - 3, 0)), ln.interpolate(min(s + 3, ln.length))
+        d = np.array([b_.x - a_.x, b_.y - a_.y]); d /= np.linalg.norm(d)
+        nrm = np.array([-d[1], d[0]])
+        side = 1 if (np.array([pt.x - p.x, pt.y - p.y]) @ nrm) >= 0 else -1
+        pos = np.array([p.x, p.y]) + nrm * side * max(e['width'] / 2 - 6, 0)
+        stands.append({'id': js['id'], 'kind': js['kind'], 'label': js['label'], 'x': round(pos[0], 2), 'z': round(pos[1], 2),
+                       'dx': round(d[0], 3), 'dz': round(d[1], 3),
+                       'kx': round(nrm[0] * side, 3), 'kz': round(nrm[1] * side, 3),   # towards the kerb / the POI
+                       'source': f"OSM node {js['osm_id']} ({poi['name_en'] or poi['name']}) snapped to way {e['way']}",
+                       'snap_studs': round(snap, 1)})
+
     # route centreline for GPS / minimap / test autopilot: resampled every 20 studs
     # starts at gate 1 so path[1] is the start/finish line
     path = [[round(line.interpolate(s % total).x, 1), round(line.interpolate(s % total).y, 1)]
@@ -258,12 +287,13 @@ def main(cfg_path):
                     'route_edges': route_edges, 'checkpoints': checkpoints, 'grid': grid,
                     'legs': [l['names'][0] for l in legs]},
            'spawn': {'x': round(spawn[0], 2), 'z': round(spawn[1], 2)},
-           'palms': palms, 'lights': lights, 'signs': signs, 'landmarks': landmarks}
+           'palms': palms, 'lights': lights, 'signs': signs, 'landmarks': landmarks, 'job_stands': stands}
     out_dir = os.path.join(ROOT, 'build', cfg['name'])
     json.dump(out, open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8'), ensure_ascii=False)
     print(f"race '{L['race_name']}': {total:,.0f} studs per lap ({total * cfg['meters_per_stud']:,.0f} m in-game), "
           f"{len(route_edges)} edges, {len(checkpoints)} checkpoints, {len(grid)} grid slots")
     print(f'props: {len(palms)} palms, {len(lights)} street lights, {len(signs)} neon signs; landmarks: {[l["id"] for l in landmarks]}')
+    print(f'job stands: {len(stands)} ' + ', '.join(f"{s['id']} ({s['snap_studs']})" for s in stands))
 
     # check image
     allp = np.array([p for e in edges for p in e['pts']])
@@ -282,6 +312,9 @@ def main(cfg_path):
     x, y = tr((checkpoints[0]['x'], checkpoints[0]['z'])); dr.rectangle([x - 7, y - 7, x + 7, y + 7], outline=(0, 0, 0), width=3)
     for l in landmarks:
         x, y = tr((l['x'], l['z'])); dr.polygon([(x, y - 9), (x - 7, y + 6), (x + 7, y + 6)], fill=(200, 0, 200))
+    for s_ in stands:
+        x, y = tr((s_['x'], s_['z']))
+        dr.ellipse([x - 6, y - 6, x + 6, y + 6], fill=(250, 200, 0) if s_['kind'] == 'taxi' else (0, 170, 120), outline=(0, 0, 0))
     im.save(os.path.join(out_dir, 'layout_check.png'))
 
 

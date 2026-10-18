@@ -58,7 +58,55 @@ Capacity 100.
 - Data is saved with DataStoreService under `PattayaProgress_v1`. In Studio this needs "Enable Studio Access to
   API Services". Without it the values last for the session only; the code handles that with a warning.
 
+## 5. Taxi and delivery jobs (RayCity missions)
+Generator: `job_stands` in the `layout` config block. `gameplay_layout.py` snaps each OSM POI to the kerb lane of
+the nearest non-express road (skipped if that road is more than 220 studs away). `export_roblox.py` writes
+`jobs.luau`. Runtime: `PattayaJobsServer`, `PattayaJobsClient`. Route finding uses `ServerStorage.PattayaRoute`, which
+Street Sprint also uses now.
+- There are 12 stands. Taxi (yellow): Central Festival, Terminal 21, Walking Street, Alcazar, Tiffany's, Art in
+  Paradise, Pattaya Police Station. Delivery (green): Made in Thailand Night Plaza, Bua Khao Market, Wat Chai Mongkhon
+  Market, Hong Tu La Night Market, Windy Plaza. Bali Hai Pier was skipped because no road is within reach (the OSM
+  node is at the end of the pier).
+- To take a job, stop (below 30 studs/s) inside a stand's ring and press **E** (Y on a gamepad, a TAXI/JOB button on
+  mobile). The server picks another stand 900 to 3,200 studs away by road.
+- On the client you get a GPS line drawn on the road (RayCity auto-navigation), a beacon at the destination, a gold
+  arrow over the car, and a HUD with distance, time left and fare.
+- The route is only a guide; any way there counts. Stop inside the destination ring to finish. Press E again to
+  cancel.
+
+| | Taxi | Delivery |
+|---|---|---|
+| Time limit | 20 s + length/70 | 15 s + length/85 |
+| Fare | 60 + length/10 | 80 + length/8 |
+| EXP | length/18 | length/22 |
+| Each knock | −12% | −15% |
+| Tip | 1.5 ฿ per second left | 2 ฿ per second left |
+
+- Knocks are capped at −60% in total.
+- **What counts as a knock:** ground speed is measured from the car's position at 10 Hz. A knock is a drop of more
+  than 55 studs/s within 0.35 s that holds for two samples.
+  - Full braking (130 studs/s²) loses at most 45 studs/s in that window, so it never counts.
+  - Replicated velocity was tried first and gave false knocks on corners.
+- The job fails if the time runs out ("Too late! The customer left") or you leave the car. The same 260 studs/s
+  teleport check applies, measured once a second.
+- You can't take a job during a race or sprint, and you can't start a sprint or race during a job.
+- Near-miss and jump tips (RayCity "thrill") need traffic, which isn't built yet.
+
+The loop race also ignores any sample-to-sample jump longer than 60 studs. In testing, a teleport (respawn or a
+test move) from the grid across gate 1 started a race.
+
 ## Tested (2026-10-18, Studio Play, client-owned car moved by a client-side test autopilot at 140 studs/s)
+- **Jobs:**
+  - Delivery Windy Plaza → Wat Chai Mongkhon (2,135 studs): road under the car at 116/116 samples. It paid, but the
+    old velocity-based knock check counted 2 knocks for 1 staged crash, which led to the fix above.
+  - After the fix, taxi Central Festival → Night Plaza (2,327 studs, limit 53 s): 1 staged crash (0.4 s dead stop)
+    gave exactly 1 knock, and braking at 100 studs/s² into the stop gave none. Finished in 22.1 s and paid
+    292 × 0.88 + 46 tip = 302 ฿, +129 EXP.
+  - A request from 80 studs away was refused. Sprint during a job was refused. Cancel cleared the job and the route
+    line.
+  - Waiting out the limit (46 s) gave "Too late! The customer left" and no money.
+- **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
+  race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.
   - Road under the car at 5,740 of 5,740 samples.
   - States went racing → finished, and the car stayed "finished" while parked past the line.

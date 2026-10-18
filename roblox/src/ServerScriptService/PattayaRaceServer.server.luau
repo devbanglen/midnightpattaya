@@ -40,6 +40,10 @@ local states = {} -- [player] = {lap, next, start, lastGateAt, lastGatePos}
 local lastPos = {} -- [player] = Vector3 (previous sample)
 
 local function crossed(gate: BasePart, a: Vector3, b: Vector3): boolean
+	-- a sample-to-sample jump this long is a respawn/teleport, not driving (215 studs/s at 20 Hz is ~11 studs)
+	if (b - a).Magnitude > 60 then
+		return false
+	end
 	local ra = gate.CFrame:PointToObjectSpace(a)
 	local rb = gate.CFrame:PointToObjectSpace(b)
 	-- the gate faces along the route: forward is -Z in object space, so a forward crossing goes from +Z to -Z
@@ -84,7 +88,8 @@ RunService.Heartbeat:Connect(function()
 		end
 		local st = states[plr]
 		if not st then
-			if crossed(gates[1], prev, pos) and plr:GetAttribute("SprintActive") ~= true then
+			if crossed(gates[1], prev, pos) and plr:GetAttribute("SprintActive") ~= true
+				and plr:GetAttribute("JobActive") ~= true then
 				st = {lap = 1, next = 2, start = now, lastGateAt = now, lastGatePos = pos}
 				states[plr] = st
 				plr:SetAttribute("RaceState", "racing")

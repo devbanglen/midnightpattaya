@@ -52,7 +52,23 @@
     "signs": {"centre_osm_id": 1207751537, "radius_studs": 900, "probability": 0.75, "max": 450},
     "landmarks": [
       {"id": "walking_street_gate", "kind": "gate", "label": "WALKING STREET", "at": "poi", "osm_id": 1207751537}
-    ]
+    ],
+    "job_stands": [
+      {"id": "central_festival", "kind": "taxi", "label": "Central Festival", "osm_id": 415291919},
+      {"id": "terminal21", "kind": "taxi", "label": "Terminal 21", "osm_id": 9739900840},
+      {"id": "bali_hai", "kind": "taxi", "label": "Bali Hai Pier", "osm_id": 1199397671},
+      {"id": "walking_street", "kind": "taxi", "label": "Walking Street", "osm_id": 1207751537},
+      {"id": "alcazar", "kind": "taxi", "label": "Alcazar Cabaret", "osm_id": 153538106},
+      {"id": "tiffanys", "kind": "taxi", "label": "Tiffany's Show", "osm_id": 279387367},
+      {"id": "art_in_paradise", "kind": "taxi", "label": "Art in Paradise", "osm_id": 211144566},
+      {"id": "police_station", "kind": "taxi", "label": "Pattaya Police Station", "osm_id": 153538034},
+      {"id": "night_plaza", "kind": "delivery", "label": "Made in Thailand Night Plaza", "osm_id": 167314167},
+      {"id": "bua_khao", "kind": "delivery", "label": "Bua Khao Market", "osm_id": 170594051},
+      {"id": "chai_mongkhon", "kind": "delivery", "label": "Wat Chai Mongkhon Market", "osm_id": 311526196},
+      {"id": "hong_tu_la", "kind": "delivery", "label": "Hong Tu La Night Market", "osm_id": 27487186},
+      {"id": "windy_plaza", "kind": "delivery", "label": "Windy Plaza", "osm_id": 153537963}
+    ],
+    "job_stand_max_snap_studs": 220
   },
 
   "buildings": {

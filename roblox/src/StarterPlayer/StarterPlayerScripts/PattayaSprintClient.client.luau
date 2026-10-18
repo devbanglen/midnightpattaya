@@ -177,6 +177,7 @@ ContextActionService:SetPosition("StreetSprint", UDim2.new(1, -200, 1, -240))
 RunService.RenderStepped:Connect(function()
 	local chassis = inCar()
 	hint.Visible = chassis ~= nil and sprint == nil and player:GetAttribute("RaceState") ~= "racing"
+		and player:GetAttribute("JobActive") ~= true
 	if not sprint then
 		return
 	end
