@@ -34,11 +34,13 @@ end
 local C = Color3.fromRGB
 local PRESETS = {
 	night = {
-		Ambient = C(22, 18, 42), OutdoorAmbient = C(44, 40, 82), Brightness = 1.2, ExposureCompensation = 0.1,
-		EnvironmentDiffuseScale = 0.25, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(70, 40, 140),
-		atmo = {Density = 0.33, Offset = 0.1, Color = C(70, 45, 120), Decay = C(25, 12, 50), Glare = 0, Haze = 1.6},
-		bloom = {Intensity = 1.1, Size = 28, Threshold = 0.9},
-		grade = {Brightness = 0, Contrast = 0.12, Saturation = 0.18, TintColor = C(228, 218, 255)},
+		-- the first night preset was too dark to see the road (owner, 2026-10-18): lifted ambient/exposure, less fog.
+		-- Lighting attribute NightExposure (default 0) adds to ExposureCompensation at night for live tuning.
+		Ambient = C(74, 70, 104), OutdoorAmbient = C(118, 112, 160), Brightness = 1.7, ExposureCompensation = 0.55,
+		EnvironmentDiffuseScale = 0.45, EnvironmentSpecularScale = 0.8, ColorShift_Top = C(90, 60, 160),
+		atmo = {Density = 0.26, Offset = 0.12, Color = C(90, 65, 140), Decay = C(40, 25, 70), Glare = 0, Haze = 1.1},
+		bloom = {Intensity = 1.0, Size = 24, Threshold = 0.92},
+		grade = {Brightness = 0.04, Contrast = 0.1, Saturation = 0.16, TintColor = C(232, 224, 255)},
 	},
 	dusk = {
 		Ambient = C(70, 50, 72), OutdoorAmbient = C(140, 92, 112), Brightness = 1.7, ExposureCompensation = 0,
@@ -122,6 +124,12 @@ local function applyPreset()
 	local pa, pb, f = presetAt(Lighting.ClockTime % 24)
 	for _, prop in LIGHTING_PROPS do
 		L[prop] = lerp(pa[prop], pb[prop], f)
+	end
+	-- live tuning knob: Lighting attribute NightExposure (e.g. 0.3 brighter, -0.3 darker) scaled by how "night" it is
+	local boost = Lighting:GetAttribute("NightExposure")
+	if type(boost) == "number" and boost ~= 0 then
+		local w = (if pa == PRESETS.night then 1 - f else 0) + (if pb == PRESETS.night then f else 0)
+		L.ExposureCompensation += boost * w
 	end
 	for key, e in effects do
 		local inst = e.inst
