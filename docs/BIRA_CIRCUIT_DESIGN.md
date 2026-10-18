@@ -193,3 +193,7 @@ For RaceSessionService once its pending test is done. Nothing here is implemente
 - Transition road 34 points and paddock road 10 points all on their slabs (max error 0.04); the plaza (`Parking`)
   surrounds the transition road at y 1 up to 26 studs either side; the paddock point sits on the `Apron` at y 1.
 - 57 `NightNeon` parts and 148 `FloodLight` parts carry their attributes for PattayaNightLights.
+- Play (night locked): travel lands on the new paddock (apron, y 1); all 35 streamed `NightNeon` parts turned Neon
+  and 24 of 60 streamed venue SpotLights were on (the LOD range cap). Driving north off the paddock apron dropped
+  the car onto terrain at y −8 (that side is not flattened), but driving back climbed onto the apron again (shoulders
+  work). The ground beside the transition road and plaza was not re-tested by driving.
