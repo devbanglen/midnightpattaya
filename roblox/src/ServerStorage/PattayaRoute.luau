@@ -88,23 +88,49 @@ function Route.nearestEdge(p: Vector2): (number?, Vector2?, number, number)
 	return bestE, bestQ, bestD, bestS
 end
 
--- Dijkstra from one node, or from several seeds {[node] = starting cost}.
+-- Dijkstra from one node, or from several seeds {[node] = starting cost}. Binary heap: the wide world has ~3,000
+-- nodes, and the old linear scan was O(n^2) per route.
 function Route.dijkstra(src: number | {[number]: number})
 	local dist, prev, done = {}, {}, {}
-	if type(src) == "table" then
-		for n, d in src do dist[n] = d end
-	else
-		dist[src] = 0
+	local heap = {} -- {cost, node}
+	local function push(c: number, n: number)
+		table.insert(heap, {c, n})
+		local i = #heap
+		while i > 1 do
+			local p = i // 2
+			if heap[p][1] <= heap[i][1] then break end
+			heap[p], heap[i] = heap[i], heap[p]
+			i = p
+		end
 	end
-	while true do
-		local best, bd = nil, math.huge
-		for n, d in dist do
-			if not done[n] and d < bd then
-				best, bd = n, d
+	local function pop()
+		local top = heap[1]
+		local last = table.remove(heap)
+		if #heap > 0 then
+			heap[1] = last
+			local i = 1
+			while true do
+				local l, r, s = 2 * i, 2 * i + 1, i
+				if l <= #heap and heap[l][1] < heap[s][1] then s = l end
+				if r <= #heap and heap[r][1] < heap[s][1] then s = r end
+				if s == i then break end
+				heap[s], heap[i] = heap[i], heap[s]
+				i = s
 			end
 		end
-		if not best then
-			break
+		return top
+	end
+	if type(src) == "table" then
+		for n, d in src do dist[n] = d; push(d, n) end
+	else
+		dist[src] = 0
+		push(0, src)
+	end
+	while #heap > 0 do
+		local top = pop()
+		local bd, best = top[1], top[2]
+		if done[best] or bd > (dist[best] or math.huge) then
+			continue
 		end
 		done[best] = true
 		for _, link in adjacency[best] do
@@ -113,6 +139,7 @@ function Route.dijkstra(src: number | {[number]: number})
 			if nd < (dist[m] or math.huge) then
 				dist[m] = nd
 				prev[m] = {best, link}
+				push(nd, m)
 			end
 		end
 	end
