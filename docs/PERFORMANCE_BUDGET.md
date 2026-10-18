@@ -213,3 +213,12 @@ these tiles (`data/dem/` in their checkout). Not used here because every road, b
 car controller assume one flat road top (y = 1); hills need builder + chassis + traffic work first. If added it must
 be an optional config flag, off by default, sampling node heights from the tiles (ODbL-compatible attribution
 "Mapzen/Tilezen Terrain Tiles, SRTM and others").
+
+## Leader's first LOD test (2026-10-18, Play at the central grid, night locked at 21:00, Studio unfocused)
+- No script errors with PattayaLOD + the new NightLights installed; `PerfProfile.apply("pc")` set the LOD knobs
+  (the Workspace streaming properties are not scriptable: the owner sets them by hand, see HOW_TO_PLAY_TH.md).
+- PerfProbe: Heartbeat 60/s (p99 18.9 ms), RenderStepped 15/s because Studio was unfocused (`renderLooksFocused=false`,
+  so no render FPS claim); InstanceCount 60,188; parts streamed 4,819 (866 in view); textures streamed 2,628,
+  visible 444, **hidden by LOD 2,200**; SpotLights streamed 71, **on 9** (all within 350 studs; the cap of 60 was
+  not reached); traffic models 46; memory: BaseParts 213 MB, GraphicsTexture 115 MB, Terrain 36 MB.
+- Not measured: render FPS with Studio focused, the wide districts at night, mobile.
