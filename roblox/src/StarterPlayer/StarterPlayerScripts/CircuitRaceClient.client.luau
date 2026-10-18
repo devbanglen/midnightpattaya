@@ -7,6 +7,8 @@
 --   personal best, yellow = slower, red = invalid lap), live timing tower, start lights, results.
 -- * Warnings: WRONG WAY, TRACK LIMITS, PIT LANE limiter with your speed, penalties.
 -- * Spectating: Z / X switch car, B stop.
+-- * Ranked (when the server has it on): RANKED tag on the menu entry and the tower, your rating and the class board in
+--   the menu, rating and change per driver on the results screen. The server computes every number.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
@@ -24,6 +26,7 @@ local WHITE = Color3.fromRGB(255, 255, 255)
 local DIM = Color3.fromRGB(170, 180, 200)
 local CYAN = Color3.fromRGB(0, 220, 255)
 local PANEL = Color3.fromRGB(12, 12, 20)
+local RANKED = Color3.fromRGB(255, 160, 40)
 local SPLIT = {
 	purple = Color3.fromRGB(175, 70, 255),
 	green = Color3.fromRGB(40, 210, 90),
@@ -139,7 +142,7 @@ end
 local lightsInfo = nil -- {at, interval, count, outAt}
 
 -- results
-local results = box(gui, UDim2.new(0.5, -330, 0.5, -190), UDim2.fromOffset(660, 380), PANEL, 0.08)
+local results = box(gui, UDim2.new(0.5, -330, 0.5, -205), UDim2.fromOffset(660, 410), PANEL, 0.08)
 results.Visible = false
 local resultsTitle = text(results, UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 30), "RESULTS", CYAN, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
 local resultLines = {}
@@ -148,6 +151,8 @@ for i = 1, 13 do
 	resultLines[i].TextScaled = false
 	resultLines[i].TextSize = 15
 end
+-- ranked: your rating, or why the race did not count
+local rankLine = text(results, UDim2.fromOffset(16, 376), UDim2.new(1, -32, 0, 22), "", RANKED, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
 
 -- spectator bar
 local specBar = box(gui, UDim2.new(0.5, -250, 1, -120), UDim2.fromOffset(500, 34))
@@ -316,11 +321,19 @@ render = function(info)
 	end
 	-- races
 	row("RACES", CYAN)
+	local rk = info.ranked
+	if rk then
+		row(("RANKED ON  -  %s  -  your %s rating %s%s"):format(rk.season, string.upper(rk.bucket),
+			if rk.rating then tostring(rk.rating) else "-",
+			if rk.provisional then ("  (PROVISIONAL %d/%d)"):format(rk.races or 0, rk.provisionalRaces) else ""), RANKED, 40)
+	end
 	local f = info.formal
 	if f then
 		local classes = if f.classes then table.concat(f.classes, ", ") else "all classes"
-		row(("%s%s: %s, %d laps, %d drivers, %s, collisions %s"):format(f.mode, if f.owner then " of " .. f.owner else "",
-			f.state, f.laps, f.count, classes, if f.collisions then "on" else "off"), WHITE, 40)
+		local tag = if f.ranked and f.rankedOk then "[RANKED] " elseif f.ranked then "[UNRANKED: too few laps] " else ""
+		row(("%s%s%s: %s, %d laps, %d drivers, %s, collisions %s"):format(tag, f.mode,
+			if f.owner then " of " .. f.owner else "", f.state, f.laps, f.count, classes,
+			if f.collisions then "on" else "off"), if f.ranked then RANKED else WHITE, 40)
 		if f.canJoin then
 			button(("Join race%s"):format(if f.formLeft and not f.private then (" (starts in %d s)"):format(f.formLeft) else ""),
 				Color3.fromRGB(0, 140, 60), function()
@@ -356,7 +369,11 @@ render = function(info)
 			opt.gridBy = if opt.gridBy == "pb" then "join" else "pb"
 			render(lastInfo)
 		end)
-		button(("Start a public race (%d laps, forms 25 s)"):format(opt.laps), Color3.fromRGB(0, 140, 60), function()
+		local rankedTag = ""
+		if rk then
+			rankedTag = if opt.laps >= rk.minLaps then "  RANKED" else ("  unranked: %d+ laps"):format(rk.minLaps)
+		end
+		button(("Start a public race (%d laps, forms 25 s)%s"):format(opt.laps, rankedTag), Color3.fromRGB(0, 140, 60), function()
 			request("join", {mode = "CircuitRace", circuit = at.id, laps = opt.laps, gridBy = opt.gridBy})
 			menu.Visible = false
 		end)
@@ -386,6 +403,17 @@ render = function(info)
 	button("Friends board", Color3.fromRGB(50, 50, 70), function()
 		request("friends", at.id)
 	end)
+	if rk then
+		row(("RANKED BOARD  -  %s  -  %s"):format(string.upper(rk.bucket), rk.season), RANKED)
+		if rk.top and #rk.top > 0 then
+			for i, r in rk.top do
+				row(("%d. %d  %s%s"):format(i, r.rating, r.name, if r.provisional then "  (P)" else ""), WHITE)
+			end
+			row(("(P) = provisional: fewer than %d ranked races"):format(rk.provisionalRaces))
+		else
+			row("No ranked results yet in this class.")
+		end
+	end
 end
 
 closeBtn.Activated:Connect(function()
@@ -500,10 +528,15 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 		end)
 	elseif kind == "tower" then
 		local rows = payload.rows or {}
-		tower.Size = UDim2.fromOffset(300, 8 + math.min(#rows, 12) * 18)
+		local head = if payload.ranked then 1 else 0 -- a RANKED header line takes the first row
+		tower.Size = UDim2.fromOffset(300, 8 + (math.min(#rows, 12 - head) + head) * 18)
 		for i = 1, 12 do
-			local r = rows[i]
-			if r then
+			local r = rows[i - head]
+			towerLines[i].TextColor3 = WHITE
+			if head == 1 and i == 1 then
+				towerLines[i].Text = "RANKED RACE"
+				towerLines[i].TextColor3 = RANKED
+			elseif r then
 				if payload.mode == "CircuitRace" or payload.mode == "PrivateRoom" then
 					towerLines[i].Text = ("%2d %-14s L%d %s %s"):format(r.pos, string.sub(r.name, 1, 14), r.lap, r.gap, r.status)
 				else
@@ -515,20 +548,46 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 		end
 		tower:SetAttribute("Until", os.clock() + 3)
 	elseif kind == "results" then
-		resultsTitle.Text = ("%s  -  %s  -  %d laps"):format(payload.name, payload.mode, payload.laps)
-		resultLines[1].Text = "POS DRIVER          TIME       PEN  BEST LAP   REWARD"
+		local ranked = payload.ranked == true
+		resultsTitle.Text = ("%s  -  %s  -  %d laps%s"):format(payload.name, payload.mode, payload.laps,
+			if ranked then "  -  RANKED " .. string.upper(payload.bucket or "") else "")
+		-- ranked rows carry the rating column, so the name is shorter and the text a little smaller
+		local nameW = if ranked then 13 else 15
+		resultLines[1].Text = if ranked then "POS DRIVER        TIME       PEN  BEST LAP   REWARD          RATING"
+			else "POS DRIVER          TIME       PEN  BEST LAP   REWARD"
 		resultLines[1].TextColor3 = DIM
+		local mine = nil
+		for i = 1, 13 do
+			resultLines[i].TextSize = if ranked then 14 else 15
+		end
 		for i = 2, 13 do
 			local r = payload.rows[i - 1]
 			if r then
 				local reward = if r.money or r.exp then ("+%d B +%d EXP"):format(r.money or 0, r.exp or 0) else ""
-				resultLines[i].Text = ("%-3s %-15s %-10s %-4s %-10s %s"):format(if r.status == "FIN" then tostring(r.pos) else "DNF",
-					string.sub(r.name, 1, 15), if r.time then fmt(r.time) else "-", if r.penalty > 0 then "+" .. r.penalty else "",
+				local line = ("%-3s %-" .. nameW .. "s %-10s %-4s %-10s %s"):format(if r.status == "FIN" then tostring(r.pos) else "DNF",
+					string.sub(r.name, 1, nameW), if r.time then fmt(r.time) else "-", if r.penalty > 0 then "+" .. r.penalty else "",
 					fmt(r.best), reward)
+				if ranked and r.rating then
+					line = ("%-60s %d (%+d)%s"):format(line, r.rating, r.ratingDelta or 0, if r.provisional then " P" else "")
+				end
+				resultLines[i].Text = line
 				resultLines[i].TextColor3 = if r.userId == player.UserId then SPLIT.yellow else WHITE
+				if r.userId == player.UserId then mine = r end
 			else
 				resultLines[i].Text = ""
 			end
+		end
+		if ranked and mine and mine.rating then
+			rankLine.Text = ("YOUR %s RATING  %d  (%+d)%s%s"):format(string.upper(mine.bucket or payload.bucket or ""),
+				mine.rating, mine.ratingDelta or 0,
+				if mine.provisional then ("   PROVISIONAL %d/%d"):format(mine.ratedRaces or 0, payload.provisionalRaces or 5) else "",
+				if mine.ratingSaved then "" else "   (not saved)")
+		elseif ranked then
+			rankLine.Text = "RANKED RACE  -  " .. string.upper(payload.bucket or "")
+		elseif payload.unranked then
+			rankLine.Text = "UNRANKED  -  " .. tostring(payload.unranked)
+		else
+			rankLine.Text = ""
 		end
 		results.Visible = true
 		task.delay(12, function() results.Visible = false end)

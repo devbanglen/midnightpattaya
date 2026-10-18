@@ -9,6 +9,11 @@
 --   call, cached for 10 minutes per pair.
 -- * Overall bests for purple splits: best known lap (global top 1 or session) and this server's best sectors.
 -- Only valid laps are ever submitted (RaceSessionService checks), and only from server timing.
+-- * Ranked boards (one per class bucket and season): OrderedDataStore "CircuitRating_S<season>_<bucket>", key
+--   "u<userId>", value = rating * 10 + (1 if established, 0 if provisional), read descending. Written by
+--   RaceSessionService.Ranked.apply after a ranked race (server-computed ratings only), with the same session-memory
+--   fallback and 5-minute retry as the lap boards. The saved rating itself lives in the progress record
+--   (key "circuitRating"); this board is only for display.
 local Players = game:GetService("Players")
 local DataStoreService = game:GetService("DataStoreService")
 
@@ -20,7 +25,7 @@ local REFRESH = 60
 local RETRY_AFTER = 300
 
 local Progress = nil
-local stores = {} -- [circuitId] = OrderedDataStore
+local stores = {} -- [store name] = OrderedDataStore | false
 local cache = {} -- [circuitId] = {at, rows = {{userId, name, time}}}
 local session = {} -- [circuitId] = {[userId] = {userId, name, time}}
 local sessionSectors = {} -- [circuitId] = {s1, s2, s3}
@@ -32,17 +37,21 @@ function Leaderboard.init(progressModule)
 	Progress = progressModule
 end
 
-local function storeFor(id: string)
+local function orderedStore(name: string)
 	if os.clock() < storeDownUntil then
 		return nil
 	end
-	if stores[id] == nil then
+	if stores[name] == nil then
 		local ok, s = pcall(function()
-			return DataStoreService:GetOrderedDataStore("CircuitBest_" .. id)
+			return DataStoreService:GetOrderedDataStore(name)
 		end)
-		stores[id] = if ok then s else false
+		stores[name] = if ok then s else false
 	end
-	return stores[id] or nil
+	return stores[name] or nil
+end
+
+local function storeFor(id: string)
+	return orderedStore("CircuitBest_" .. id)
 end
 
 local function storeFailed(err)
@@ -263,6 +272,107 @@ end
 
 function Leaderboard.overallSectors(id: string)
 	return sessionSectors[id] or {}
+end
+
+-- ranked boards -----------------------------------------------------------------------------------------------------
+local rankedCache = {} -- [board] = {at, rows = {{userId, name, rating, provisional}}}
+local rankedSession = {} -- [board] = {[userId] = {userId, name, rating, provisional}} (this server, newest)
+local rankedRefreshing = {}
+
+-- "Track Spec" -> "Track_Spec": store names stay plain
+local function boardName(bucket: string, season: number): string
+	return ("CircuitRating_S%d_%s"):format(season, (string.gsub(bucket, "[^%w]", "_")))
+end
+Leaderboard.rankedBoardName = boardName
+
+local function refreshRanked(board: string)
+	if rankedRefreshing[board] then
+		return
+	end
+	rankedRefreshing[board] = true
+	task.spawn(function()
+		local rows = {}
+		local store = orderedStore(board)
+		if store then
+			local ok, res = pcall(function()
+				return store:GetSortedAsync(false, TOP_N):GetCurrentPage()
+			end)
+			if ok then
+				for _, e in res do
+					local userId = tonumber(string.sub(e.key, 2))
+					if userId and type(e.value) == "number" then
+						table.insert(rows, {userId = userId, rating = e.value // 10, provisional = e.value % 10 == 0})
+					end
+				end
+				for _, r in rows do
+					r.name = nameOf(r.userId)
+				end
+			else
+				storeFailed(res)
+			end
+		end
+		rankedCache[board] = {at = os.clock(), rows = rows}
+		rankedRefreshing[board] = nil
+	end)
+end
+
+-- A rating from a ranked race (computed on the server). Updates this server's board at once and writes the store in
+-- the background (one write per driver per ranked race).
+function Leaderboard.submitRating(plr: Player, bucket: string, season: number, rating: number, provisional: boolean)
+	local board = boardName(bucket, season)
+	rating = math.floor(rating + 0.5)
+	rankedSession[board] = rankedSession[board] or {}
+	rankedSession[board][plr.UserId] = {userId = plr.UserId, name = plr.DisplayName, rating = rating,
+		provisional = provisional}
+	names[plr.UserId] = plr.DisplayName
+	local value = rating * 10 + (if provisional then 0 else 1)
+	local userId = plr.UserId
+	task.spawn(function()
+		local store = orderedStore(board)
+		if not store then
+			return
+		end
+		local ok, err = pcall(function()
+			store:SetAsync("u" .. userId, value)
+		end)
+		if not ok then
+			storeFailed(err)
+		end
+		if rankedCache[board] then
+			rankedCache[board].at = 0 -- refresh soon
+		end
+	end)
+end
+
+-- top n by rating for a class bucket in a season: store (cached 60 s) merged with this server's newer values.
+-- Rows: {userId, name, rating, provisional}.
+function Leaderboard.rankedTop(bucket: string, season: number, n: number?)
+	local board = boardName(bucket, season)
+	local c = rankedCache[board]
+	if not c or os.clock() - c.at > REFRESH then
+		refreshRanked(board)
+	end
+	local byUser = {}
+	for _, r in (c and c.rows or {}) do
+		byUser[r.userId] = r
+	end
+	for userId, r in rankedSession[board] or {} do
+		byUser[userId] = r -- this server's value is the newest
+	end
+	local rows = {}
+	for _, r in byUser do
+		table.insert(rows, {userId = r.userId, name = r.name, rating = r.rating, provisional = r.provisional})
+	end
+	table.sort(rows, function(a, b)
+		if a.rating ~= b.rating then return a.rating > b.rating end
+		if a.provisional ~= b.provisional then return not a.provisional end
+		return a.userId < b.userId
+	end)
+	local out = {}
+	for i = 1, math.min(n or 10, #rows) do
+		out[i] = rows[i]
+	end
+	return out
 end
 
 Players.PlayerRemoving:Connect(function(plr)
