@@ -528,7 +528,10 @@ car's own raycast suspension handled the hills):**
 - The lap before it (lap 3) was reported invalid for "wrong way": that lap included a two-minute pause on a slope
   between test runs, and the parked car most likely rolled backwards more than 30 studs (`CircuitWrongWay` was
   clear afterwards). Probable cause only, not reproduced.
-- FPS at the venue in that long (20-minute, 2.9 GB) session: 15 average, worst frame 71 ms. Long sessions degraded
-  before, so the number from a fresh session is the one that counts (see the status row).
+- **FPS at the venue: not measurable in this session.** Parked at the paddock, `RenderStepped` ran at 15/s while
+  `Heartbeat` and physics ran at 61/s: Studio throttles rendering when its window is not in front (the same reason
+  the screen captures come back white). Simulation stayed at 60 Hz while driving the whole lap, so the physics cost
+  of the 6,079-part venue is fine; render FPS needs a run with Studio focused (owner at the keyboard). The earlier
+  Pattaya figure of 60 FPS was taken with Studio focused.
 - Not tested: a race on Bira, two players, the drive from the city (the corridor is not yet merged into the road
   graph).
