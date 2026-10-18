@@ -230,3 +230,13 @@ be an optional config flag, off by default, sampling node heights from the tiles
   200 studs/s the whole way. (The crash itself is the test autopilot's yaw rate on a fast bend, not geometry: the
   only collidable parts near the spot are the road, its sidewalks and light poles on the sidewalks.)
 - With Studio focused during that run the probe reported render 60 FPS on the corridor.
+
+## Measurement after the road fix, corridor dressing and street furniture (leader, 2026-10-19, Studio unfocused)
+
+World now: Road parts 15,005, discs 495 + 2,853, corridor dressing 2,139 parts, street furniture 9,246 parts (267
+Atomic chunks), night (ClockTime 21). PerfProbe at the Central start: parts loaded 8,118, textures 4,068 (visible 460,
+LOD hidden 1,088 parts), SpotLights on 11 of 104, traffic models 57. GPS drive Central → Bira at 200 studs/s:
+161.5 s, 317/318 probes on road, Heartbeat 60 the whole way (p50 16.9 ms, p99 19.3 ms, worst 20.2 ms), physics step
+0.26 ms; parts loaded stayed flat (2,746 mid-corridor, 2,904 at the venue: Opportunistic stream-out works);
+memory total 4.4 GB in Studio (GraphicsParts 3.5 MB, GraphicsTexture 180 MB, Instances 156 MB, InstanceCount 54k).
+RenderStepped is throttled to 15/s while Studio is unfocused, so render FPS is still unmeasured here.
