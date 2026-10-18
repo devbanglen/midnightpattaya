@@ -19,7 +19,7 @@ This file sets the shared rules. The facade kit below is ours.
 | No uniform purple | Never tint the whole frame. ColorCorrection TintColor stays near white. Purple/magenta only on light sources (neon). Walls keep their own colours: cream, white, sand, pale blue and green shophouse paint. | vis-lighting + us (wall colours are copied from the procedural box palette, never re-tinted) |
 | Warm streetlights | Street and promenade lamps are warm white to sodium amber (around 255,200,140). They are the main road light, so asphalt reads warm under them and cool between them. | vis-lighting (lamp colours exist in `PattayaBuilder` / `PattayaCoastBuilder`) |
 | Neon accents, budgeted | Cyan (0,235,255) and magenta (255,40,190) only, as thin strips on commercial fronts and some shophouses. Each strip turns Neon at night (NightNeon). Budget: 160 strips in the slice (93 used). One or two strips per building, never whole walls. The city's existing neon signs near Walking Street are respected: a face with one gets no extra signboard or neon from us. | us (kit `NeonSign` parts) |
-| Selective lit windows | At night 25–40 % of windows are lit (per style, ± 10 % per building). Of those, 65 % are warm (255,214,140) and 35 % cool (190,225,255). Shop interiors are lit at 75–90 %. Unlit windows stay dark glass. Never light every window. | us (kit `lit` / `litOnly` parts) |
+| Selective lit windows | At night about 45 % of windows are lit (± 10 % per building, deterministic). The night colour is warm amber, one of 150,118,70 / 170,135,85 / 125,100,62 per pane; hotel/condo panes on the upper half of the mid floors use a slightly cooler 140,130,110. Shopfront glass is lit at about 70 %. Unlit windows stay dark glass. Never light every window and never use white (the first Studio capture, with 190,225,255 on Neon, was blinding). | us (kit `lit` / `litOnly` parts) |
 | Pattaya identity | Thai shophouse rows with roller shutters, awnings, AC units and rooftop water tanks. Beach Road hotels with white balcony bands. Bilingual Thai/English signboards with generic shop words only (no brands, no logos, no real business names, even where OSM has them). Palms and the beach promenade come from the coast and city layers, so we do not duplicate them. | us + coast/furniture layers |
 | Readable silhouettes | Ground floor, mid floors and roofline are distinct: shopfront with awning, then a repeated floor rhythm, then parapet and roof plant. | us |
 | Collisions never change | Facades are decoration. Every building keeps its exact collision box (`VisHull`) and its road clearance. | us |
@@ -84,12 +84,12 @@ A roof module is dropped where a taller box or a prop overlaps the roof (6 cases
 ### Styles (category → modules)
 | Style | Categories | Inset | Faces | Ground | Mid | Whole | Roof | Lit win / shop | Neon |
 |---|---|---|---|---|---|---|---|---|---|
-| shophouse | shophouse | 1.2 | 1 (2 on a main-road corner) | shopfront_a (12-stud bay) | window_pair_ac_a | — | water_tank_a | 35 / 75 % | 12 % of buildings |
-| hotel | hotel | 1.8 | 1 (2 if the 2nd face sees Beach/Second Road) | lobby_a | balcony_row_a | band_glass_a, fins_a/30 | roof_plant_a | 30 / 90 % | — |
-| condo | condo, apartments | 1.6 | 2 | lobby_a | balcony_grid_a | band_glass_a, fins_a/9 | roof_plant_a, water_tank_a | 25 / 90 % | — |
-| commercial | commercial, mall, public | 0.8 | 2 | shopfront_b | transom_a | curtain_wall_a/7 | roof_plant_a | 40 / 80 % | 50 % of commercial/mall |
-| industrial | industrial, parking | 0.6 | 1 | garage_door_a | window_row_a | — | ac_pair_a | 15 % | — |
-| house | house | 0.8 | 1 | house_front_a | window_row_a | — | — | 30 % | — |
+| shophouse | shophouse | 1.2 | 1 (2 on a main-road corner) | shopfront_a (12-stud bay) | window_pair_ac_a | — | water_tank_a | 45 / 70 % | 12 % of buildings |
+| hotel | hotel | 1.8 | 1 (2 if the 2nd face sees Beach/Second Road) | lobby_a | balcony_row_a | band_glass_a, fins_a/30 | roof_plant_a | 45 / 70 % | — |
+| condo | condo, apartments | 1.6 | 2 | lobby_a | balcony_grid_a | band_glass_a, fins_a/9 | roof_plant_a, water_tank_a | 45 / 70 % | — |
+| commercial | commercial, mall, public | 0.8 | 2 | shopfront_b | transom_a | curtain_wall_a/7 | roof_plant_a | 45 / 70 % | 50 % of commercial/mall |
+| industrial | industrial, parking | 0.6 | 1 | garage_door_a | window_row_a | — | ac_pair_a | 45 % | — |
+| house | house | 0.8 | 1 | house_front_a | window_row_a | — | — | 45 / 70 % | — |
 
 Temples are not touched.
 

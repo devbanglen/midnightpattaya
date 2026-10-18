@@ -11,27 +11,28 @@ should line it up with §14 and add whatever is missing.
    `.venv\Scripts\python tools\mapgen\vis_slice.py tools\mapgen\config\vis_slice.json`
    It needs `build/central_pattaya`, `build/landmarks`, `build/furniture` and `build/coast`.
    Expected output:
-   - 507 buildings, 21,856 parts, 56 chunks, 7 batches;
+   - 507 buildings, 22,953 parts, 58 chunks, 8 batches (lit pass 2026-10-19: was 21,856 / 56 / 7);
    - `checks:` all 0.
 
    The script exits with status 1 if any check fails.
 2. Install the modules:
    - `ServerStorage.PattayaVisSliceBuilder` ← `roblox/src/ServerStorage/PattayaVisSliceBuilder.luau`
    - `StarterPlayerScripts.MidnightCamera` ← `roblox/src/StarterPlayer/StarterPlayerScripts/MidnightCamera.client.luau`
-   - `ServerStorage.PattayaDataVisSlice` (new Folder) ← `manifest.luau` + 56 `chunk_v*.luau` from `build/vis_slice/roblox/` (372 KB in total), with the same JSON bundle / HttpListener method as the other data folders.
+   - `ServerStorage.PattayaDataVisSlice` (new Folder) ← `manifest.luau` + 58 `chunk_v*.luau` from `build/vis_slice/roblox/` (372 KB in total), with the same JSON bundle / HttpListener method as the other data folders.
 
    `tools/studio/install.ps1` does not bundle this folder yet. Add a line next to the landmarks/coast ones:
    `$data += Entries 'build/vis_slice/roblox' 'PattayaDataVisSlice'`
 3. Build one batch per call. Each call skips chunks that already exist, so it can be repeated after an error:
    ```lua
    local V = require(game.ServerStorage.PattayaVisSliceBuilder)
-   print(V.Build({batch = "s1"}))  -- 8 chunks, 2,767 parts   (north: Pattaya Nuea / Dolphin Circle end)
-   print(V.Build({batch = "s2"}))  -- 8 chunks, 3,896 parts
-   print(V.Build({batch = "s3"}))  -- 8 chunks, 2,574 parts
-   print(V.Build({batch = "s4"}))  -- 8 chunks, 3,332 parts   (Pattaya Klang)
-   print(V.Build({batch = "s5"}))  -- 8 chunks, 3,569 parts
-   print(V.Build({batch = "s6"}))  -- 8 chunks, 3,345 parts
-   print(V.Build({batch = "s7"}))  -- 8 chunks, 2,373 parts   (south: Pattaya Tai / Walking Street end)
+   print(V.Build({batch = "s1"}))  -- 8 chunks, 2,905 parts   (north: Pattaya Nuea / Dolphin Circle end)
+   print(V.Build({batch = "s2"}))  -- 8 chunks, 4,091 parts
+   print(V.Build({batch = "s3"}))  -- 8 chunks, 2,763 parts
+   print(V.Build({batch = "s4"}))  -- 8 chunks, 2,913 parts   (Pattaya Klang)
+   print(V.Build({batch = "s5"}))  -- 8 chunks, 3,528 parts
+   print(V.Build({batch = "s6"}))  -- 8 chunks, 3,426 parts
+   print(V.Build({batch = "s7"}))  -- 8 chunks, 3,093 parts
+   print(V.Build({batch = "s8"}))  -- 2 chunks,   234 parts   (south: Pattaya Tai / Walking Street end)
    ```
    Build moves each upgraded procedural box, and its Roof slab when the box is taller than 30 studs, to
    `ServerStorage.PattayaVisSliceRemoved`. It warns if a chunk's part count differs from the manifest. Expect
@@ -42,11 +43,11 @@ should line it up with §14 and add whatever is missing.
    ```
    Expected:
    ```
-   vis parts 21856 (manifest total 21856); touching road/sidewalk/disc 0; outside their box 0;
+   vis parts 22953 (manifest total 22953); touching road/sidewalk/disc 0; outside their box 0;
    hull != original 0; boxes still in the city 0; chunks with a different part count 0;
-   NightNeon 6043; signboards 464
+   NightNeon 7289; signboards 462
    ```
-   NightNeon = 5,950 lit panes + 93 neon strips.
+   NightNeon = 7,196 lit panes + 93 neon strips.
 5. Cross-probes with the existing layers:
    - `require(game.ServerStorage.PattayaCoastBuilder).Probe()`
    - `require(game.ServerStorage.PattayaLandmarksBuilder).Probe()`
@@ -83,12 +84,12 @@ Add one capture of the camera itself: hold Q (look back) and right-drag (look si
 
 ## 3. Test checklist
 ### Buildings / facades (VIS-4)
-- [ ] All 7 batches build without errors. `V.Probe()` gives 0 / 0 / 0 / 0 / 0 as above.
+- [ ] All 8 batches build without errors. `V.Probe()` gives 0 / 0 / 0 / 0 / 0 as above.
 - [ ] Footprints unchanged: `hull != original 0` (size, position and orientation equal to the stored box).
 - [ ] Collisions unchanged: drive into a shophouse front, a hotel front and a corner at 60–100 studs/s. The car stops at the same place as before; with the boxes the faces are flush, so there is no "inset" to drive into. Facade parts never collide.
 - [ ] Road clearance: run the existing road raycast probe (`tools/mapgen/studio_probes.py` / the furniture probe's 45,015 raycasts along every road part). No new hit on a vis part, because facade parts have CanQuery false.
 - [ ] No facade part floating or poking out of a box. Check shots 1, 3 and 4 and corner buildings.
-- [ ] Night: lit windows are selective, about 25–40 %, warm and cool mixed. At 21:00 `NightNeon 6043` parts switch to Neon (PattayaNightLights). By day they are SmoothPlastic in their day colour.
+- [ ] Night: lit windows are selective, about 45 % (shopfronts about 70 %), warm amber in 3 tones (hotel/condo upper floors a cooler 140,130,110), never white. At 21:00 `NightNeon 7289` parts switch to Neon (PattayaNightLights). By day they are SmoothPlastic in their day colour.
 - [ ] Neon budget: 93 strips in total, cyan or magenta only, on commercial and some shophouse fronts. A face with a city neon sign (near Walking Street) has no extra signboard or neon from us (20 faces).
 - [ ] Signboards: generic words only (no brands or logos), Thai line + English line. The Thai glyphs render; Roblox font fallback is not seen yet.
 - [ ] Palms, promenade lamps and railings are not duplicated (we add nothing outside the boxes).

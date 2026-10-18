@@ -37,25 +37,25 @@ Target from PERFORMANCE_BUDGET.md: 60 FPS on the owner's PC, with a 1% low of at
 | | Count |
 |---|---|
 | Buildings upgraded | 507 of 535 boxes in the slice area (7 too thin, 2 replaced by landmark proxies, 19 all party walls / blocked) |
-| New Parts | **21,856** (budget ≤ 25,000): 507 VisHull + 507 VisCore + 20,842 module parts, of which 1,024 roof parts |
+| New Parts | **22,953** (budget ≤ 25,000): 507 VisHull + 507 VisCore + 21,939 module parts, of which 1,024 roof parts (lit pass 2026-10-19; first build 21,856) |
 | Parts removed from the city chunks | 507 boxes + 261 Roof slabs (moved to ServerStorage, not deleted) |
-| **Net Parts in workspace** | **+21,088** |
+| **Net Parts in workspace** | **+22,185** |
 | Facade Textures | about −515: decorated faces lose their Texture (1,944 → 1,429 on the upgraded boxes) |
-| NightNeon parts (Neon at night) | 6,043 (5,950 lit panes + 93 neon strips) |
-| SurfaceGuis (signboards) | 464, PixelsPerStud 20, LightInfluence 0 |
+| NightNeon parts (Neon at night) | 7,289 (7,196 lit panes + 93 neon strips); panes lit about 45 %, shopfronts about 70 %, warm amber tones |
+| SurfaceGuis (signboards) | 462, PixelsPerStud 20, LightInfluence 0 |
 | SpotLights / PointLights | 0 added |
 | Collision parts | unchanged: 507 VisHull = the 507 boxes; all module parts CanCollide/CanQuery/CanTouch false, CastShadow false (VisCore casts shadows above 20 studs, like the box did) |
-| Streaming | 56 Atomic chunk models, ≤ 600 parts each (largest 600); 7 build batches of ≤ 8 chunks (2,373–3,896 parts) |
-| Parts per style | hotel 9,631 · shophouse 8,512 · commercial 2,742 · condo 554 · industrial 313 · house 104 |
-| Parts per module | balcony_row_a 6,229 · window_pair_ac_a 4,483 · shopfront_a 2,811 · lobby_a 2,086 · transom_a 955 · shopfront_b 895 · curtain_wall_a 623 · roof_plant_a 528 · parapet_a 515 · water_tank_a 456 · fins_a 439 · balcony_grid_a 403 · band_glass_a 146 · garage_door_a 108 · window_row_a 76 · house_front_a 49 · ac_pair_a 40 |
+| Streaming | 58 Atomic chunk models, ≤ 600 parts each (largest 599); 8 build batches of ≤ 8 chunks (234–4,091 parts) |
+| Parts per style | hotel 10,709 · shophouse 8,512 · commercial 2,708 · condo 607 · industrial 313 · house 104 |
+| Parts per module | balcony_row_a 7,373 · window_pair_ac_a 4,483 · shopfront_a 2,811 · lobby_a 2,028 · transom_a 973 · shopfront_b 867 · curtain_wall_a 601 · roof_plant_a 528 · parapet_a 513 · water_tank_a 456 · balcony_grid_a 456 · fins_a 431 · band_glass_a 146 · garage_door_a 108 · window_row_a 76 · house_front_a 49 · ac_pair_a 40 |
 
 What this means for a client:
 - The slice is about 3,000 × 5,150 studs.
 - At StreamingTargetRadius 1,280 (the `pc` profile), a car on Beach Road loads roughly a third to a half of the slice at once. Expect about 7,000–11,000 extra Parts loaded on top of today's 8,118 at the Central start. This is an estimate, not measured.
 
 Risks:
-- **6,043 NightNeon parts.** Neon parts with bloom are cheap to draw but add bloom area at night.
-- **SurfaceGuis.** 464 signboards; each SurfaceGui costs a GUI layout and a texture.
+- **7,289 NightNeon parts.** Neon parts with bloom are cheap to draw but add bloom area at night.
+- **SurfaceGuis.** 462 signboards; each SurfaceGui costs a GUI layout and a texture.
 - **PattayaLOD does not know the new part names.** Only the neon strips (`NeonSign`) and signboards (`SignFrame`) are faded beyond LOD_PropRange (900).
 
 Cut list, if the measurements miss the target (cheapest first):
@@ -87,7 +87,7 @@ Run everything in a fresh Studio session with the Studio window in front. Use pr
 4. Repeat steps 2–3 by day (`TimeLock` 13).
 5. **After.**
    - Stop Play.
-   - Build all 7 batches (`V.Build({batch = "s1"})` … `"s7"`), run `V.Probe()`, save.
+   - Build all 8 batches (`V.Build({batch = "s1"})` … `"s8"`), run `V.Probe()`, save.
    - Repeat steps 1–4 with the same seeds and spots.
 6. **Camera only.** Repeat step 3 with `MidnightCamera` true vs false (the slice built both times). The camera costs at most 4 raycasts per frame; its FPS effect is expected to be within noise.
 7. **Report** a table like section 1 with these rows: idle A/B/C night, lap night, lap day, nitro Beach Road. Columns: FPS avg, 1% low, worst, Heartbeat p99, memory Instances/GraphicsParts, parts loaded. Report before/after deltas.
