@@ -4,6 +4,11 @@
 
 Writes build/<name>/layout.json and layout_check.png. Everything is derived from graph_game.json (road names + OSM
 ids), so it follows the data when the config changes.
+
+Incremental (wide-world) configs with a "base" block go through main_wide(): the base build's race, spawn, landmarks,
+signs, palms, lights, job stands and Road Fight bosses are copied verbatim (so everything already placed keeps its
+coordinates), props are added only along the new edges, new job stands come from the config, and the world-map
+districts (layout.districts) are projected into game coordinates.
 """
 import heapq, json, math, os, sys
 from collections import Counter, defaultdict
@@ -21,10 +26,166 @@ def plen(p):
     return float(np.linalg.norm(np.diff(p, axis=0), axis=1).sum())
 
 
+def box_poly(b):
+    r = Polygon([(-b['w'] / 2, -b['d'] / 2), (b['w'] / 2, -b['d'] / 2), (b['w'] / 2, b['d'] / 2), (-b['w'] / 2, b['d'] / 2)])
+    return affinity.translate(affinity.rotate(r, b['yaw']), b['x'], b['z'])
+
+
+def main_wide(cfg, g):
+    """Wide world on top of a tested base build (see the module docstring)."""
+    import hashlib
+    from pyproj import Transformer
+    L = cfg['layout']
+    edges = g['edges']
+    new = [e for e in edges if not e.get('base')]
+    bdir = os.path.join(ROOT, cfg['base']['build'])
+    base_layout = json.load(open(os.path.join(bdir, 'layout.json'), encoding='utf-8'))
+    out_dir = os.path.join(ROOT, 'build', cfg['name'])
+    src = json.load(open(os.path.join(ROOT, 'data', 'osm', 'normalized', cfg['name'] + '.json'), encoding='utf-8'))
+    tf = Transformer.from_crs('EPSG:4326', cfg['crs'], always_xy=True)
+    ox, oy = g['origin_utm']
+    kk = cfg['compression'] / cfg['meters_per_stud']
+
+    def game_xy(lat, lon):
+        x, y = tf.transform(lon, lat)
+        return (x - ox) * kk, -(y - oy) * kk
+
+    # props along the new edges only; clear of every building (base + new) and every road
+    bl = json.load(open(os.path.join(bdir, 'buildings_game.json'), encoding='utf-8'))['buildings'] + \
+        json.load(open(os.path.join(out_dir, 'buildings_game.json'), encoding='utf-8'))['buildings']
+    bpolys = [box_poly(b) for b in bl]
+    btree = STRtree(bpolys)
+    road_polys = [LineString(e['pts']).buffer(e['width'] / 2 + 1.5) for e in edges]
+    rtree = STRtree(road_polys)
+
+    def free(p, r):
+        c = Point(p).buffer(r)
+        return not any(bpolys[i].intersects(c) for i in btree.query(c)) and not any(road_polys[i].intersects(c) for i in rtree.query(c))
+
+    palms, lights = [], []
+    for e in new:
+        ln = LineString(e['pts'])
+        if ln.length < 30:
+            continue
+        if e['coastal']:
+            step, kind = L['palm_spacing_studs'], 'palm'
+        elif e['tier'] in ('main', 'express'):
+            step, kind = L['light_spacing_studs'], 'light'
+        else:
+            continue
+        off = e['width'] / 2 + (e['sidewalk'] / 2 if e['sidewalk'] >= 4 else 4)
+        s = step / 2
+        while s < ln.length - step / 3:
+            p = ln.interpolate(s); q = ln.interpolate(min(s + 2, ln.length))
+            t = np.array([q.x - p.x, q.y - p.y]); t /= (np.linalg.norm(t) + 1e-9)
+            nrm = np.array([-t[1], t[0]])
+            sides = [1, -1] if kind == 'light' else [1 if nrm[0] * -1 > 0 else -1]      # sea is west (Pattaya, Jomtien)
+            for sd in sides:
+                pos = np.array([p.x, p.y]) + nrm * sd * off
+                if free(pos, 1.0):
+                    item = {'x': round(pos[0], 2), 'z': round(pos[1], 2)}
+                    if kind == 'light':
+                        item['dx'], item['dz'] = round(-nrm[0] * sd, 3), round(-nrm[1] * sd, 3)
+                        lights.append(item)
+                    else:
+                        palms.append(item)
+            s += step
+
+    # new job stands (same placement rule as the base build: kerb lane of the nearest non-express road)
+    stands = []
+    pois = {p['id']: p for p in src['pois']}
+    for js in L.get('job_stands', []):
+        poi = pois.get(js['osm_id'])
+        if poi is None:
+            print(f"job stand {js['id']}: OSM element {js['osm_id']} not in the data, skipped")
+            continue
+        pt = Point(*game_xy(poi['lat'], poi['lon']))
+        e = min((e for e in edges if e['tier'] != 'express'), key=lambda e: LineString(e['pts']).distance(pt))
+        ln = LineString(e['pts'])
+        snap = ln.distance(pt)
+        if snap > L.get('job_stand_max_snap_studs', 120):
+            print(f"job stand {js['id']}: nearest road is {snap:.0f} studs away, skipped")
+            continue
+        s = min(max(ln.project(pt), 8), max(ln.length - 8, 8))
+        p = ln.interpolate(s)
+        a_, b_ = ln.interpolate(max(s - 3, 0)), ln.interpolate(min(s + 3, ln.length))
+        d = np.array([b_.x - a_.x, b_.y - a_.y]); d /= np.linalg.norm(d)
+        nrm = np.array([-d[1], d[0]])
+        side = 1 if (np.array([pt.x - p.x, pt.y - p.y]) @ nrm) >= 0 else -1
+        pos = np.array([p.x, p.y]) + nrm * side * max(e['width'] / 2 - 6, 0)
+        stands.append({'id': js['id'], 'kind': js['kind'], 'label': js['label'], 'x': round(pos[0], 2), 'z': round(pos[1], 2),
+                       'dx': round(d[0], 3), 'dz': round(d[1], 3), 'kx': round(nrm[0] * side, 3), 'kz': round(nrm[1] * side, 3),
+                       'source': f"OSM {poi['type']} {js['osm_id']} ({poi['name_en'] or poi['name']}) snapped to way {e['way']}",
+                       'snap_studs': round(snap, 1), 'district': js.get('district'), 'new': True})
+    base_ids = {s_['id'] for s_ in base_layout['job_stands']}
+    dup = [s_['id'] for s_ in stands if s_['id'] in base_ids]
+    if dup:
+        sys.exit(f'job stand ids already used by the base build: {dup}')
+
+    # districts for the world map: lat bands (approximate, chosen for the game) clipped to the playable land
+    districts = []
+    land = None
+    if 'clip_polygon_lat_lon' in cfg:
+        land = Polygon([game_xy(la, lo) for la, lo in cfg['clip_polygon_lat_lon']])
+    # the clip polygon reaches into the sea: trim the districts to the area the roads cover (closed by 400 studs)
+    from shapely.ops import unary_union
+    covered = unary_union([LineString(e['pts']) for e in edges]).buffer(400).buffer(-250)
+    land = covered if land is None else land.intersection(covered)
+    for d in L.get('districts', []):
+        s_, n_ = d['lat_band']
+        W_, E_ = cfg['slice_bbox_s_w_n_e'][1], cfg['slice_bbox_s_w_n_e'][3]
+        poly = Polygon([game_xy(s_, W_), game_xy(s_, E_), game_xy(n_, E_), game_xy(n_, W_)])
+        if land is not None:
+            poly = poly.intersection(land)
+        if poly.geom_type != 'Polygon':
+            poly = max(poly.geoms, key=lambda q: q.area)
+        poly = poly.simplify(20)
+        cx, cz = game_xy(*d['label_lat_lon'])
+        districts.append({'id': d['id'], 'name': d['name'], 'name_th': d.get('name_th'), 'x': round(cx, 1), 'z': round(cz, 1),
+                          'poly': [[round(x, 1), round(z, 1)] for x, z in poly.exterior.coords[:-1]],
+                          'lat_band': d['lat_band'], 'note': d.get('note')})
+
+    ghash = hashlib.sha1(open(os.path.join(out_dir, 'graph_game.json'), 'rb').read()).hexdigest()
+    out = {'graph_sha1': ghash, 'base': cfg['base']['build'], 'race': base_layout['race'], 'spawn': base_layout['spawn'],
+           'landmarks': base_layout['landmarks'], 'signs': [], 'palms': palms, 'lights': lights,
+           'base_job_stands': base_layout['job_stands'], 'job_stands': base_layout['job_stands'] + stands,
+           'new_job_stands': [s_['id'] for s_ in stands], 'districts': districts}
+    json.dump(out, open(os.path.join(out_dir, 'layout.json'), 'w', encoding='utf-8'), ensure_ascii=False)
+    print(f'base layout copied from {cfg["base"]["build"]} (race, spawn, landmarks, {len(base_layout["job_stands"])} stands/bosses)')
+    print(f'new props: {len(palms)} palms, {len(lights)} street lights')
+    print(f'new job stands: {len(stands)} ' + ', '.join(f"{s_['id']} ({s_['snap_studs']})" for s_ in stands))
+    print(f'districts: {[d["id"] for d in districts]}')
+
+    # check image: whole map, new edges darker, stands, districts
+    allp = np.array([p for e in edges for p in e['pts']])
+    lo, hi = allp.min(0), allp.max(0)
+    sc = 1800 / (hi - lo).max()
+    im = Image.new('RGB', (int((hi[0] - lo[0]) * sc) + 20, int((hi[1] - lo[1]) * sc) + 20), (240, 238, 232))
+    dr = ImageDraw.Draw(im)
+    tr = lambda p: (10 + (p[0] - lo[0]) * sc, 10 + (p[1] - lo[1]) * sc)
+    pal = [(255, 230, 230), (230, 255, 230), (230, 230, 255), (255, 255, 220), (230, 255, 255), (255, 230, 255)]
+    for i, d in enumerate(districts):
+        dr.polygon([tr(p) for p in d['poly']], fill=pal[i % len(pal)], outline=(120, 120, 120))
+    for e in edges:
+        dr.line([tr(p) for p in e['pts']], fill=(185, 185, 190) if e.get('base') else (90, 90, 100),
+                width=3 if e['tier'] != 'soi' else 1)
+    for p in palms:
+        x, y = tr((p['x'], p['z'])); dr.point((x, y), fill=(30, 150, 50))
+    for s_ in out['job_stands']:
+        x, y = tr((s_['x'], s_['z']))
+        col = (250, 200, 0) if s_['kind'] == 'taxi' else (0, 170, 120) if s_['kind'] == 'delivery' else (220, 0, 0)
+        dr.ellipse([x - 6, y - 6, x + 6, y + 6], fill=col, outline=(0, 0, 0))
+    for d in districts:
+        x, y = tr((d['x'], d['z'])); dr.text((x - 20, y), d['name'], fill=(0, 0, 0))
+    im.save(os.path.join(out_dir, 'layout_check.png'))
+
+
 def main(cfg_path):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
     L = cfg['layout']
     g = json.load(open(os.path.join(ROOT, 'build', cfg['name'], 'graph_game.json'), encoding='utf-8'))
+    if 'base' in cfg:
+        return main_wide(cfg, g)
     edges = g['edges']
     adj = defaultdict(list)
     for i, e in enumerate(edges):

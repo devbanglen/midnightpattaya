@@ -138,7 +138,8 @@ local function dashes(parent: Instance, pts: {Vector2}, dash: number, gap: numbe
 	end
 end
 
-local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number})
+local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}, dashGap: number?)
+	local gap = dashGap or 12 -- the wide-world extension uses sparser dashes (manifest.dashGap)
 	local pts = toPoints(e.pts)
 	local road = Instance.new("Model")
 	road.Name = e.nameEn or e.name or e.class
@@ -157,7 +158,7 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 	if inner and e.tier ~= "soi" then
 		if e.oneway then
 			for k = 1, e.lanes - 1 do
-				dashes(road, offset(inner, (k - e.lanes / 2) * e.width / e.lanes), 8, 12, 0.5, COLORS.lane)
+				dashes(road, offset(inner, (k - e.lanes / 2) * e.width / e.lanes), 8, gap, 0.5, COLORS.lane)
 			end
 		else
 			stripe(road, "Centre", offset(inner, -0.5), 0.45, ROAD_TOP + MARK_THICK, MARK_THICK, COLORS.centre, false)
@@ -165,8 +166,8 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 			local perSide = math.floor(e.lanes / 2)
 			for k = 1, perSide - 1 do
 				local d = k * e.width / e.lanes
-				dashes(road, offset(inner, d), 8, 12, 0.5, COLORS.lane)
-				dashes(road, offset(inner, -d), 8, 12, 0.5, COLORS.lane)
+				dashes(road, offset(inner, d), 8, gap, 0.5, COLORS.lane)
+				dashes(road, offset(inner, -d), 8, gap, 0.5, COLORS.lane)
 			end
 		end
 	end
@@ -219,7 +220,7 @@ local function buildBuildings(chunk: Instance, rows: {number}, man: any)
 		local body = newPart(folder, palette, Vector3.new(w, h, d), cf, colors[id % #colors + 1], true)
 		body.CastShadow = h > 20
 		body:SetAttribute("OsmBuilding", id)
-		local facade = FACADE_OF[palette]
+		local facade = if h >= (man.facadeMinHeight or 0) then FACADE_OF[palette] else nil
 		if facade then
 			for _, face in FACES do
 				local t = Instance.new("Texture")
@@ -509,6 +510,177 @@ function Builder.Build(opts: {terrain: boolean?}?)
 		buildTerrain(man)
 	end
 	return ("%d chunks, %d road parts, %d junctions"):format(#man.chunks, count, #man.junctions)
+end
+
+-- Wide world (tools/mapgen config pattaya_wide): ADDS new chunks around the tested slice. Nothing that Build() made
+-- is rebuilt or moved; terrain is written only outside manifest.baseFrame (in 2048-stud tiles).
+-- NOT TESTED IN STUDIO YET. Data: ServerStorage.PattayaDataWide (manifest + chunk_* from build/pattaya_wide/roblox).
+--   local B = require(game.ServerStorage.PattayaBuilder)
+--   B.Extend({roads = false})                              -- terrain only (ground + sea outside the base frame)
+--   B.Extend({terrain = false, batch = "seam"})            -- chunks touching the slice, then each district batch
+--   B.Extend({terrain = false})                            -- everything left; built chunks are skipped (resumable)
+--   B.Extend({roads = false, terrain = false, removeBaseConflicts = true}) -- remove the seam buildings it lists
+--   B.RemoveExtension()                                    -- undo: wide chunks, discs and wide terrain
+local function extendTerrain(man: any)
+	local terrain = workspace.Terrain
+	local o = Builder.ORIGIN
+	local function replace(x0: number, x1: number, z0: number, z1: number, y0: number, y1: number, from: Enum.Material, to: Enum.Material)
+		local region = Region3.new(o + Vector3.new(x0, y0, z0), o + Vector3.new(x1, y1, z1)):ExpandToGrid(4)
+		terrain:ReplaceMaterial(region, 4, from, to)
+	end
+	local TILE = 2048
+	for _, r in man.groundRects do
+		local rx0, rx1, rz0, rz1 = r[1], r[2], r[3], r[4]
+		for x0 = rx0, rx1 - 1, TILE do
+			for z0 = rz0, rz1 - 1, TILE do
+				local x1, z1 = math.min(x0 + TILE, rx1), math.min(z0 + TILE, rz1)
+				for _, m in {Enum.Material.Ground, Enum.Material.Sand, Enum.Material.Water} do
+					replace(x0, x1, z0, z1, -16, 8, m, Enum.Material.Air)
+				end
+				terrain:FillBlock(CFrame.new(o + Vector3.new((x0 + x1) / 2, -10, (z0 + z1) / 2)), Vector3.new(x1 - x0, 12, z1 - z0), Enum.Material.Ground)
+				task.wait()
+			end
+		end
+	end
+	for i, row in man.sea do
+		local r = row.runs -- triples: x0, x1, sand strip (1/0); rows are row.h tall (16, or 4..12 at the base frame edge)
+		local z1 = row.z + (row.h or man.seaCell)
+		for k = 1, #r, 3 do
+			local x0, x1 = r[k], r[k + 1]
+			replace(x0, x1, row.z, z1, -16, -4, Enum.Material.Ground, Enum.Material.Water)
+			if r[k + 2] == 1 then
+				replace(x1, x1 + 48, row.z, z1, -8, -4, Enum.Material.Ground, Enum.Material.Sand)
+			end
+		end
+		if i % 40 == 0 then
+			task.wait()
+		end
+	end
+end
+
+function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolean?, only: {string}?, batch: string?,
+	removeBaseConflicts: boolean?}?)
+	local options = opts or {}
+	local data = game:GetService("ServerStorage"):WaitForChild(options.folder or "PattayaDataWide")
+	local man = require(data:WaitForChild("manifest")) :: any
+	if options.batch then -- "seam", then the districts in man.batchOrder
+		options.only = man.batches[options.batch] or error("unknown batch " .. options.batch)
+	end
+	local world = workspace:FindFirstChild("PattayaWorld")
+	if not world then
+		error("PattayaBuilder.Extend: build the base slice first (PattayaBuilder.Build())")
+	end
+	world:SetAttribute("WideWorld", man.name)
+	world:SetAttribute("WideOsmBase", man.osmBase)
+	local junctionR: {[number]: number} = {}
+	for _, j in man.seamJunctions do
+		junctionR[j.id] = j.r
+	end
+	for _, j in man.junctions do
+		junctionR[j.id] = j.r
+	end
+	local built, parts = 0, 0
+	if options.roads ~= false then
+		if not world:FindFirstChild("WideJunctions") then
+			local junctions = Instance.new("Model")
+			junctions.Name = "WideJunctions"
+			for _, j in man.junctions do
+				local cf = CFrame.new(j.x, ROAD_TOP - ROAD_THICK / 2 - 0.01, j.z) * CFrame.Angles(0, 0, math.rad(90))
+				local p = newPart(junctions, "Junction", Vector3.new(ROAD_THICK, j.r * 2, j.r * 2), cf, COLORS.junction, true)
+				p.Shape = Enum.PartType.Cylinder
+				p:SetAttribute("OsmNode", j.id)
+			end
+			junctions:PivotTo(junctions:GetPivot() + Builder.ORIGIN)
+			junctions.Parent = world
+		end
+		local folder = world:FindFirstChild("WideChunks")
+		if not folder then
+			folder = Instance.new("Folder")
+			folder.Name = "WideChunks"
+			folder.Parent = world
+		end
+		local wanted: {[string]: boolean} = {}
+		for _, id in options.only or {} do
+			wanted[id] = true
+		end
+		for _, id in man.chunks do
+			if (options.only == nil or wanted[id]) and not (folder :: Instance):FindFirstChild("Chunk_" .. id) then
+				local chunkData = require(data:WaitForChild("chunk_" .. id)) :: any
+				local chunk = Instance.new("Model")
+				chunk.Name = "Chunk_" .. id
+				chunk.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+				for _, e in chunkData.edges do
+					buildEdge(chunk, e :: Edge, junctionR, man.dashGap)
+				end
+				buildBuildings(chunk, chunkData.buildings or {}, man)
+				buildProps(chunk, chunkData.palms or {}, chunkData.lights or {}, chunkData.signs or {})
+				chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
+				for _, d in chunk:GetDescendants() do
+					if d:IsA("BasePart") then parts += 1 end
+				end
+				chunk.Parent = folder
+				built += 1
+				task.wait()
+			end
+		end
+	end
+	local removed = 0
+	if options.removeBaseConflicts and man.baseBuildingConflicts then
+		local ids = {}
+		for _, id in man.baseBuildingConflicts do
+			ids[id] = true
+		end
+		local base = world:FindFirstChild("Chunks")
+		if base then
+			for _, d in base:GetDescendants() do
+				if d:IsA("BasePart") and ids[d:GetAttribute("OsmBuilding")] and d.Parent then
+					-- the roof slab of a tall building is a sibling at the same x/z (no attribute)
+					for _, s in (d.Parent :: Instance):GetChildren() do
+						if s:IsA("BasePart") and s.Name == "Roof" and math.abs(s.Position.X - d.Position.X) < 0.05
+							and math.abs(s.Position.Z - d.Position.Z) < 0.05 then
+							s:Destroy()
+						end
+					end
+					d:Destroy()
+					removed += 1
+				end
+			end
+		end
+	end
+	if options.terrain ~= false then
+		extendTerrain(man)
+	end
+	return ("wide: %d chunks built now (%d parts), %d base buildings removed; %d chunks in manifest"):format(built, parts, removed, #man.chunks)
+end
+
+-- Undo Extend(): removes the wide chunks/discs and clears the wide terrain rectangles (the base slice is untouched;
+-- base buildings removed with removeBaseConflicts come back only with a full Build()).
+function Builder.RemoveExtension(folderName: string?)
+	local world = workspace:FindFirstChild("PattayaWorld")
+	if world then
+		for _, n in {"WideChunks", "WideJunctions"} do
+			local f = world:FindFirstChild(n)
+			if f then f:Destroy() end
+		end
+		world:SetAttribute("WideWorld", nil)
+		world:SetAttribute("WideOsmBase", nil)
+	end
+	local data = game:GetService("ServerStorage"):FindFirstChild(folderName or "PattayaDataWide")
+	if data then
+		local man = require(data:WaitForChild("manifest")) :: any
+		local o = Builder.ORIGIN
+		for _, r in man.groundRects do
+			for x0 = r[1], r[2] - 1, 2048 do
+				for z0 = r[3], r[4] - 1, 2048 do
+					local region = Region3.new(o + Vector3.new(x0, -16, z0), o + Vector3.new(math.min(x0 + 2048, r[2]), 8, math.min(z0 + 2048, r[4]))):ExpandToGrid(4)
+					for _, m in {Enum.Material.Ground, Enum.Material.Sand, Enum.Material.Water} do
+						workspace.Terrain:ReplaceMaterial(region, 4, m, Enum.Material.Air)
+					end
+					task.wait()
+				end
+			end
+		end
+	end
 end
 
 return Builder

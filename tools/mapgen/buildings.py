@@ -6,6 +6,18 @@ Each footprint goes through the same projection + compression as the roads, then
 (road + sidewalks + margin) are cut out of it. What is left becomes one oriented box (minimum rotated rectangle,
 shrunk until it clears the corridors). Height comes from OSM height / building:levels, else a category default.
 Writes build/<name>/buildings_game.json and buildings_check.png. Source ids are kept on every box.
+
+Wide-world options (absent in central_pattaya.json, so that build is unchanged):
+  "clip_polygon_lat_lon"     footprints must lie inside it (and the bbox)
+  "base"                     footprints wholly inside the base slice belong to the base build and are skipped; new
+                             boxes that would overlap a base box are dropped (the tested slice is never changed)
+  buildings.lod = {          thinning for a big map (see docs/PERFORMANCE_BUDGET.md)
+    "merge_below_area_studs2": 900,  small neighbours (shophouse rows, houses) closer than "merge_gap_studs" are
+    "merge_gap_studs": 3,            merged into one box when the box covers "merge_min_fill" of their union and
+    "merge_min_fill": 0.72,          still clears every road corridor
+    "max_per_chunk": 140,            keep at most this many boxes per 512-stud chunk (named / OSM-height / biggest
+                                     first)
+    "facade_min_height_studs": 0 }   read by export_roblox.py: lower boxes get no facade Textures
 """
 import json, math, os, random, sys
 from collections import Counter
@@ -55,6 +67,76 @@ def categorise(b):
     return None                      # building=yes etc.: decided by size/location below
 
 
+def box_poly(x):
+    r = Polygon([(-x['w'] / 2, -x['d'] / 2), (x['w'] / 2, -x['d'] / 2), (x['w'] / 2, x['d'] / 2), (-x['w'] / 2, x['d'] / 2)])
+    return affinity.translate(affinity.rotate(r, x['yaw']), x['x'], x['z'])
+
+
+def thin(boxes, lod, tree, blockers, C, level_studs, bc, stats):
+    """LOD for big maps: merge small neighbouring boxes, then cap the count per chunk."""
+    polys = [box_poly(x) for x in boxes]
+    below = lod.get('merge_below_area_studs2', 0)
+    if below:
+        cand = [i for i, x in enumerate(boxes) if x['w'] * x['d'] < below and x['cat'] in ('shophouse', 'house', 'commercial')]
+        grown = [polys[i].buffer(lod.get('merge_gap_studs', 3) / 2) for i in cand]
+        ctree = STRtree(grown)
+        parent = list(range(len(cand)))
+
+        def find(a):
+            while parent[a] != a:
+                parent[a] = parent[parent[a]]; a = parent[a]
+            return a
+        for k, g in enumerate(grown):
+            for j in ctree.query(g):
+                if j != k and g.intersects(grown[j]):
+                    parent[find(j)] = find(k)
+        groups = {}
+        for k in range(len(cand)):
+            groups.setdefault(find(k), []).append(cand[k])
+        all_tree = STRtree(polys)
+        drop, add = set(), []
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            u = unary_union([polys[i] for i in members])
+            rect = u.minimum_rotated_rectangle
+            if u.area / rect.area < lod.get('merge_min_fill', 0.72):
+                continue
+            if any(rect.intersects(blockers[i]) and rect.intersection(blockers[i]).area > 0.5 for i in tree.query(rect)):
+                continue
+            ms = set(members)
+            if any(j not in ms and rect.intersects(polys[j]) and rect.intersection(polys[j]).area > 0.5 for j in all_tree.query(rect)):
+                continue
+            c = np.array(rect.exterior.coords[:4])
+            e1, e2 = c[1] - c[0], c[2] - c[1]
+            area = sum(boxes[i]['w'] * boxes[i]['d'] for i in members)
+            levels = max(1, round(sum(boxes[i]['levels'] * boxes[i]['w'] * boxes[i]['d'] for i in members) / area))
+            first = boxes[min(members, key=lambda i: boxes[i]['id'])]
+            add.append({**first, 'cat': Counter(boxes[i]['cat'] for i in members).most_common(1)[0][0],
+                        'levels': levels, 'levels_src': 'merged', 'name': None,
+                        'x': round(rect.centroid.x, 2), 'z': round(rect.centroid.y, 2),
+                        'w': round(float(np.linalg.norm(e1)), 2), 'd': round(float(np.linalg.norm(e2)), 2),
+                        'h': round(levels * level_studs + bc['ground_floor_extra_studs'], 2),
+                        'yaw': round(math.degrees(math.atan2(e1[1], e1[0])), 2),
+                        'merged': sorted(boxes[i]['id'] for i in members)})
+            add[-1]['palette'] = CATEGORIES[add[-1]['cat']][1]
+            drop |= ms
+        stats['merged_away'] += len(drop) - len(add)
+        boxes = [x for i, x in enumerate(boxes) if i not in drop] + add
+    cap = lod.get('max_per_chunk')
+    if cap:
+        by_chunk = {}
+        for x in boxes:
+            by_chunk.setdefault((math.floor(x['x'] / C), math.floor(x['z'] / C)), []).append(x)
+        kept = []
+        for cid in sorted(by_chunk):
+            xs = sorted(by_chunk[cid], key=lambda x: (not x.get('name'), x['levels_src'] != 'osm', -x['w'] * x['d'] * x['h'], x['id']))
+            stats['chunk_cap'] += max(0, len(xs) - cap)
+            kept += xs[:cap]
+        boxes = kept
+    return boxes
+
+
 def main(cfg_path):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
     bc = cfg['buildings']
@@ -83,9 +165,25 @@ def main(cfg_path):
 
     boxes, stats = [], Counter()
     rng = random.Random(cfg['name'])
+    clip = None
+    if 'clip_polygon_lat_lon' in cfg:
+        from shapely.prepared import prep
+        clip = prep(Polygon([(lo, la) for la, lo in cfg['clip_polygon_lat_lon']]))
+    base_boxes = None
+    if 'base' in cfg:
+        bS, bW, bN, bE = cfg['base']['slice_bbox_s_w_n_e']
+        base_boxes = [box_poly(x) for x in json.load(open(os.path.join(ROOT, cfg['base']['build'], 'buildings_game.json'),
+                                                           encoding='utf-8'))['buildings']]
+        base_tree = STRtree(base_boxes)
     for b in src['buildings']:
         if not all(S <= la <= N and W <= lo <= E for la, lo in b['coords']):
             stats['outside'] += 1
+            continue
+        if clip is not None and not clip.contains(Polygon([(lo, la) for la, lo in b['coords']]).centroid):
+            stats['outside'] += 1
+            continue
+        if base_boxes is not None and all(bS <= la <= bN and bW <= lo <= bE for la, lo in b['coords']):
+            stats['base_slice'] += 1
             continue
         pts = []
         for la, lo in b['coords']:
@@ -120,6 +218,9 @@ def main(cfg_path):
             rect = affinity.scale(rect, 0.88, 0.88, origin=rect.centroid)
         if not ok or rect.area < bc['min_area_studs2']:
             stats['no_fit'] += 1
+            continue
+        if base_boxes is not None and any(rect.intersects(base_boxes[i]) for i in base_tree.query(rect)):
+            stats['overlaps_base_box'] += 1
             continue
         c = np.array(rect.exterior.coords[:4])
         e1, e2 = c[1] - c[0], c[2] - c[1]
@@ -157,6 +258,9 @@ def main(cfg_path):
                       'yaw': round(yaw, 2), 'beachfront': front})
         stats['kept'] += 1
 
+    lod = bc.get('lod')
+    if lod:
+        boxes = thin(boxes, lod, tree, blockers, cfg['chunk_size_studs'], level_studs, bc, stats)
     out_dir = os.path.join(ROOT, 'build', cfg['name'])
     import hashlib
     ghash = hashlib.sha1(open(os.path.join(ROOT, 'build', cfg['name'], 'graph_game.json'), 'rb').read()).hexdigest()

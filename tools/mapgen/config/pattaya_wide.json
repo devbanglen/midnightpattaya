@@ -1,0 +1,455 @@
+{
+  "name": "pattaya_wide",
+  "source": "central_pattaya_2026-10-18 + pattaya_wide_{north,south,east}_2026-10-18 (data/osm/raw)",
+  "sources": [
+    "data/osm/raw/central_pattaya_2026-10-18.json",
+    "data/osm/raw/pattaya_wide_north_2026-10-18.json",
+    "data/osm/raw/pattaya_wide_south_2026-10-18.json",
+    "data/osm/raw/pattaya_wide_east_2026-10-18.json"
+  ],
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+  "slice_bbox_s_w_n_e": [
+    12.858,
+    100.855,
+    12.985,
+    100.922
+  ],
+  "crs": "EPSG:32647",
+  "origin_utm": [
+    703682.9114886925,
+    1430916.133318141
+  ],
+  "base": {
+    "build": "build/central_pattaya",
+    "slice_bbox_s_w_n_e": [
+      12.921,
+      100.862,
+      12.953,
+      100.893
+    ]
+  },
+  "meters_per_stud": 0.28,
+  "compression": 0.5,
+  "road_classes": {
+    "trunk": {
+      "tier": "express",
+      "lanes": 6,
+      "keep": true
+    },
+    "trunk_link": {
+      "tier": "express",
+      "lanes": 2,
+      "keep": true
+    },
+    "primary": {
+      "tier": "main",
+      "lanes": 4,
+      "keep": true
+    },
+    "primary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "secondary": {
+      "tier": "main",
+      "lanes": 4,
+      "keep": true
+    },
+    "secondary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "tertiary": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "tertiary_link": {
+      "tier": "main",
+      "lanes": 2,
+      "keep": true
+    },
+    "residential": {
+      "tier": "soi",
+      "lanes": 2,
+      "keep": true
+    },
+    "unclassified": {
+      "tier": "soi",
+      "lanes": 2,
+      "keep": true
+    },
+    "living_street": {
+      "tier": "soi",
+      "lanes": 1,
+      "keep": true
+    }
+  },
+  "coastal_road_names_en": [
+    "Pattaya Sai Nueng Road",
+    "Beach Road",
+    "Jomtien Sai Nueng",
+    "Pattaya-Na Kluea Road"
+  ],
+  "lane_width_studs": 13,
+  "min_lane_width_studs": 11,
+  "sidewalk_studs": {
+    "express": 0,
+    "main": 10,
+    "soi": 0
+  },
+  "min_soi_length_m": 60,
+  "drop_dead_end_sois_shorter_m": 250,
+  "smoothing": {
+    "chaikin_iterations": 3,
+    "resample_studs": 6
+  },
+  "chunk_size_studs": 512,
+  "clip_polygon_lat_lon_note": "land between the sea and Sukhumvit Road: east edge = easternmost Sukhumvit node per 0.005 deg of latitude + ~130 m (from the OSM data); the Bira corridor continues east from Sukhumvit",
+  "clip_polygon_lat_lon": [
+    [
+      12.858,
+      100.855
+    ],
+    [
+      12.858,
+      100.9104
+    ],
+    [
+      12.86,
+      100.9102
+    ],
+    [
+      12.865,
+      100.9079
+    ],
+    [
+      12.87,
+      100.9055
+    ],
+    [
+      12.875,
+      100.9036
+    ],
+    [
+      12.88,
+      100.9011
+    ],
+    [
+      12.885,
+      100.8993
+    ],
+    [
+      12.89,
+      100.8989
+    ],
+    [
+      12.9,
+      100.8983
+    ],
+    [
+      12.91,
+      100.8976
+    ],
+    [
+      12.915,
+      100.8977
+    ],
+    [
+      12.92,
+      100.8992
+    ],
+    [
+      12.925,
+      100.9007
+    ],
+    [
+      12.93,
+      100.9022
+    ],
+    [
+      12.935,
+      100.9036
+    ],
+    [
+      12.94,
+      100.9051
+    ],
+    [
+      12.945,
+      100.9065
+    ],
+    [
+      12.95,
+      100.908
+    ],
+    [
+      12.955,
+      100.9094
+    ],
+    [
+      12.96,
+      100.9105
+    ],
+    [
+      12.965,
+      100.9117
+    ],
+    [
+      12.97,
+      100.9133
+    ],
+    [
+      12.975,
+      100.9166
+    ],
+    [
+      12.98,
+      100.9207
+    ],
+    [
+      12.985,
+      100.922
+    ],
+    [
+      12.985,
+      100.855
+    ]
+  ],
+  "buildings": {
+    "level_height_m": 3.2,
+    "vertical_scale": 0.75,
+    "ground_floor_extra_studs": 3,
+    "road_margin_studs": 3,
+    "min_area_studs2": 80,
+    "beachfront_studs": 160,
+    "lod": {
+      "merge_below_area_studs2": 900,
+      "merge_gap_studs": 3,
+      "merge_min_fill": 0.72,
+      "max_per_chunk": 140,
+      "facade_min_height_studs": 0
+    }
+  },
+  "layout": {
+    "palm_spacing_studs": 34,
+    "light_spacing_studs": 110,
+    "job_stand_max_snap_studs": 220,
+    "job_stands_note": "new stands only; the 13 central stands and 4 Road Fight bosses are copied verbatim from the base build",
+    "job_stands": [
+      {
+        "id": "sanctuary_truth",
+        "kind": "taxi",
+        "label": "Sanctuary of Truth",
+        "osm_id": 223698118,
+        "district": "naklua"
+      },
+      {
+        "id": "wong_amat",
+        "kind": "taxi",
+        "label": "Wong Amat Beach",
+        "osm_id": 1198125814,
+        "district": "naklua"
+      },
+      {
+        "id": "lan_pho_naklua",
+        "kind": "delivery",
+        "label": "Lan Pho Naklua Market",
+        "osm_id": 363719863,
+        "district": "naklua"
+      },
+      {
+        "id": "naklua_fresh",
+        "kind": "delivery",
+        "label": "Naklua Fresh Market",
+        "osm_id": 415467999,
+        "district": "naklua"
+      },
+      {
+        "id": "bangkok_hospital",
+        "kind": "taxi",
+        "label": "Bangkok Hospital Pattaya",
+        "osm_id": 226823896,
+        "district": "north"
+      },
+      {
+        "id": "mini_siam",
+        "kind": "taxi",
+        "label": "Mini Siam",
+        "osm_id": 141604635,
+        "district": "north"
+      },
+      {
+        "id": "big_buddha",
+        "kind": "taxi",
+        "label": "Big Buddha (Wat Phra Yai)",
+        "osm_id": 322626265,
+        "district": "pratumnak"
+      },
+      {
+        "id": "pratumnak_night",
+        "kind": "delivery",
+        "label": "Pratamnak Night Market",
+        "osm_id": 1306083318,
+        "district": "pratumnak"
+      },
+      {
+        "id": "thepprasit_night",
+        "kind": "delivery",
+        "label": "Thepprasit Night Market",
+        "osm_id": 305417056,
+        "district": "pratumnak"
+      },
+      {
+        "id": "jomtien_beach_north",
+        "kind": "taxi",
+        "label": "Jomtien Beach",
+        "osm_id": 6126059052,
+        "district": "jomtien"
+      },
+      {
+        "id": "jomtien_marina",
+        "kind": "taxi",
+        "label": "Jomtien Beach (Marina)",
+        "osm_id": 13257204051,
+        "district": "jomtien"
+      },
+      {
+        "id": "jomtien_night",
+        "kind": "delivery",
+        "label": "Jomtien Night Market",
+        "osm_id": 307546385,
+        "district": "jomtien"
+      },
+      {
+        "id": "big_market_jomtien",
+        "kind": "delivery",
+        "label": "The Big Market Jomtien",
+        "osm_id": 1012471862,
+        "district": "jomtien"
+      }
+    ],
+    "districts_note": "game districts for the world map: latitude bands chosen from the main roads (Pattaya Nuea ~12.950, Klang ~12.935, Tai ~12.922, Thappraya/Jomtien Sai Nueng meet ~12.899) and clipped to the land between sea and Sukhumvit; approximate, NOT official boundaries",
+    "districts": [
+      {
+        "id": "naklua",
+        "name": "Naklua",
+        "name_th": "นาเกลือ",
+        "lat_band": [
+          12.957,
+          12.985
+        ],
+        "label_lat_lon": [
+          12.968,
+          12.899
+        ]
+      },
+      {
+        "id": "north",
+        "name": "North Pattaya",
+        "name_th": "พัทยาเหนือ",
+        "lat_band": [
+          12.942,
+          12.957
+        ],
+        "label_lat_lon": [
+          12.9495,
+          12.894
+        ]
+      },
+      {
+        "id": "central",
+        "name": "Central Pattaya",
+        "name_th": "พัทยากลาง",
+        "lat_band": [
+          12.932,
+          12.942
+        ],
+        "label_lat_lon": [
+          12.937,
+          12.89
+        ]
+      },
+      {
+        "id": "south",
+        "name": "South Pattaya / Walking Street",
+        "name_th": "พัทยาใต้",
+        "lat_band": [
+          12.918,
+          12.932
+        ],
+        "label_lat_lon": [
+          12.925,
+          12.882
+        ]
+      },
+      {
+        "id": "pratumnak",
+        "name": "Pratumnak",
+        "name_th": "พระตำหนัก",
+        "lat_band": [
+          12.899,
+          12.918
+        ],
+        "label_lat_lon": [
+          12.911,
+          12.876
+        ]
+      },
+      {
+        "id": "jomtien",
+        "name": "Jomtien",
+        "name_th": "จอมเทียน",
+        "lat_band": [
+          12.858,
+          12.899
+        ],
+        "label_lat_lon": [
+          12.88,
+          12.889
+        ]
+      }
+    ],
+    "bira_entrance": {
+      "label": "To Bira Circuit",
+      "status": "pending corridor",
+      "osm_node": 4446016998,
+      "note": "placeholder at the Pattaya Klang Road / Sukhumvit Road junction (the corridor team routes east from Pattaya Klang); move it to the corridor join node once their graph is merged"
+    }
+  },
+  "traffic": {
+    "seed": 23,
+    "routes": 48,
+    "min_loop_studs": 3000,
+    "max_loop_studs": 9000,
+    "main_road_bias": 0.85,
+    "studs_per_car": 420,
+    "speed_studs_s": [
+      38,
+      55
+    ],
+    "kind_weights": [
+      5,
+      3,
+      2
+    ],
+    "kinds_note": "0 sedan/taxi, 1 songthaew (baht bus), 2 van",
+    "note": "new loops start on new main/express-adjacent edges; the 36 central loops are copied verbatim from the base build"
+  },
+  "force_keep_ways_note": "service-road chains kept (as residential) so job stands reach real POIs: Big Buddha hill road 36330865+147158189 from Pra Tumnak Road; Sanctuary of Truth access 1278396836+613064037+37617157+684490986 from Soi Naklua 12 (found by walking the OSM way graph from the POI)",
+  "force_keep_ways": {
+    "36330865": "residential",
+    "147158189": "residential",
+    "1278396836": "residential",
+    "613064037": "residential",
+    "37617157": "residential",
+    "684490986": "residential"
+  },
+  "sidewalk_note": "LOD: new sois get no sidewalk strips (most Thai sois have none; saves 2 Parts per soi segment). Base edges keep theirs.",
+  "roads_lod": {
+    "dash_gap_studs": 32,
+    "note": "lane dashes on the new roads: 8 studs every 40 (base roads: every 20); read by PattayaBuilder.Extend via manifest.dashGap"
+  }
+}
