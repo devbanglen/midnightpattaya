@@ -206,7 +206,17 @@ RunService.RenderStepped:Connect(function()
 		local tip = arrow:FindFirstChild("Tip") :: Part
 		tip.CFrame = arrow.CFrame * CFrame.new(0, 0, -5)
 	end
-	local goal = route[#route]
-	local remaining = Vector3.new(goal.X - pos.X, 0, goal.Z - pos.Z).Magnitude
+	-- distance left along the route (from the first point ahead), not as the crow flies
+	local remaining = 0
+	local started = false
+	for i = 1, #route - 1 do
+		if not started and Vector3.new(route[i].X - pos.X, 0, route[i].Z - pos.Z).Magnitude > 25 then
+			started = true
+			remaining += Vector3.new(route[i].X - pos.X, 0, route[i].Z - pos.Z).Magnitude
+		end
+		if started then
+			remaining += (route[i + 1] - route[i]).Magnitude
+		end
+	end
 	panel.Text = ("GPS  %s   %.1f km"):format(label, remaining * 0.28 / 1000)
 end)

@@ -18,6 +18,15 @@ local adjacency = {}
 for i = 1, #nodes do
 	adjacency[i] = {}
 end
+local edgePts = {} -- [edgeIndex] = {Vector2} (simplified polyline a -> b)
+for ei, e in graph.edges do
+	local flat = e[6]
+	local seg = {}
+	for i = 1, #flat, 2 do
+		table.insert(seg, Vector2.new(flat[i], flat[i + 1]))
+	end
+	edgePts[ei] = seg
+end
 for ei, e in graph.edges do
 	local a, b, len, tier = e[1], e[2], e[3], e[4]
 	local cost = len * (if tier == 3 then SOI_COST else 1)
@@ -58,8 +67,35 @@ function Route.nearestNode(p: Vector2, maxDist: number, look: Vector2?): number?
 	return best
 end
 
-function Route.dijkstra(src: number)
-	local dist, prev, done = {[src] = 0}, {}, {}
+-- Nearest point on any road edge to p: edge index, the point, and the distance along the edge from node a.
+function Route.nearestEdge(p: Vector2): (number?, Vector2?, number, number)
+	local bestD, bestE, bestQ, bestS = math.huge, nil, nil, 0
+	for ei, seg in edgePts do
+		local acc = 0
+		for i = 1, #seg - 1 do
+			local a, b = seg[i], seg[i + 1]
+			local ab = b - a
+			local len2 = ab:Dot(ab)
+			local t = if len2 > 1e-6 then math.clamp((p - a):Dot(ab) / len2, 0, 1) else 0
+			local q = a + ab * t
+			local d = (p - q).Magnitude
+			if d < bestD then
+				bestD, bestE, bestQ, bestS = d, ei, q, acc + math.sqrt(len2) * t
+			end
+			acc += math.sqrt(len2)
+		end
+	end
+	return bestE, bestQ, bestD, bestS
+end
+
+-- Dijkstra from one node, or from several seeds {[node] = starting cost}.
+function Route.dijkstra(src: number | {[number]: number})
+	local dist, prev, done = {}, {}, {}
+	if type(src) == "table" then
+		for n, d in src do dist[n] = d end
+	else
+		dist[src] = 0
+	end
 	while true do
 		local best, bd = nil, math.huge
 		for n, d in dist do
@@ -86,7 +122,7 @@ end
 function Route.polylineOf(prev, src: number, dst: number): {Vector2}
 	local chain = {}
 	local n = dst
-	while n ~= src do
+	while n ~= src and prev[n] do -- with several seeds the chain ends at whichever seed reached dst
 		local p = prev[n]
 		table.insert(chain, 1, p[2])
 		n = p[1]
@@ -186,22 +222,67 @@ function Route.routeTo(pos: Vector3, look: Vector3?, target: number, isOsmId: bo
 	if not dst then
 		return nil, "Unknown destination"
 	end
-	local src = Route.nearestNode(Route.toLocal(pos), 600, look and Vector2.new(look.X, look.Z) or nil)
-	if not src then
+	local p = Route.toLocal(pos)
+	local ei, q, d, s = Route.nearestEdge(p)
+	if not ei or d > 150 then
 		return nil, "No road nearby"
 	end
-	if src == dst then
-		return {route = {Route.toWorld(nodes[dst])}, length = 0}
+	local e = graph.edges[ei]
+	local a, b, len = e[1], e[2], e[3]
+	-- seeds: the edge's far end(s); the start of the polyline is the projection point q
+	local seeds = {}
+	local tail = {} -- polyline from q to each seed, chosen after the search
+	local seg = edgePts[ei]
+	local function along(fromS: number, toS: number): {Vector2} -- edge vertices between two arc positions, in travel order
+		local pos = {0}
+		for i = 1, #seg - 1 do
+			pos[i + 1] = pos[i] + (seg[i + 1] - seg[i]).Magnitude
+		end
+		local out = {}
+		if toS >= fromS then
+			for i = 1, #seg do
+				if pos[i] > fromS + 0.01 and pos[i] <= toS + 0.01 then table.insert(out, seg[i]) end
+			end
+		else
+			for i = #seg, 1, -1 do
+				if pos[i] < fromS - 0.01 and pos[i] >= toS - 0.01 then table.insert(out, seg[i]) end
+			end
+		end
+		return out
 	end
-	local dist, prev = Route.dijkstra(src)
+	local polyLen = 0
+	for i = 1, #seg - 1 do polyLen += (seg[i + 1] - seg[i]).Magnitude end
+	seeds[b] = math.max(polyLen - s, 0)
+	tail[b] = along(s, polyLen)
+	local oneway = true
+	for _, link in adjacency[b] do
+		if link[1] == a and link[2] == ei then oneway = false end
+	end
+	if not oneway then
+		seeds[a] = s
+		tail[a] = along(s, 0)
+	end
+	if dst == a or dst == b then
+		local pts = {q}
+		for _, x in tail[dst] do table.insert(pts, x) end
+		local route = {}
+		for _, x in pts do table.insert(route, Route.toWorld(x)) end
+		return {route = route, length = Route.length(pts), nodeIndex = dst}
+	end
+	local dist, prev = Route.dijkstra(seeds)
 	if not dist[dst] then
 		return nil, "No road to the destination"
 	end
-	local pts = Route.polylineOf(prev, src, dst)
-	local route = {}
-	for _, q in pts do
-		table.insert(route, Route.toWorld(q))
+	-- which seed did the best path start from? follow prev back to a node without prev
+	local n = dst
+	while prev[n] do n = prev[n][1] end
+	local pts = {q}
+	for _, x in tail[n] or {} do table.insert(pts, x) end
+	for i, x in Route.polylineOf(prev, n, dst) do
+		if i > 1 then table.insert(pts, x) end
 	end
+	local route = {}
+	for _, x in pts do table.insert(route, Route.toWorld(x)) end
 	return {route = route, length = Route.length(pts), nodeIndex = dst}
 end
 
