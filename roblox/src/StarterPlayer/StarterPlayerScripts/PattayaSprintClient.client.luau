@@ -143,7 +143,9 @@ SprintUpdate.OnClientEvent:Connect(function(kind, payload)
 		sprint.gates = buildGates(payload.checkpoints, payload.dirs)
 		paint(1, GOLD)
 		panel.Visible = true
-		if payload.rivals then -- street challenge (PattayaChallengeServer)
+		if payload.banner then -- big-grid events (PattayaEventsServer)
+			showToast(payload.banner, 3)
+		elseif payload.rivals then -- street challenge (PattayaChallengeServer)
 			showToast(("CHALLENGE vs %s  %.1f km"):format(table.concat(payload.rivals, ", "), payload.length * 0.28 / 1000), 3)
 		else
 			showToast(("STREET SPRINT  %.1f km"):format(payload.length * 0.28 / 1000), 2.5)
