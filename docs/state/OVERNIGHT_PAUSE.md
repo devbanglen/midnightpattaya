@@ -1,15 +1,16 @@
-# OVERNIGHT_PAUSE — checkpoint for the autonomous run (update before any pause)
+# OVERNIGHT_PAUSE — SAFE PAUSE checkpoint (leader, 2026-10-20 ~08:00 local)
 
-- Current Phase: VIS-7.1 follow-ups (overnight queue priority 1–3), waiting for Owner Visual Acceptance of VIS-7.1
-- Latest Commit / Branch: see `git log -1 main`; team branches: team7/vis-kit2 (D:\ROBLOXRACE-garage)
-- Completed Tasks: docs/OVERNIGHT_PROGRESS.md log (DONE / TESTED rows)
-- Pending Tasks: docs/OVERNIGHT_PROGRESS.md queue
-- Active Agent Status: vis-kit2 running (Blender kit fixes)
-- Known Blockers: focused render FPS and hero shot need the owner at Studio (PENDING_OWNER_TEST); a fresh .rbxl backup is needed before any further Studio rebuild (owner asleep → installs deferred)
-- Next Exact Action: when vis-kit2 reports → review diff → QA renders → upload only the changed .glb (leader, Open Cloud) → RemoveMesh/BuildMesh the sample block → captures
-- Last Known Usage: not readable from inside the session (the CLI shows it in the status line; no 429 seen)
-- Limit Reset Time: unknown (none shown)
-- Resume Instructions: open Claude Code in D:\ROBLOXRACE, say "resume overnight from docs/state/OVERNIGHT_PAUSE.md"; the memory note current-status-2026-10-19 has the hand-over; check `git status`, running agents (none survive a restart) and Studio state (`get_studio_state`) before building anything.
+- **Current Phase:** VIS-7.1 / 7.1b follow-ups (overnight queue: priority 1 mesh-opt and priority 2 textures in flight; priority 3 items done; priority 4 offline checks done)
+- **Latest Commit / Branch:** main `6182364` (pushed). Team branches (not pushed, in their worktrees): `team7/mesh-opt` (D:\ROBLOXRACE-world, agent still running at pause time), `team7/textures` (D:\ROBLOXRACE-worldfix, agent still running at pause time), `team7/vis-kit2` (merged into main at 2f126b5).
+- **Why paused:** Claude usage limit reached (the CLI reported it). Status: **WAITING_FOR_MANUAL_RESUME** — no automatic resume exists in this setup.
+- **Completed Tasks (DONE / TESTED):** see docs/OVERNIGHT_PROGRESS.md log — VIS-7.1 lighting + mesh sample installed/probed/captured; weak-table bug fixed; Thai sign check; importer 180° yaw root cause + VisMeshBuilder fix; vis-kit2 merged, 8 fixed assets re-uploaded (new ids in VisAssetsManifest) and the sample block rebuilt (14 buildings 40 Parts + 1,612 MeshParts, 157 geometry palms, ProbeMesh all 0, sign labels face the street); regression drives Beach Road → Bira passed twice; tools/qa/offline_checks.py (all pass); world map opens on CITY in compact (verified in the emulator: VIEW: CITY on open).
+- **Pending Tasks:** merge-review of team7/mesh-opt and team7/textures when they report (run tools/qa/offline_checks.py, review diffs, upload only what is needed); captures of the rebuilt sample block (day street / aerial / close-up, night street) and the hero shot; focused render FPS after the mesh swap; a VIEW-button tap test on the compact map (the MCP mouse tool did not reach the button at inset-space y −16; untested whether a real finger does — PENDING_OWNER_TEST); Thai sign close-up after the sign fix.
+- **Active Agent Status at pause:** mesh-opt and textures were still running; their results arrive as hand-back messages in this session's transcript (if the session is restarted they will not report — check their branches with `git -C D:\ROBLOXRACE-world log team7/mesh-opt` and `git -C D:\ROBLOXRACE-worldfix log team7/textures`, and read docs they wrote).
+- **Known Blockers:** Studio captures/FPS need the owner at Studio with the Client view in the viewport and ~15 s uninterrupted focus; a fresh owner .rbxl backup (only the 04:50 one exists) before any further large Studio change; the mesh-swap instance count is still above the Part build (1,018 → 2,074) until mesh-opt lands — WAITING_FOR_OWNER decision on scope.
+- **Next Exact Action on resume:** 1) `git status` + `git log -1` in D:\ROBLOXRACE; 2) check the two team branches above; 3) if mesh-opt is done: review, `tools/qa/offline_checks.py`, merge, run vis_slice.py, upload only the new merged .glb files, install VisMeshBuilder + vismesh, `V.RemoveMesh()` → `V.BuildMesh()` → `V.ProbeMesh()`, count instances in the block; 4) if textures is done: review, upload the PNG maps as Image assets, install `ReplicatedStorage.MaterialLibraryMaps`, verify the fallback; 5) captures when the owner is at Studio; 6) owner report (8 points) in Thai.
+- **Last Known Usage:** limit reached at pause (no percentage readable from inside the session).
+- **Limit Reset Time:** not shown to the session; the CLI status line shows it.
+- **Resume Instructions:** open Claude Code in D:\ROBLOXRACE and send: "resume overnight from docs/state/OVERNIGHT_PAUSE.md". Memory note `current-status-2026-10-19` carries the hand-over and gotchas.
 
 ## Limit policy (owner rule 2026-10-19, applies to every team)
 Usage 0–70 % normal; 70–80 % prepare checkpoint, avoid token-heavy work; 80–85 % finish the current sub-task only;

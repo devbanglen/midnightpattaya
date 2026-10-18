@@ -517,6 +517,7 @@ end
 -- POI markers (reused data: job stands, bosses, race start, Bira; plus garage, circuits, event, players) -----------
 local open = false
 local view = "ALL" -- full map view: ALL / CITY / NEAR
+local viewChosen = false -- true once the player pressed VIEW (then the compact default no longer applies)
 local destinations = {} -- {{id, label}} from GPSUpdate "list"
 local currentDest: string? = nil
 local poiEntries = {} -- {badge, label, kind, poi, gpsId}
@@ -1315,6 +1316,12 @@ setOpen = function(on: boolean)
 		fullGui.Enabled = true
 		layoutFull()
 		world.Parent = fullView
+		-- compact / touch HUD (owner mobile test 2026-10-19): the whole-world ALL view is unreadable on a phone, so the
+		-- map opens on CITY until the player picks a view themselves
+		if not viewChosen then
+			local hudGui = player:FindFirstChildOfClass("PlayerGui") and player.PlayerGui:FindFirstChild("MidnightHUD")
+			view = if hudGui and hudGui:GetAttribute("Compact") == true then "CITY" else "ALL"
+		end
 		applyView()
 		if #destinations == 0 and GPSRequest then
 			GPSRequest:FireServer("list")
@@ -1383,6 +1390,7 @@ local VIEWS = {"ALL", "CITY", "NEAR"}
 viewBtn.Activated:Connect(function()
 	local i = table.find(VIEWS, view) or 1
 	view = VIEWS[i % #VIEWS + 1]
+	viewChosen = true
 	applyView()
 end)
 local function setZoom(i: number)
