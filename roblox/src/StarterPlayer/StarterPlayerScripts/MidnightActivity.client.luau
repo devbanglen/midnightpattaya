@@ -183,6 +183,9 @@ local wordmark = {
 -- compact / touch layout (docs/UI_SYSTEM.md "Touch layout"): MidnightHUD sets attribute Compact on its ScreenGui.
 -- Compact = no wordmark, the layouts move up to the top of TopCenter, free roam is ONE line (district  •  mode)
 -- plus the GPS / event pill, the big centre text sits right under the strip.
+-- Round 3 (touch): compact big text = 46 px in a 52 px box at y 186 + 18 px subline at y 240, so it ends at design
+-- y 258; MidnightHUD (COMPACT_BIG_BOTTOM) starts the toast column 6 px under that: the two never overlap.
+local BIG_COMPACT = {y = 186, h = 52, textSize = 46, subY = 240, subH = 18, subSize = 16}
 local function isCompact(): boolean
 	return hudRoot ~= nil and hudRoot:GetAttribute("Compact") == true
 end
@@ -316,10 +319,12 @@ local function showBig(str: string, color: Color3, sub: string?, seconds: number
 	local stamp = bigStamp
 	big.Text, big.TextColor3 = str, color
 	bigSub.Text, bigSub.TextColor3 = sub or "", C.text
+	local full = if compactNow then BIG_COMPACT.textSize else Theme.size.huge
+	big.TextSize = full
 	if not reducedMotion() then -- small pop-in, no shake
-		big.TextSize = Theme.size.huge * 0.8
+		big.TextSize = full * 0.8
 		TweenService:Create(big, TweenInfo.new(Theme.motion.fast, Enum.EasingStyle.Back, Theme.motion.easeOut),
-			{TextSize = Theme.size.huge}):Play()
+			{TextSize = full}):Play()
 	end
 	task.delay(seconds, function()
 		if bigStamp == stamp then
@@ -811,8 +816,12 @@ local function applyCompact()
 	end
 	fMode.Visible = not compactNow
 	fPill.Position = UDim2.fromOffset(330, if compactNow then 32 else 54)
-	big.Position = UDim2.fromOffset(330, if compactNow then 196 else 318)
-	bigSub.Position = UDim2.fromOffset(330, if compactNow then 258 else 380)
+	big.Position = UDim2.fromOffset(330, if compactNow then BIG_COMPACT.y else 318)
+	big.Size = UDim2.fromOffset(600, if compactNow then BIG_COMPACT.h else 64)
+	big.TextSize = if compactNow then BIG_COMPACT.textSize else Theme.size.huge
+	bigSub.Position = UDim2.fromOffset(330, if compactNow then BIG_COMPACT.subY else 380)
+	bigSub.Size = UDim2.fromOffset(600, if compactNow then BIG_COMPACT.subH else 22)
+	bigSub.TextSize = if compactNow then BIG_COMPACT.subSize else Theme.size.title
 	if not compactNow then
 		fDistrict.Text = districtName
 	end

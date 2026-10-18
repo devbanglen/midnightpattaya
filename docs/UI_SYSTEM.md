@@ -17,6 +17,8 @@ positions on a 1600x900 reference). Owner acceptance conditions applied: the leg
 | `roblox/src/ReplicatedStorage/MidnightUI/Responsive.luau` | ModuleScript (new) | UIScale, HUD scale, input kind, safe insets, reduced motion |
 | `roblox/src/ReplicatedStorage/MidnightUI/InputPrompts.luau` | ModuleScript (new) | key glyph per input + context actions per state |
 | `roblox/src/ReplicatedStorage/MidnightUI/Components.luau` | ModuleScript (new) | panel, label, bar, buttons, icons, pill, toast card, toggle, slider |
+| `roblox/src/ReplicatedStorage/MidnightUI/TouchControls.luau` | ModuleScript (round 3) | compact touch-button grid for the legacy ContextActionService buttons |
+| `roblox/src/ReplicatedStorage/MidnightUI/TouchSelfTest.luau` | ModuleScript (round 3, dev only) | command-bar hit-test report of every HUD / CAS button |
 | `roblox/src/StarterPlayer/StarterPlayerScripts/MidnightHUD.client.luau` | LocalScript (new) | the root HUD |
 | `PattayaGarageClient.client.luau` | LocalScript (edited, additive) | Bus `garage.open`, legacy-hide of its toast |
 | `PattayaJobsClient.client.luau` | LocalScript (edited, additive) | Bus `missions.open` panel, legacy-hide of its job strip / toasts |
@@ -74,6 +76,7 @@ by reference, so tables keep identity and **functions survive** (a BindableEvent
 | `toast` | `{title, body?, kind?, icon?, duration?, key?}` | anyone | MidnightHUD |
 | `modal.open` / `modal.close` | `{title, build = function(body: Frame), width?, height?}` | anyone | MidnightHUD |
 | `minimap.visible` | bool | Settings "Minimap" | **ui-map** |
+| `gps.cycle` | – | compact minimap header GPS chip (round 3) | PattayaGPSClient (same function as the G key) |
 | `hud.scale` | number (effective scale) | Responsive | anyone (e.g. a fallback ScreenGui) |
 | `hud.reducedMotion` | bool | Responsive | anyone |
 
@@ -279,17 +282,17 @@ the exact v1 layout: every compact change is behind that flag. Desktop sizes are
    button again, or 8 s untouched closes it. Gamepad hold-Select opens it too.
 5. TopCenter 660 x 190: no wordmark. Free roam is one line (`<district>  •  FREE ROAM` / `<job> JOB`) plus the
    GPS / event pill. The racing title, strip, status, sectors and lights move up to y 0.
-6. Toasts: a top-centre column under TopCenter, 260 x 136, newest below, at most 2 on screen.
+6. Toasts: a centre column 260 x 136 (2 cards; 1 if 2 do not fit), newest below, starting 6 px under the big centre
+   text and ending 6 px above the speedometer (round 3; was: right under TopCenter). Tap a toast to dismiss it.
 7. Speedometer: the compact variant 242 x 113 (about 150 x 70) has big digits, KM/H (or LIMITED), nitro % and a
-   nitro bar, with no dial. Centred, bottom edge 90 px above the screen bottom, but never closer than 8 px under the
-   toast column.
+   nitro bar, with no dial. Centred, 6 px under the toast column, bottom edge at least 8 px above the job strip
+   (round 3; was: bottom edge 90 px above the screen bottom, 8 px under the toasts).
 8. Minimap card: 150 x 120 screen px under the player card, header 22 px. There is no compass, rose or district
    label. The OSM credit is kept (8 px). Zoom in / zoom out / expand are 36 px buttons in a column just right of the
    card.
 9. Circuit timing tower: under the minimap card, scaled with the HUD, only the rows that fit above the bottom 100 px
    (at least 3).
-10. Known exception: the big centre text (3-2-1-GO / VICTORY, a few seconds) sits under the strip and can cover the
-    toast column while it shows.
+10. (Fixed in round 3, see "Round 3: touch controls": the big centre text no longer covers the toast column.)
 
 **Expected rectangles at 830 x 439 (GuiInset 58, so the HUD gui is 830 x 381; scale 0.62), in gui px:**
 
@@ -299,10 +302,10 @@ the exact v1 layout: every compact change is behind that flag. Desktop sizes are
 | TopRight / menu button | 773.4, 12 | 44.6 x 44.6 |
 | quick-menu sheet (open only; TopCenter hidden) | 408.8, 8.3 | 359.6 x 59.5 (tiles 54.6 x 52.1) |
 | TopCenter (activity) | 210.4, 12 | 409.2 x 117.8 |
-| Toasts column (2 max) | 334.4, 135.8 | 161.2 x 84.3 |
+| Toasts column (2 max) | 334.4, 177 | 161.2 x 84.3 (round 3; was 334.4, 135.8) |
 | BottomLeft anchor / minimap card | 12, 82 | 150 x 120 |
 | minimap buttons (+, -, expand) | 168, 82 / 124 / 166 | 36 x 36 each |
-| BottomRight / compact speedo | 339, 228 | 150 x 70 |
+| BottomRight / compact speedo | 339, 268 | 150 x 70 (round 3; was 339, 228) |
 | BottomCenter anchor | 222.8, 326.8 | 384.4 x 42.2 (job strip at its bottom, 21 px tall, <= 384 wide) |
 | circuit timing tower (session) | 12, 210 | 186 x 60.8 (5 rows) |
 
@@ -326,3 +329,122 @@ and overlap each other on a small phone — they are the old mobile controls, no
 drop MAP/GPS/CIRCUIT from CAS when the compact HUD provides them. The 1366×768 case was measured on Studio's laptop preset
 (1676×987). The compact speedo drops the class badge and car name. The 3-2-1-GO big text can cover the toast column for a
 few seconds on touch. The district label falls back to "PATTAYA" outside the mapped district polygons (Sukhumvit).
+
+## Round 3: touch controls (team5/ui-touch, written, not run in Studio)
+
+Owner items: (1) duplicate touch buttons on mobile, (2) the big centre text over the toast column on touch, (3) real
+touch presses, (4) no desktop regression. Every change below is behind **compact + new HUD** (and, for the
+ContextActionService buttons, `UserInputService.TouchEnabled`); `Compact = false` takes none of the new branches.
+
+### What changed
+
+| File | Change |
+|---|---|
+| `MidnightUI/TouchControls.luau` (new) | owns the legacy CAS touch buttons while `LocalPlayer.MidnightHUD == true`, `PlayerGui.MidnightHUD.Compact == true` and the device has touch: removes GPS + MAP (unbind, rebind the same handler and keys **without** a button), puts the others in a fixed grid (below), restyles them with Theme (navy glass, 12 px corners, hairline stroke; NOS cyan 2 px stroke; GothamBlack label; own pressed state = cyan fill while the touch that began on it is held; the Roblox circle image is made transparent). Re-applies on flag / Compact / viewport changes and at 2 Hz (the core script creates and re-creates buttons on every BindAction). |
+| `MidnightUI/TouchSelfTest.luau` (new, dev only) | the command-bar report below |
+| `MidnightUI/Components.luau` | buttons: hover only from real mouse movement (InputBegan/InputEnded `MouseMovement`, so a tap never sticks "hovered"), pressed state (highlight + 0.95 scale) follows the exact touch / left-button InputObject until it ends or is cancelled; toggle and slider track `AutoButtonColor = false`; slider drag follows the one InputObject that began on the track (other fingers, e.g. the thumbstick, are ignored) and pauses the parent ScrollingFrame while a touch drags the knob |
+| `MidnightHUD.client.luau` | compact only: toast column placed between the big text and the speedometer (`COMPACT_BIG_BOTTOM`, 2 or 1 toasts), speedometer under it, tap-to-dismiss button on each toast card (Visible only in compact) |
+| `MidnightActivity.client.luau` | compact only: big text 46 px in a 52 px box at design y 186, subline 16 px in an 18 px box at y 240 (ends at 258); desktop values are the ones it was built with (600 x 64, 56 px at y 318; 600 x 22, 20 px at y 380) |
+| `PattayaMinimapClient.client.luau` | GPS chip in the compact card header (tap = Bus `gps.cycle`); `MouseButton1Click` -> `Activated` on every button (expand, zoom +/-, full-map close, dim, view, destinations, clear GPS, POI markers); `AutoButtonColor` off with own hover (mouse only) / pressed colour; `WorldMap` handler named + `TouchControls.register` (hide) |
+| `PattayaGPSClient.client.luau` | the G handler is a named function `gpsCycle`, bound exactly as before; `TouchControls.register` (hide); Bus `gps.cycle` calls `gpsCycle(nil, Begin)` (same GPSRequest flow, no second GPS) |
+| `CarController`, `PattayaSprintClient`, `PattayaChallengeClient`, `CircuitRaceClient` | after their BindAction / SetTitle / SetPosition: `touchRegister(action, {slot, title, position})` (a 5-line local loader, a no-op if `MidnightUI.TouchControls` is missing). RoadFight ("FIGHT") is registered as a context slot. |
+
+`PattayaGarageClient` ("GARAGE") and `PattayaEventsClient` ("JOIN") are not edited: TouchControls manages those two
+actions by name (their original positions are copied into the module) as context slots. `ChallengeAccept` / `NO`
+(centre of the screen during an invite) stay where they are; the speedometer already slides left while they show.
+MidnightSpeedo needed no change (it fills BottomRight, which MidnightHUD places).
+
+### CAS grid (gui px at 830 x 439: HUD gui 830 x 381, jump button 735,291 70 x 70)
+
+Anchored to the jump button at runtime (`TouchGui...JumpButton`; fallback: Roblox's jump formula): R = jump right
+edge (805), B = 8 px above the jump top (283). 2 columns x 3 rows, 8 px gaps, right column 72 px wide (NOS), the
+56 px buttons centred in it. Context slots fill left of the grid in the order FIGHT, GARAGE, JOIN (only while bound).
+On a short screen the whole grid shrinks (never below 44 px buttons) so its top stays 8 px under the menu button.
+
+| slot | action (title) | x, y | size |
+|---|---|---|---|
+| nitro | CarNitro (NOS) | 733, 211 | 72 x 72 |
+| drift | CarDrift (DRIFT) | 669, 227 | 56 x 56 |
+| reset | CarReset (R) | 741, 147 | 56 x 56 |
+| sprint | StreetSprint (SPRINT) | 669, 147 | 56 x 56 |
+| race | StreetChallenge (RACE) | 741, 83 | 56 x 56 |
+| circuit | CircuitMenu (CIRCUIT) | 669, 83 | 56 x 56 |
+| ctx1 | RoadFight / PattayaGarage / EventJoin | 605, 227 | 56 x 56 |
+| ctx2 | second bound context action | 605, 147 | 56 x 56 |
+| ctx3 | third bound context action | 541, 227 | 56 x 56 |
+| removed | GPSCycle (GPS), WorldMap (MAP) | – | keyboard / gamepad keys unchanged |
+
+Clearances at 830 x 381: grid x 541..805, y 83..283. Jump 735..805 x 291..361 (8 px below NOS). Menu button
+773..818 x 12..57 (26 px above RACE). Quick-menu sheet 409..768 x 8..68 (15 px above CIRCUIT). Activity strip box
+229..601 (ctx2 starts at 605). Toasts 334..496 and speedometer 339..489 (ctx3 starts at 541). Thumbstick 29..103 x
+288..362.
+
+Replacement for the removed buttons: MAP = the minimap's expand button (168,166 36 x 36) or quick menu > Map; GPS =
+the **GPS chip** at the right end of the compact minimap header (visual 44 x 16, hit area 48 x 30 at 112,74, reaching
+into the 8 px gap under the player card): tap = next destination, after the last one GPS off; cyan while a route is set.
+
+### Big text vs toasts (compact, gui px at 830 x 381, scale 0.62)
+
+Picked: **toasts in the centre column above the speedometer, big text tightened under the strip.** The other option
+(big text at y 45 %, toasts under the strip) still overlaps at this height: 381 px leave 91 px between the strip and
+the old speedometer top for 54 px of big text plus 84 px of toasts.
+
+| element | x, y | w x h |
+|---|---|---|
+| race strip + status + sectors (lowest element) | 210, 12 | ends at y 126.1 |
+| big text box (3 / 2 / 1 / GO! / VICTORY / FINISHED / PERSONAL BEST / DNF) | 229, 127.3 | 372 x 32.2 (28.5 px text) |
+| big subline box | 229, 160.8 | 372 x 11.2 (ends 172) |
+| toast column (2 cards 161 x 39.7, 5 px gap) | 334.4, 177 | 161.2 x 84.3 (ends 261.3) |
+| compact speedometer | 339, 268 | 150 x 70 (ends 338) |
+| job strip (jobs only) | centred, 348 | <= 384 x 21 |
+
+Zero overlap between them; the stack is clear of the CAS grid (x >= 541), the minimap column (x <= 204) and the
+thumbstick. If a screen is so short that 2 toasts do not fit, the column shows 1. Desktop: unchanged.
+
+### Restore path
+
+- `LocalPlayer:SetAttribute("MidnightHUD", false)` (legacy rollback) or Compact false (window >= 1100 px, no touch):
+  TouchControls rebinds GPS / MAP **with** their touch buttons, `SetTitle` + `SetPosition` with the legacy values,
+  and puts every restyled button back (size, image transparency, background, AutoButtonColor, title font / colour /
+  scaling / size / position snapshotted before the first change; its UICorner / UIStroke / UITextSizeConstraint
+  removed; the legacy `SetPosition` re-applied). The legacy layout is then exactly the pre-round-3 one.
+- The GPS chip exists only in the compact card (hidden otherwise); the toast dismiss buttons only in compact.
+- If `MidnightUI.TouchControls` is missing, each legacy `touchRegister` does nothing.
+
+### Self-test (dev only)
+
+Client command bar during Play: `print(require(game.ReplicatedStorage.MidnightUI.TouchSelfTest)())` (it also prints
+by itself). One line per visible button of MidnightHUD, MinimapHUD, WorldMapUI (when open), ContextActionGui (with
+the CAS action name) and TouchGui: `[OK]`, `[COVERED] (by <path>)` = another GuiButton / Active GUI is above it at
+its centre, `[MISS]` = `GetGuiObjectsAtPosition` at its centre does not return it (clipped / off-screen), `[OFF]`;
+then the map-marker count, every pair of overlapping controls, the actions TouchControls removed, and
+`summary: n controls OK, n not OK, n overlaps`. No clicks are faked. Probes use the AbsolutePosition space; if the
+first HUD button is found only with the top-bar inset added, the report says so and uses that offset.
+
+### Leader test steps (Studio, Device emulator, phone landscape e.g. 830 x 439, TouchEnabled)
+
+1. Install, Play, sit in a car. CAS buttons NOS / DRIFT / R / SPRINT / RACE / CIRCUIT in the grid above the jump
+   button, rounded navy, no GPS and no MAP button. Run the self-test: `0 overlaps`, every CAS / HUD row `[OK]`.
+2. Click (= tap) each with the mouse: NOS held -> cyan fill + nitro; DRIFT held -> drift; R -> car reset upright;
+   SPRINT -> street sprint starts; RACE -> street challenge request; CIRCUIT -> circuit menu. Release -> navy again.
+3. GPS chip (minimap header, right): tap -> "GPS: <destination>" toast + route + chip turns cyan; tap until the last
+   -> "GPS off". Keyboard G still cycles (same function).
+4. Minimap: + / - zoom, expand -> full map; in the full map tap a destination or the Bira flag -> GPS set; X / tap
+   outside -> closes. Quick menu ☰ -> sheet, each tile works; Settings: drag the HUD-scale slider (mouse drag; touch
+   drag in the emulator) -> the value follows, the list does not scroll; -/+ step; toggles flip.
+5. Start a street sprint / loop race: 3-2-1-GO above the toasts (fire toasts during it:
+   `require(game.ReplicatedStorage.MidnightUI.Bus).fire("toast", {title = "TEST", body = "x"})` x3): no overlap,
+   at most 2 toasts; tap a toast -> it fades out.
+6. Near a boss ring / the garage ring / an event: FIGHT / GARAGE / JOIN appear in the context slots left of the grid.
+7. `game.Players.LocalPlayer:SetAttribute("MidnightHUD", false)`: the old buttons (incl. GPS and MAP) return at their
+   old positions with the old look; set it true again -> grid again.
+8. Desktop regression: Device emulator off, full screen -> compare with `docs/images/hud_v3_full_freeroam.jpg`;
+   nothing moved (Compact false takes none of the round-3 branches); the self-test lists no CAS buttons (none exist
+   without touch) and the HUD rows `[OK]`.
+
+Risks: written blind. The CAS core script's button internals (child `ActionTitle`, ImageButton, AnchorPoint 0,0)
+are assumed; if it re-applies its own size the 2 Hz pass sets it again, an image change on press stays invisible
+(ImageTransparency 1). `GetGuiObjectsAtPosition` ordering is assumed topmost first. Rebinding GPS / MAP moves them to
+the top of the default-priority CAS stack for G / DPadUp / M / Select (no other default-priority action uses those
+keys; the HUD's Select binding is High priority and unaffected). Desktop button feedback changed slightly (hover is
+now our colour instead of AutoButtonColor on the minimap buttons), layout did not.

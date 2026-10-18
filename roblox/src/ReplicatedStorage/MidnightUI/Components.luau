@@ -304,6 +304,10 @@ function C.setBar(track: Instance, value: number, animate: boolean?)
 end
 
 -- shared hover / press / gamepad-selection feedback for any button --------------------------------------------------
+-- Touch-safe (ui-fix round 3): hover comes only from real mouse movement (InputBegan/InputEnded MouseMovement), so a
+-- tap never leaves a button stuck "hovered" (MouseEnter fires on touch, MouseLeave often does not). The pressed state
+-- (highlight + 0.95 scale) follows the exact InputObject (touch or left mouse) that began on the button until it ends
+-- or is cancelled, also when the finger slides off. Actions are wired to Activated (mouse, touch, gamepad A).
 local function interactive(b: GuiButton, base: Color3, hover: Color3, strokeObj: UIStroke?, strokeBase: number?)
 	b.AutoButtonColor = false
 	b.Selectable = true
@@ -311,21 +315,47 @@ local function interactive(b: GuiButton, base: Color3, hover: Color3, strokeObj:
 	local scale = Instance.new("UIScale")
 	scale.Name = "PressScale"
 	scale.Parent = b
-	local function set(on: boolean)
+	local hovering, selected, pressing = false, false, false
+	local function render()
+		local on = hovering or selected or pressing
 		C.tween(b, {BackgroundColor3 = if on then hover else base}, "fast")
 		if strokeObj then
 			C.tween(strokeObj, {Transparency = if on then 0 else (strokeBase or 0.2)}, "fast")
 		end
+		C.tween(scale, {Scale = if pressing then 0.95 else 1}, "fast")
 	end
-	b.MouseEnter:Connect(function() set(true) end)
-	b.MouseLeave:Connect(function()
-		set(false)
-		C.tween(scale, {Scale = 1}, "fast")
+	b.InputBegan:Connect(function(input: InputObject)
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseMovement then
+			hovering = true
+			render()
+		elseif kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
+			pressing = true
+			render()
+			local c: RBXScriptConnection
+			c = input:GetPropertyChangedSignal("UserInputState"):Connect(function()
+				if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
+					c:Disconnect()
+					pressing = false
+					render()
+				end
+			end)
+		end
 	end)
-	b.SelectionGained:Connect(function() set(true) end)
-	b.SelectionLost:Connect(function() set(false) end)
-	b.MouseButton1Down:Connect(function() C.tween(scale, {Scale = 0.95}, "fast") end)
-	b.MouseButton1Up:Connect(function() C.tween(scale, {Scale = 1}, "fast") end)
+	b.InputEnded:Connect(function(input: InputObject)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			hovering = false
+			render()
+		end
+	end)
+	b.SelectionGained:Connect(function()
+		selected = true
+		render()
+	end)
+	b.SelectionLost:Connect(function()
+		selected = false
+		render()
+	end)
 end
 
 -- button: text button, 44 px tall by default. style "primary" (cyan) | "secondary" (surface) | "danger" | "ghost"
@@ -681,6 +711,7 @@ function C.toggle(props: Props): (Frame, (boolean) -> ())
 	sw.Position = UDim2.new(1, 0, 0.5, 0)
 	sw.Size = UDim2.fromOffset(72, 44)
 	sw.BackgroundTransparency = 1
+	sw.AutoButtonColor = false
 	sw.Selectable = true
 	sw.SelectionImageObject = C.selectionImage()
 	sw.Parent = f
@@ -754,6 +785,7 @@ function C.slider(props: Props): (Frame, (number) -> ())
 	hit.Name = "Track"
 	hit.Text = ""
 	hit.BackgroundTransparency = 1
+	hit.AutoButtonColor = false
 	hit.Position = UDim2.fromOffset(56, 0)
 	hit.Size = UDim2.new(1, -112, 1, 0)
 	hit.Selectable = false
@@ -776,35 +808,60 @@ function C.slider(props: Props): (Frame, (number) -> ())
 	end
 	minus.Activated:Connect(function() set(value - step, true) end)
 	plus.Activated:Connect(function() set(value + step, true) end)
-	local dragging = false
+	-- drag (mouse or touch): the drag follows the one InputObject that began on the track. A touch drag ignores every
+	-- other finger (the thumbstick, a second touch) and pauses the scrolling list the slider sits in, so a sideways
+	-- drag moves the knob instead of scrolling the Settings list.
+	local dragInput: InputObject? = nil
+	local pausedScroll: ScrollingFrame? = nil
 	local function fromX(x: number)
 		local a, w = hit.AbsolutePosition.X, hit.AbsoluteSize.X
 		if w > 0 then
 			set(lo + (hi - lo) * math.clamp((x - a) / w, 0, 1), true)
 		end
 	end
+	local function endDrag()
+		dragInput = nil
+		if pausedScroll then
+			pausedScroll.ScrollingEnabled = true
+			pausedScroll = nil
+		end
+	end
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = true
+			dragInput = input
+			if input.UserInputType == Enum.UserInputType.Touch then
+				local sf = hit:FindFirstAncestorWhichIsA("ScrollingFrame")
+				if sf and sf.ScrollingEnabled then
+					sf.ScrollingEnabled = false
+					pausedScroll = sf
+				end
+			end
 			fromX(input.Position.X)
 		end
 	end)
-	-- drag: these input connections only do work while `dragging`; they die with the slider's frame via `alive`
+	-- these input connections only do work while a drag is on; they die with the slider's frame (Destroying)
 	local c1, c2
 	c1 = UserInputService.InputChanged:Connect(function(input)
-		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-			or input.UserInputType == Enum.UserInputType.Touch) then
+		local d = dragInput
+		if not d then
+			return
+		end
+		if (d.UserInputType == Enum.UserInputType.Touch and input == d)
+			or (d.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseMovement) then
 			fromX(input.Position.X)
 		end
 	end)
 	c2 = UserInputService.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			dragging = false
+		local d = dragInput
+		if d and (input == d or (d.UserInputType == Enum.UserInputType.MouseButton1
+			and input.UserInputType == Enum.UserInputType.MouseButton1)) then
+			endDrag()
 		end
 	end)
 	f.Destroying:Connect(function()
 		c1:Disconnect()
 		c2:Disconnect()
+		endDrag()
 	end)
 	render()
 	f.Parent = props.parent

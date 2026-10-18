@@ -175,6 +175,13 @@ ContextActionService:BindAction("StreetChallenge", function(_, state)
 end, true, Enum.KeyCode.C, Enum.KeyCode.ButtonL1)
 ContextActionService:SetTitle("StreetChallenge", "RACE")
 ContextActionService:SetPosition("StreetChallenge", UDim2.new(1, -270, 1, -240))
+-- compact touch layout (docs/UI_SYSTEM.md "Round 3: touch controls"): MidnightUI.TouchControls owns the button grid
+local function touchRegister(name: string, opts: {[string]: any})
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("MidnightUI")
+	m = m and m:FindFirstChild("TouchControls")
+	if m then (require(m) :: any).register(name, opts) end
+end
+touchRegister("StreetChallenge", {slot = "race", title = "RACE", position = UDim2.new(1, -270, 1, -240)})
 
 -- Road Fight prompt ---------------------------------------------------------------------------------------------
 local rfFolder = workspace:WaitForChild("PattayaWorld", 30) and workspace.PattayaWorld:WaitForChild("RoadFight", 30)
@@ -214,6 +221,7 @@ local function bossPromptStep(chassis: BasePart?)
 			end, true, Enum.KeyCode.E, Enum.KeyCode.ButtonY)
 			ContextActionService:SetTitle("RoadFight", "FIGHT")
 			ContextActionService:SetPosition("RoadFight", UDim2.new(1, -200, 1, -310))
+			touchRegister("RoadFight", {slot = "context", title = "FIGHT", position = UDim2.new(1, -200, 1, -310)})
 			rfBound = true
 		end
 	else

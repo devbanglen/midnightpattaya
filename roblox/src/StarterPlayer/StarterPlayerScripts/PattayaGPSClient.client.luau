@@ -225,8 +225,8 @@ local function inCar(): BasePart?
 	return nil
 end
 
--- G: next destination in the list, then off
-ContextActionService:BindAction("GPSCycle", function(_, state)
+-- G: next destination in the list, then off (also the minimap header GPS chip of the compact HUD: Bus "gps.cycle")
+local function gpsCycle(_, state)
 	if state ~= Enum.UserInputState.Begin then
 		return Enum.ContextActionResult.Pass
 	end
@@ -251,9 +251,23 @@ ContextActionService:BindAction("GPSCycle", function(_, state)
 		showToast(("GPS: %s"):format(d.label)) -- new HUD: the server's "route" reply sends the Bus toast
 	end
 	return Enum.ContextActionResult.Pass
-end, true, Enum.KeyCode.G, Enum.KeyCode.DPadUp)
+end
+ContextActionService:BindAction("GPSCycle", gpsCycle, true, Enum.KeyCode.G, Enum.KeyCode.DPadUp)
 ContextActionService:SetTitle("GPSCycle", "GPS")
 ContextActionService:SetPosition("GPSCycle", UDim2.new(1, -340, 1, -240))
+-- compact touch layout (docs/UI_SYSTEM.md "Round 3: touch controls"): MidnightUI.TouchControls owns the button grid
+local function touchRegister(name: string, opts: {[string]: any})
+	local m = game:GetService("ReplicatedStorage"):FindFirstChild("MidnightUI")
+	m = m and m:FindFirstChild("TouchControls")
+	if m then (require(m) :: any).register(name, opts) end
+end
+touchRegister("GPSCycle", {hide = true, handler = gpsCycle, keys = {Enum.KeyCode.G, Enum.KeyCode.DPadUp}, title = "GPS",
+	position = UDim2.new(1, -340, 1, -240)})
+if Bus then
+	Bus.on("gps.cycle", function()
+		gpsCycle(nil, Enum.UserInputState.Begin)
+	end)
+end
 
 local function focusPart(chassis: BasePart?): BasePart?
 	if chassis then
