@@ -203,27 +203,50 @@ function Leaderboard.top(id: string, n: number?)
 	return out
 end
 
-local function isFriend(plr: Player, userId: number): boolean
+-- at most this many IsFriendsWith web calls per friends() request; cached answers (10 min per player) are free
+local FRIEND_CALLS_PER_REQUEST = 25
+
+-- returns (isFriend, usedWebCall); nil when the answer is not cached and the budget is spent
+local function isFriend(plr: Player, userId: number, canCall: boolean): (boolean?, boolean)
 	if userId == plr.UserId then
-		return true
+		return true, false
 	end
-	friendCache[plr] = friendCache[plr] or {}
-	local e = friendCache[plr][userId]
+	local cache = friendCache[plr]
+	if not cache then
+		if not plr.Parent then
+			return false, false -- left: don't recreate the cache PlayerRemoving cleared
+		end
+		cache = {}
+		friendCache[plr] = cache
+	end
+	local e = cache[userId]
 	if e and os.clock() - e.at < 600 then
-		return e.value
+		return e.value, false
+	end
+	if not canCall then
+		return nil, false
 	end
 	local ok, v = pcall(function()
 		return plr:IsFriendsWith(userId)
 	end)
-	friendCache[plr][userId] = {value = ok and v == true, at = os.clock()}
-	return ok and v == true
+	if friendCache[plr] then -- may have left while the call yielded
+		friendCache[plr][userId] = {value = ok and v == true, at = os.clock()}
+	end
+	return ok and v == true, true
 end
 
--- yields (IsFriendsWith): call from a task, not from Heartbeat
+-- yields (IsFriendsWith): call from a task, not from Heartbeat.
+-- A cold cache costs at most FRIEND_CALLS_PER_REQUEST web calls per request (it used to be up to 100); rows past the
+-- budget are skipped this time and get checked by later requests as the cache warms.
 function Leaderboard.friends(plr: Player, id: string, n: number?)
 	local out = {}
+	local calls = 0
 	for _, r in merged(id) do
-		if isFriend(plr, r.userId) then
+		local friend, called = isFriend(plr, r.userId, calls < FRIEND_CALLS_PER_REQUEST)
+		if called then
+			calls += 1
+		end
+		if friend then
 			table.insert(out, r)
 			if #out >= (n or 10) then
 				break
