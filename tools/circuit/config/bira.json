@@ -80,5 +80,23 @@
   "lane_width_studs": 13,
   "min_lane_width_studs": 11,
   "sidewalk_studs": {"express": 0, "main": 10, "soi": 6},
-  "smoothing": {"chaikin_iterations": 3, "resample_studs": 6}
+  "smoothing": {"chaikin_iterations": 3, "resample_studs": 6},
+
+  "corridor_life_note": "corridor traffic (corridor_traffic.py), street lights and direction signs (export_corridor.py); loops are [from, to] OSM node pairs driven out and back on the directed corridor graph; sign distances are REAL km left along the outbound / return route (game studs x 0.28 / 0.5)",
+  "corridor_life": {
+    "traffic": {
+      "seed": 31,
+      "loops": [[423748313, 1457068485], [605264874, 1077826539], [1077826539, 1457068485]],
+      "studs_per_car": 600,
+      "speed_studs_s": [50, 68],
+      "kind_weights": [5, 3, 2]
+    },
+    "light_spacing_studs": 110,
+    "signs": {
+      "outbound_text": "BIRA CIRCUIT",
+      "outbound_km": [12, 8, 5, 2],
+      "return_text": "PATTAYA",
+      "return_km": [12, 7, 3]
+    }
+  }
 }

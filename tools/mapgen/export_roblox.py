@@ -279,6 +279,64 @@ def frame_of(edges, margin=600):
     return (allp0[:, 0].min() - margin, allp0[:, 1].min() - margin, allp0[:, 0].max() + margin, allp0[:, 1].max() + margin)
 
 
+SIDEWALK_CONFLICT_STUDS2 = 10.0       # a sidewalk side lying on more than this area of another road's slab is dropped
+
+
+def sidewalk_sides(edges, qs, junction_r, deg):
+    """Which sidewalk sides of the new edges to build (wide world).
+
+    At x0.5, close parallel roads (dual carriageways above all: Jomtien Second Rd, Thappraya, Pattaya Nuea) lie so near
+    that one road's sidewalk strip (width/2 .. width/2 + sidewalk, top 0.6 above the road) covers the other's roadway:
+    the Studio probe hit a sidewalk on 966 of 24,994 points. Rule: rebuild each side's strip exactly as PattayaBuilder
+    does (trimmed at junction discs) and drop that side when it overlaps another edge's road slab by more than
+    SIDEWALK_CONFLICT_STUDS2 studs^2 (the continuing edge at a degree-2 joint does not count). Returns
+    ({edge id: kept side (-1 / 1), or 0 = no sidewalk}, stats text); edges that keep both sides are not listed, so
+    their chunk lines are unchanged."""
+    from shapely.ops import unary_union
+    from shapely.strtree import STRtree
+    import road_check as rc
+    slabs, own = [], []
+    for i, e in enumerate(edges):
+        q = qs.get(e['id'])
+        if q is None:   # base edge: the same polyline its own export wrote
+            q = split_long(douglas_peucker(np.array(e['pts']), DP_TOLERANCE), MAX_SEGMENT)
+        for r in rc.stripe_rects(q, e['width']):
+            slabs.append(r); own.append(i)
+    tree = STRtree(slabs)
+    out, n_sides, n_drop = {}, 0, 0
+    for i, e in enumerate(edges):
+        if e.get('base') or e['sidewalk'] <= 0:
+            continue
+        ra, rb = junction_r.get(e['a'], 0), junction_r.get(e['b'], 0)
+        sw = rc.trim(qs[e['id']], ra + e['sidewalk'] if ra > 0 else 0, rb + e['sidewalk'] if rb > 0 else 0)
+        if sw is None:
+            continue
+        keep = []
+        for side in (-1, 1):
+            n_sides += 1
+            strip = unary_union(rc.stripe_rects(rc.offset(sw, side * (e['width'] + e['sidewalk']) / 2), e['sidewalk']))
+            area = 0.0
+            for k in tree.query(strip):
+                j = own[k]
+                o = edges[j]
+                if j == i or any(deg[n] == 2 for n in {o['a'], o['b']} & {e['a'], e['b']}):
+                    continue
+                area += slabs[k].intersection(strip).area
+            if area > SIDEWALK_CONFLICT_STUDS2:
+                n_drop += 1
+            else:
+                keep.append(side)
+        if len(keep) < 2:
+            out[e['id']] = keep[0] if keep else 0
+    both = sum(1 for v in out.values() if v == 0)
+    return out, f'{n_drop} of {n_sides} sides dropped ({both} edges lose both, {len(out) - both} keep one side)'
+
+
+def sw_field(e, sw_side):
+    s = sw_side.get(e['id'])
+    return f', swSide = {s}' if s else ''
+
+
 def main_wide(cfg, g):
     import hashlib
     import shapely
@@ -292,7 +350,7 @@ def main_wide(cfg, g):
     for f in os.listdir(out_dir):
         p = os.path.join(out_dir, f)
         if os.path.isfile(p) and (f.startswith('chunk_') or f.startswith('graph_part_') or f in (
-                'manifest.luau', 'graph.luau', 'jobs.luau', 'roadfight.luau', 'traffic.luau', 'worldmap.luau')):
+                'manifest.luau', 'graph.luau', 'jobs.luau', 'roadfight.luau', 'traffic.luau', 'worldmap.luau', 'joints.luau')):
             os.remove(p)
     ghash = hashlib.sha1(open(os.path.join(bdir, 'graph_game.json'), 'rb').read()).hexdigest()
     for fn in ('buildings_game.json', 'layout.json', 'traffic.json'):
@@ -322,15 +380,28 @@ def main_wide(cfg, g):
     touched = {n for e in new_edges for n in (e['a'], e['b'])}
     new_discs = {n: radius[n] for n in touched if deg[n] >= 3 and base_deg[n] < 3}
     seam_discs = {n: base_radius[n] for n in touched if base_deg[n] >= 3}    # existing base discs (radius only)
+    # joint discs where no junction disc is: degree-2 joints (a road changing name/class, a seam node) and dead ends.
+    # Two slabs meeting at such a node only touch (no overlap), so a ray exactly at the node can slip between them
+    # (Studio probe: 62 misses, nearly all at a node) and a bend leaves a wedge open on its outer side. The disc
+    # (radius = narrowest incident half-width, so it never sticks out of the road) closes both. Unlike junction discs
+    # it does not trim markings or sidewalks, so no chunk module changes because of it (docs/ROAD_SYSTEM.md).
+    min_half = {}
+    for e in edges:
+        for n in (e['a'], e['b']):
+            min_half[n] = min(min_half.get(n, 1e9), e['width'] / 2)
+    joints = {n: min_half[n] for n in touched if deg[n] <= 2}
 
     # --- chunk contents (new things only) ------------------------------------------------------------------------------
     chunks = defaultdict(list)
     seg_total = 0
+    qs = {}
     for e in new_edges:
         q = split_long(douglas_peucker(np.array(e['pts']), DP_TOLERANCE), MAX_SEGMENT)
+        qs[e['id']] = q
         seg_total += len(q) - 1
         mid = q[len(q) // 2]
         chunks[(int(math.floor(mid[0] / C)), int(math.floor(mid[1] / C)))].append((e, q))
+    sw_side, sw_stats = sidewalk_sides(edges, qs, {**seam_discs, **new_discs}, deg)
     palettes = ['hotel', 'condo', 'apartment', 'mall', 'commercial', 'shophouse', 'house', 'temple', 'parking']
     bdata = json.load(open(os.path.join(bdir, 'buildings_game.json'), encoding='utf-8'))
     bchunks = defaultdict(list)
@@ -362,11 +433,11 @@ def main_wide(cfg, g):
             flat = ','.join(f'{x:.2f},{z:.2f}' for x, z in q)
             lines.append(f'  {{ id = "{e["id"]}", way = {e["way"]}, class = "{e["class"]}", tier = "{e["tier"]}", '
                          f'name = {lua_str(e["name"])}, nameEn = {lua_str(e["name_en"])}, oneway = {str(e["oneway"]).lower()}, '
-                         f'lanes = {e["lanes"]}, width = {e["width"]}, sidewalk = {e["sidewalk"]}, coastal = {str(e["coastal"]).lower()}, '
-                         f'a = {e["a"]}, b = {e["b"]}, pts = {{{flat}}} }},')
+                         f'lanes = {e["lanes"]}, width = {e["width"]}, sidewalk = {0 if sw_side.get(e["id"]) == 0 else e["sidewalk"]}, '
+                         f'coastal = {str(e["coastal"]).lower()}, a = {e["a"]}, b = {e["b"]}, pts = {{{flat}}}{sw_field(e, sw_side)} }},')
             # part estimate as PattayaBuilder builds it: slab per segment, 2 sidewalks, markings on non-soi roads
             nseg = len(q) - 1
-            parts_est['road'] += nseg * (1 + (2 if e['sidewalk'] > 0 else 0))
+            parts_est['road'] += nseg * (1 + ({None: 2, 0: 0}.get(sw_side.get(e['id']), 1) if e['sidewalk'] > 0 else 0))
             if e['tier'] != 'soi':
                 L_ = LineString_len(q)
                 lanes_marks = (e['lanes'] - 1) if e['oneway'] else 2 + 2 * max(e['lanes'] // 2 - 1, 0)
@@ -469,6 +540,12 @@ def main_wide(cfg, g):
     jl = ',\n'.join(f'  {{ id = {n}, x = {g["nodes"][str(n)][0]:.2f}, z = {g["nodes"][str(n)][1]:.2f}, r = {r:.2f} }}'
                     for n, r in sorted(new_discs.items()))
     sl = ',\n'.join(f'  {{ id = {n}, r = {r:.2f} }}' for n, r in sorted(seam_discs.items()))
+    # joint discs in their own module (the manifest is close to the 200 KB module limit): flat quadruples
+    # osmNode, x, z, r, built by PattayaBuilder.Extend when the data folder has a `joints` module
+    open(os.path.join(out_dir, 'joints.luau'), 'w', encoding='utf-8').write(
+        '-- generated by tools/mapgen/export_roblox.py; do not edit. Joint discs (osmNode, x, z, r) at degree-2 joints\n'
+        '-- and dead ends (no junction disc there): they close hairline gaps and bend wedges and do not trim markings or sidewalks\n'
+        'return {' + ','.join(f'{n},{g["nodes"][str(n)][0]:.2f},{g["nodes"][str(n)][1]:.2f},{r:.2f}' for n, r in sorted(joints.items())) + '}\n')
     allp = np.array([p for e in edges for p in e['pts']])
     manifest = f'''-- generated by tools/mapgen/export_roblox.py; do not edit
 -- EXTENSION of {cfg['base']['build']}: build with PattayaBuilder.Extend("PattayaDataWide"); the base world is not touched
@@ -593,7 +670,8 @@ return {{
     print(f'{len(chunks)} new chunks, {len(new_edges)} new edges -> {seg_total} road segments, {len(new_discs)} new junction discs '
           f'({len(seam_discs)} base discs touched); largest chunk module {max(chunk_sizes) / 1024:.0f} KB, chunks total '
           f'{sum(chunk_sizes) / 1024:.0f} KB')
-    total_parts += len(new_discs)
+    total_parts += len(new_discs) + len(joints)
+    print(f'{len(joints)} joint discs; sidewalks on another road: {sw_stats}')
     print(f'base buildings cut by new road surfaces: {len(conflicts)} {sorted(conflicts)}')
     print(f"estimated new Parts {total_parts:,} incl. {len(new_discs)} junction discs (roads+markings {parts_est['road']:,}, buildings {parts_est['buildings']:,}, "
           f"roofs {parts_est['roofs']:,}, props {parts_est['props']:,}), facade Textures {parts_est['textures']:,}")

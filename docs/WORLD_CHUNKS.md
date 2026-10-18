@@ -76,3 +76,38 @@ Prerequisite: save the place (or rely on version history). Studio memory/time be
   Jomtien) in 65 s with the physics autopilot: 129 probes, 123 on road, 6 on terrain (it started 139 studs off the
   route line and cut across once; not re-checked), car upright, Heartbeat 60/s throughout. The minimap drew 515 road
   segments, 31 POIs and 6 district labels from `PattayaWorldMap`.
+
+## Road fix 2026-10-18 (team2/worldfix): what to rebuild in Studio
+Data regenerated offline (`tools/mapgen/road_check.py`, see `docs/ROAD_SYSTEM.md`): sidewalks that lay on a
+parallel road are dropped per side, and joint discs close the gaps at degree-2 joints and dead ends. Manifest,
+graph, jobs, traffic and worldmap modules of pattaya_wide are byte-identical to the imported ones; only 72 chunk
+modules changed (`swSide` / `sidewalk = 0` on 221 edges) plus the new module `joints`. The Bira corridor
+(`build/bira/roblox_corridor`) got street lights in 8 chunk modules, `signs` in its manifest, `joints` and a
+combined `traffic.luau` (see `docs/CIRCUIT_ACCESS_ROUTES.md`). Nothing of this has been run in Studio yet.
+
+Changed wide chunk ids (72):
+```
+"0_11","0_17","0_6","0_7","1_11","-1_11","-1_12","-1_15","-1_16","-1_17","1_18","1_6","-1_6","1_8","1_9","10_-14","10_-15","10_-5","2_11","-2_12","-2_14","-2_15","2_19","-2_6","3_10","3_11","-3_12","-3_13","-3_14","3_20","3_21","-3_6","-3_7","-3_8","-3_9","4_10","-4_10","-4_11","-4_12","4_21","4_22","4_23","-4_7","-4_9","5_10","5_23","5_-6","6_10","6_-10","6_24","6_25","6_-3","6_-4","6_-6","6_7","6_-9","7_-1","7_10","7_13","7_25","7_-5","7_-6","7_7","7_-9","8_1","8_25","8_-5","8_-8","9_0","9_25","9_-3","9_-5"
+```
+Changed corridor chunk ids (8): `"24_2","34_6","36_7","40_4","42_7","44_6","46_7","48_5"`
+
+Steps (save the place first; build in groups of 8 chunks as before):
+1. `ServerStorage.PattayaBuilder` ← `roblox/src/ServerStorage/PattayaBuilder.luau` (adds `swSide`, joint discs,
+   adding missing discs to an existing `WideJunctions`, `buildRoadSigns`; everything else as before).
+2. `ServerStorage.PattayaDataWide`: replace the 72 `chunk_<id>` modules, add the module `joints` (joints.luau).
+   `ServerStorage.PattayaDataCorridor`: replace `manifest` and the 8 chunk modules, add `joints`.
+3. Delete `workspace.PattayaWorld.WideChunks.Chunk_<id>` for the 72 + 8 ids.
+4. `B.Extend({terrain = false, only = {<8 ids>}})` x 9 for the wide ids (the first call also adds the 1,104 wide joint
+   discs to `WideJunctions`), then `B.Extend({folder = "PattayaDataCorridor", terrain = false, only = {<8 corridor ids>}})`
+   (adds the corridor's 13 joint discs, its 4 junction discs if missing, and `RoadSigns_bira_corridor`).
+   Always pass `terrain = false`: the terrain is already in place.
+5. `ReplicatedStorage.PattayaTraffic` ← `build/bira/roblox_corridor/traffic.luau` (84 wide loops verbatim + 3 corridor).
+6. Check: rerun the probe; expected offline numbers are 23,139 of 23,142 on road, 3 on base-slice sidewalks at the seam.
+
+Found while checking (not verified in Studio): the old `Extend` built `WideJunctions` only when the model did not
+exist, so whichever dataset was extended second got NO junction discs: the corridor's 4 (OsmNode 1077826539,
+1077826607, 4660675138, 12406489334) if the wide world came first, or all 1,380 wide discs if a corridor build was
+already in the place. Check `#workspace.PattayaWorld.WideJunctions:GetChildren()` before step 4: 1,380 = the
+corridor's discs are missing, a handful (4-6) = the wide ones are missing. After step 4 it should be 2,500 (1,380 + 4
+junctions, 1,104 wide + 12 corridor joints; node 6949621434 is in both). The new builder adds every missing disc, so
+step 4 repairs either case.
