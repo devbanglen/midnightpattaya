@@ -156,6 +156,12 @@ Config: `corridor_life` in `tools/circuit/config/bira.json`.
 - Also new: `joints.luau` (13 joint discs, see `docs/ROAD_SYSTEM.md`). Studio steps: `docs/WORLD_CHUNKS.md`, "Road fix".
 
 ## Corridor dressing: buildings, trees, poles, venue approach (team4/corridor-dress, 2026-10-19; written, NOT built in Studio)
+
+**Built in Studio by the leader (2026-10-19):** manifest + 67 `chunk_d*` modules installed into
+`ServerStorage.PattayaDataCorridor` (old manifest kept as `manifest_prev_dress`), ground pass
+(`groundKey = "dressGroundRects"`, 2.6 s), then batches `dress1`..`dress9` (each < 1 s): 67 chunks, 2,139 parts.
+Probes: 0 of 2,134 solid dressing parts intersect a Road/Sidewalk/Junction/Joint part; 37,620 raycasts (3 per road
+part, every wide + corridor road part) all hit road geometry first. Not yet seen by eye.
 Nothing in this section has been run in Studio. The numbers come from the exporter and its shapely checks. The
 Luau changes have not been compiled or run.
 
