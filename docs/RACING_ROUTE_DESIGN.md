@@ -378,6 +378,11 @@ and the boss reset.
     event back to idle.
   - Not tested: a real second player in an event; the 15-minute scheduler (only forced starts); the near-miss x2
     during events; the Day Run variant by name only (clock was night).
+- **Regression after the team-2 merges (perf, venue, worldfix, qa), run with the new PattayaTestKit:** Street
+  Sprint 2,080 studs in 15.33 s, 30/31 probes on road, +195 ฿ / +52 EXP; Street Challenge vs AI (Ae Turbo) 2,027
+  studs, "Challenge won" +235 ฿ (= 2,027/15 + 100), Heartbeat 60. No script errors after installing the QA bug
+  fixes (RaceCarServer, PattayaStreetRace, PattayaEventsServer, PattayaProgress, LeaderboardService,
+  RaceSessionService).
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
   race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.
