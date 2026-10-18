@@ -305,3 +305,24 @@ the exact v1 layout: every compact change is behind that flag. Desktop sizes are
 | BottomRight / compact speedo | 339, 228 | 150 x 70 |
 | BottomCenter anchor | 222.8, 326.8 | 384.4 x 42.2 (job strip at its bottom, 21 px tall, <= 384 wide) |
 | circuit timing tower (session) | 12, 210 | 186 x 60.8 (5 rows) |
+
+## Owner review round 2 — results (leader, 2026-10-19, Studio)
+Build: main after team5/ui-fix (df46ff5 + 433b7ce) + leader fixes (TopRight anchor 584 px; MidnightActivity re-asserts
+group positions after a Compact change and on viewport changes: a startup slide tween had left the free-roam group at
+the compact y on desktop, see `docs/images/hud_v3_full_regression_before_fix.jpg`).
+
+| check | result |
+|---|---|
+| Full screen 2684×1219 (owner's monitor, F11) | all elements placed as the mockup; 6 quick-menu tiles complete ("Missions" not truncated); wordmark → district → mode → GPS pill order correct after the fix; `hud_v3_full_freeroam.jpg`, `hud_v2_full_looprace.jpg` |
+| Bira Time Attack, full screen | minimap shows the track loop + pit lane + car dot, header "BIRA CIRCUIT (GAME VENUE) • TIME ATTACK", no legacy menu popup, timing tower under the player card; `hud_v2_full_bira.jpg` |
+| Laptop preset (Studio gave 1676×987, not 1366×768) | all elements fit, nothing clipped; `hud_v2_laptop_1676x987.jpg` |
+| Mobile landscape 830×439 (Device Emulator, TouchEnabled) | compact layout on: card 186×62 with money inside, minimap 150×120 + 36 px buttons, one-line activity + GPS pill, toasts under the strip, compact speedo 150×70, menu button 44.6 px; numeric overlap test between every HUD rect and the 7 ContextActionService buttons + jump button + thumbstick visual: 0 overlaps; `hud_v3_mobile_830x439.jpg` (the 3D scene did not render in that emulator capture, HUD only) |
+| FPS | HUD on vs off (Studio focused, full screen): heartbeat 59.9 vs 60 Hz, render 59.9 vs 60 fps, p50 16.6 vs 16.7 ms, p99 21.7 vs 19.9 ms; later probes ran unfocused (render throttled to 15 fps both ways, heartbeat 59.8 vs 60) |
+| Client errors | 0 in every session |
+| Legacy rollback | `LocalPlayer.MidnightHUD = false` brings the old HUD back (not re-run this round) |
+
+Remaining (honest list): the game's legacy ContextActionService touch buttons (GPS/NOS/MAP/DRIFT/SPRINT/RACE/CIRCUIT) crowd
+and overlap each other on a small phone — they are the old mobile controls, not the new HUD; a touch-controls pass should
+drop MAP/GPS/CIRCUIT from CAS when the compact HUD provides them. The 1366×768 case was measured on Studio's laptop preset
+(1676×987). The compact speedo drops the class badge and car name. The 3-2-1-GO big text can cover the toast column for a
+few seconds on touch. The district label falls back to "PATTAYA" outside the mapped district polygons (Sukhumvit).

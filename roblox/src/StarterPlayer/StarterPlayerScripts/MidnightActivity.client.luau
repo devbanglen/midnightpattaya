@@ -819,10 +819,22 @@ local function applyCompact()
 	for _, g in {free, race} do
 		g.frame.Position = UDim2.fromOffset(0, groupY(g))
 	end
+	-- a setLayout slide tween started under the previous mode would land on the old y (seen at startup: Compact was
+	-- true in the small pre-F11 viewport, then false); re-assert after the tween has finished
+	task.delay(Theme.motion.normal + 0.1, function()
+		if compactNow == isCompact() then
+			for _, g in {free, race} do
+				g.frame.Position = UDim2.fromOffset(0, groupY(g))
+			end
+		end
+	end)
 end
 if hudRoot then
 	hudRoot:GetAttributeChangedSignal("Compact"):Connect(applyCompact)
 end
+workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+	task.defer(applyCompact)
+end)
 applyCompact()
 
 local acc = 0
