@@ -56,10 +56,14 @@ copied to `roblox/data/circuits/bira.luau`. The builder is `roblox/src/ServerSto
 | Pit garages | 3 OSM footprints, 7 m high (one is the kart pit) | footprint real, height assumed |
 | Grandstand | OSM "Seating" footprint, 9 m, wedge seating facing the track | footprint real, form assumed |
 | Race control | 24 m tower on the main pit building at the line | **gameplay** |
-| Paddock | apron behind the second pit row, clear of track and buildings | **gameplay** |
-| Parking | OSM parking node (position real, size assumed), plus an entrance plaza on the transition road | partly gameplay |
-| Floodlights | 35 poles about 70 m apart, behind the barrier on the side with room | **gameplay**. We found no evidence that Bira has race floodlights, but Night Run needs them |
-| Service roads | 12 OSM service ways inside the outline, clipped off the track and run-off | real |
+| Team paddock (infield) | apron behind the second pit row, clear of track and buildings (scenery: in the infield, so every road to it crosses the track) | **gameplay** |
+| Visitor paddock (`paddock`) | 130 × 80 apron outside the track, 40 studs beside the plaza, 20-stud service road to the plaza, two team tents, "PADDOCK" board. The circuit menu ring stands here | **gameplay** |
+| Parking | OSM parking node (position real, size assumed, in the infield), the entrance plaza on the transition road, and a car park with 24 marked bays (10 × 22 studs, 20-stud aisle) flush with the plaza | partly gameplay |
+| Signs and flags | "BIRA CIRCUIT ->" road sign 40 studs after the corridor junction, destination pylon at the plaza entry, "<- PADDOCK" and "P CAR PARK ->" signs, 8 flag poles with plain coloured flags lining the road into the gate. Signs stand on the left (Thailand drives on the left) and glow at night | **gameplay**, no logos |
+| Verge and shoulders | slabs 1 stud under the road top, 30 studs around the transition road, plaza, car park, paddock and paddock road; 16-stud sloped planks (2.5 stud drop) on every edge; terrain flattened to the same level and blended back over 64 studs | **gameplay** |
+| Floodlights | 34 poles about 70 m apart, behind the barrier on the side with room; 3 invisible beam emitters per pole over the near track edge | **gameplay**. We found no evidence that Bira has race floodlights, but Night Run needs them |
+| Lamp posts | 12, at the corners of the plaza, car park and paddock | gameplay |
+| Service roads | 12 OSM service ways inside the outline, clipped off the track and run-off; heights from the DEM ground, blended to the run-off top at the clip and to the plaza level at the gate | route real, heights real-ish |
 | Terrain | 113 × 68 cells of 32 studs, DEM heights pulled 1.5 studs under the track near it | real-ish |
 
 ## Data interface (what teammates code against)
@@ -71,8 +75,21 @@ y = surface), `width` (per point), `trackWidth`, `startFinish.index`, `sectors`,
 barrier), `runoffDefault`, `brakeMarkers` ({index,dist,side,x,y,z}), `corners` ({from,to,turn,dir,radiusStuds}),
 `buildings` ({kind,x,z,w,d,h,yaw,y,verified,source}; `yaw` is in degrees with the same convention as
 PattayaBuilder, and `y` is the base height), `parking`, `entrance` ({x,y,z,dx,dz}), `access`
-({pts, width, joinNode, corridorGraph, ...}), `serviceRoads`, `floodlights` ({x,y,z,dx,dz}), `ground`
-(heightfield), `sources`, `verified`, `attribution`.
+({pts, width, joinNode, corridorGraph, ...}), `serviceRoads` ({way, width, pts = x,y,z flat}), `floodlights`
+({x,y,z,dx,dz,reach,hw}), `ground` (heightfield), `sources`, `verified`, `attribution`.
+
+Added 2026-10-18 (team2/venue), all optional for the builder:
+- `paddock` {x,y,z,dx,dz,w,d,yaw}: the players' paddock (circuit menu ring). `dx,dz` = its front, toward the plaza
+  road. CircuitServer uses it instead of `entrance` for the ring, travel and "moved to the paddock".
+- `paddockRoad` {pts (x,y,z flat), width = 20}: plaza edge to paddock edge.
+- `carPark` {x,y,z,w,d,yaw,bayW,bayD,bays}: slab plus bay lines (two rows facing a central aisle).
+- `signs` {kind = road|pylon|board, text, x,y,z, dx,dz (face direction, toward readers), w, h, post}.
+- `flagPoles` {x,y,z,color}, `lampPosts` {x,y,z,dx,dz (toward the area they light)}.
+- `verge` {x,z,w,d,yaw,y (top)} and `shoulders` {ax,az,bx,bz (edge), ox,oz (outward), y (road top)}.
+- `floodlights[i].reach` (pole to centreline, studs) and `.hw` (half track width there) place the beam emitters.
+
+**Fixed:** `serviceRoads[].pts` were written x, z, y (every other list is x, y, z), so the builder put the 12 service
+roads about 2,900 studs up in the sky. The top-down render showed them missing; they are now x, y, z.
 
 ## Builder (CircuitBuilder.luau)
 `require(ServerStorage.CircuitBuilder).Build(def, {terrain = true, lights = true})` replaces
@@ -89,7 +106,21 @@ every 200 parts.
 - Curbs: alternating red/white 5-stud pieces with the top 0.1 stud above the asphalt. The inner edge overlaps the
   asphalt edge by 0.5 stud. Barriers are concrete walls 1.2 × 3.6 studs.
 - Floodlights: a pole plus a `FloodLight` head part (attribute `FloodLight=true`) holding a `SpotLight` with
-  `Enabled=false`, angle 100, range 60, aimed at the track and down. The Night Run system switches them on.
+  `Enabled=false`, angle 100, range 60, brightness 3, aimed at the track and 48° down. Roblox lights reach at most
+  60 studs and the head is 70 up and 60–90 studs beside the track, so it lights only the run-off. Each pole therefore
+  also gets three invisible `FloodBeam` parts (FloodLight=true, SpotLight angle 110, range 60, brightness 1.6), 32
+  studs over the near track edge, 70 studs apart along the track, aimed at the centre line. The head is `NightNeon`
+  (glows at night). PattayaNightLights enables every SpotLight under a FloodLight part at night.
+- Windows: pit garages have an office window band above the doors and one along the back; race control is glazed
+  on all four sides. These are `NightNeon` parts (attributes `NightNeon`, `DayColor`, `NightColor`):
+  PattayaNightLights makes them Neon in the warm night colour after dark.
+- Pit garage doors open toward the pit lane (toward the track for a garage more than 150 studs from it, the kart
+  pit), not on both long sides. Model attribute `DoorSide`.
+- Grandstand roof columns stand on the ground behind the back edge. Before, they hung in the air.
+- Brake board posts reach 2 studs below the track height. The run-off they stand on is 0.6 lower.
+- Arrival (`buildArrival`): verge slabs, shoulder planks (plain pitched Parts, so there's no WedgePart orientation
+  to get wrong), paddock apron and tents, paddock road, car park and bay lines, signs, flag poles and lamp posts
+  (FloodLight SpotLight facing down, range 45). That's about 260 parts and 102 + 12 extra SpotLights.
 - Terrain: Grass→Air is cleared over the frame (in 512-stud tiles), then grass columns are filled per cell.
 
 ### Builder assumptions (check on the first Studio build)
@@ -103,5 +134,53 @@ every 200 parts.
    own module.
 5. Streaming: the grid is Persistent. Everything else uses the default streaming mode, and nothing has been tested
    with StreamingEnabled at this distance.
-6. The paddock is reached from the gate by an at-grade crossing at the west hairpin (that is how OSM draws it) or by
-   the OSM tunnel 132455224 (not built). For now the access road ends at the plaza by the gate.
+6. The infield team paddock is reached from the gate by an at-grade crossing at the west hairpin (that is how OSM
+   draws it) or by the OSM tunnel 132455224 (not built). So the players' paddock (`paddock`) is outside the track,
+   beside the plaza, and nobody has to cross the live track to reach the circuit menu.
+7. Arrival ground: the terrain is flattened to y ≈ 0 around the arrival area (cells 32 studs, floor()). The verge
+   slabs at top y = 0 catch a car even if the terrain renders a bit lower. Re-probe the transition road, plaza, car
+   park, paddock road and paddock, and drive off each edge once.
+8. Service roads are now built for the first time in the right place (they were in the sky). They have never been
+   driven. Grades go up to 17 % after smoothing, and one infield road (165165865) runs under the infield paddock
+   apron and the second pit row, where the DEM road height may poke through the apron.
+
+## Top-down self-check render (no Studio)
+`.venv\Scripts\python tools\circuit\render_venue.py roblox/data/circuits/bira.luau docs/images/bira_venue_render.png`
+reads the generated module (`tools/circuit/luau_table.py` parses it). It draws the venue the way CircuitBuilder
+places it, applying the builder's own rules: grandstand front, garage door side, grid slot heading, board face,
+floodlight aim and beam emitters, arrival area, and the corridor roads if `build/bira/corridor_graph_game.json`
+exists. It also runs these checks:
+- grid slots behind the line, heading along the track, on the asphalt;
+- brake boards the right distance before their corner, on its outside, inside the barrier, off the track and pit lane;
+- buildings not covering the track or pit lane;
+- floodlights outside the barrier, not on the track, pit lane, service roads or in buildings, aimed at the track,
+  with the middle beam emitter over the asphalt;
+- service road heights in the venue range;
+- paddock point off the track, pit lane and buildings, and paddock road grade.
+
+What it revealed and what was fixed: (1) the service roads were in the sky (x/z/y order); (2) a duplicate
+floodlight pole 2 points before pole 1 at the line (the sampling loop wrapped around); (3) the 100 m and 50 m
+boards before T1 stood on the pit exit lane, so they now stand on the inside of the corner; (4) pit garage doors
+were on both sides; (5) the grandstand roof columns floated; (6) the paddock behind the garages is in the infield,
+with the track all round it. Confirmed correct: the grandstand faces the main straight, the grid slots point in the
+driving direction behind the line, the boards face the oncoming cars, and all 34 floodlights are outside the
+barriers and aimed at the track. Height mistakes don't show in a plan view, so the leader's probes still matter.
+
+![render](images/bira_venue_render.png)
+
+## Proposal (not built): yellow flag / safety car hooks
+For RaceSessionService once its pending test is done. Nothing here is implemented.
+- **Marshal posts:** the builder can add a `MarshalPost` part every corner (`corners[]`, outside, behind the
+  barrier) with attribute `Sector` and a hidden `FlagPanel` part (NightNeon-style switching: Neon yellow / green /
+  off). The server sets the attribute `Flag = "yellow" | "green" | ""` on the post; a small client script colours it.
+- **Trigger:** RaceSessionService already knows each car's centreline index. A car whose speed stays under ~15 studs/s
+  for 2 s on the track, or that is off the run-off (outside `barrierLeft/Right`), raises a local yellow for the
+  marshal posts within ±40 indices behind it. It clears after 5 s with the track clear.
+- **Rule hook:** while a car is inside a yellow zone, `CircuitMsg("warn", {kind = "yellow"})` is sent. Overtaking
+  there (a position change between two cars both inside the zone) adds a 5 s penalty, judged server-side like the
+  existing track-limit warnings.
+- **Safety car (races only, later):** `Sessions.safetyCar(sessionId, on)` freezes positions and caps every car at
+  `pitSpeedLimit × 1.5` with the same limiter the pit lane uses, and orders the field by the current classification
+  with 2 s gaps. "SC IN THIS LAP" goes out on the next pass of `startFinish`. The data needs no new fields: the
+  centreline, sectors and pit lane are enough. Optionally add `scLine1/scLine2` indices (the safety-car lines at the
+  pit entry and exit) as data fields.

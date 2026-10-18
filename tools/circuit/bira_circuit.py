@@ -389,11 +389,17 @@ def main(cfg_path):
         straight = ((c['from'] - prev['to']) % n) * step_m
         if straight < cfg['brake_board_min_straight_m']:
             continue
-        side = -1 if c['dir'] == 'R' else 1                       # outside of the coming corner
+        outside_side = -1 if c['dir'] == 'R' else 1               # outside of the coming corner
         for dist in (100, 50):
+            side = outside_side
             i = (c['from'] - int(round(dist / step_m))) % n
             k = 0 if side == 1 else 1
             off = (barrier[i, k] if barrier[i, k] > 0 else hw_m[i] + cfg['runoff_m']) - 1.5
+            on_pit = lambda sd, o: np.min(np.linalg.norm(pit_pts - (loop[i] + right[i] * sd * o), axis=1)) < cfg['pit_lane_width_m'] / 2 + 1.5
+            if on_pit(side, off):                                  # pit exit/entry beside the outside: stand by the asphalt
+                off = hw_m[i] + 2.5
+                if on_pit(side, off):
+                    side, off = -side, (barrier[i, 1 - k] if barrier[i, 1 - k] > 0 else hw_m[i] + cfg['runoff_m']) - 1.5
             p = at(i, side, off)
             brake.append({'index': i + 1, 'dist': dist, 'side': side, 'x': round(float(p[0]), 2),
                           'y': round(float(y_trk[i]), 2), 'z': round(float(p[1]), 2)})
@@ -488,12 +494,25 @@ def main(cfg_path):
         for part in getattr(g, 'geoms', [g]):
             if part.geom_type == 'LineString' and part.length > 15:
                 q = resample_open(np.array(part.coords), 6 / ks)
+                # heights: the DEM ground (terrain is filled to it away from the track), blended to the run-off top
+                # where the road was clipped at the track zone, and to the plaza level near the gate; then smoothed
+                yd = np.array([float(Y(h_at(qq))) for qq in q]) + 0.2
+                yt = np.array([near_y(qq) - 0.64 for qq in q])
+                dtr = np.array([track_ls.distance(Point(qq)) for qq in q])
+                wt = np.clip((dtr - (cfg['track_width_m'] / 2 + cfg['runoff_m'])) / 25, 0, 1)
+                ys = yt * (1 - wt) + yd * wt
+                wg = np.clip((np.linalg.norm(q - gate_pt, axis=1) - 10) / 25, 0, 1)
+                ys = TOP * (1 - wg) + ys * wg
+                if len(ys) >= 5:
+                    ys = np.concatenate([ys[:2], np.convolve(ys, np.ones(5) / 5, mode='valid'), ys[-2:]])
+                xz = W2(q)
+                # x, y, z order like every other flat point list (it was x, z, y before: roads were built in the sky)
                 serv.append({'way': w['id'], 'width': round(6.0 * ks, 2),
-                             'pts': [round(float(v), 2) for qq in q for v in (*W2(qq), near_y(qq))]})
+                             'pts': [round(float(v), 2) for k in range(len(q)) for v in (xz[k][0], ys[k], xz[k][1])]})
     # floodlights behind the barrier, on the side with more room
     flood = []
     every = int(round(cfg['floodlight_spacing_m'] / step_m))
-    for i in range(0, n, every):
+    for i in range(0, n - every // 2, every):                     # no second pole right before the first one
         best = None
         for k, side in enumerate((1, -1)):
             if barrier[i, k] <= 0 or (pit_side == side and clear_pit[i, k] < 1e8):
@@ -505,7 +524,139 @@ def main(cfg_path):
         if best:
             p = at(i, best[1], best[2])
             flood.append({'x': round(float(p[0]), 2), 'y': round(float(y_trk[i]), 2), 'z': round(float(p[1]), 2),
-                          'dx': round(float(-right[i][0] * best[1]), 4), 'dz': round(float(right[i][1] * best[1]), 4)})
+                          'dx': round(float(-right[i][0] * best[1]), 4), 'dz': round(float(right[i][1] * best[1]), 4),
+                          'reach': round(best[2] * ks, 1), 'hw': round(float(hw_m[i] * ks), 1)})
+    # --- 8b. arrival area (gameplay): visitor paddock, car park, signs, flags, lamps, verge ground ------------------
+    # The pit garages and their apron sit in the infield: every road to them crosses the live track (OSM: an at-grade
+    # crossing at the west hairpin, or tunnel 132455224). So the paddock the players use (circuit menu ring) is put
+    # OUTSIDE the track, beside the plaza, on a short service road; the infield apron stays as scenery.
+    reach_w = np.maximum(barrier.max(axis=1), hw_m + cfg['runoff_m']) * ks   # studs from the centreline to the barrier
+    def track_clear(pts):                                          # min clearance (studs) of world points to the barrier zone
+        return min(float(np.min(np.linalg.norm(cl_w - np.asarray(p), axis=1) - reach_w)) for p in pts)
+    def wrect(cx, cz, w, d, yaw_rad):                              # world rectangle polygon, local X along yaw
+        u2 = np.array([math.cos(yaw_rad), math.sin(yaw_rad)]); v2 = np.array([-math.sin(yaw_rad), math.cos(yaw_rad)])
+        c2 = np.array([cx, cz])
+        return Polygon([c2 + u2 * a * w / 2 + v2 * b * d / 2 for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    def samples(poly):
+        b = poly.bounds
+        pts = list(poly.exterior.coords)
+        for xx in np.linspace(b[0], b[2], 8):
+            for zz in np.linspace(b[1], b[3], 8):
+                if poly.contains(Point(xx, zz)):
+                    pts.append((xx, zz))
+        return pts
+    def free(poly, others, clear=15):
+        return (track_clear(samples(poly)) > clear and not any(z.intersects(poly) for z in corr_zone)
+                and not any(o.buffer(4).intersects(poly) for o in others))
+    yaw_p = math.atan2(dw[1], dw[0])
+    yaw_deg = round(math.degrees(yaw_p), 2)
+    plaza_poly = wrect(plaza_c[0], plaza_c[1], PL_D, PL_W, yaw_p)
+    road_poly = LineString([jw, gw]).buffer(13 + 4)
+    PD_W, PD_D, PD_GAP, PD_ROAD = 130.0, 80.0, 40.0, 20.0         # paddock along / across, road gap, road width (studs)
+    paddock = None
+    for side in (-1, 1):                                          # -nrm = left of the arrival direction
+        for shift in (40, 20, 0, -20, -40, 60):
+            pc = plaza_c + dw * shift + nrm * side * (PL_W / 2 + PD_GAP + PD_D / 2)
+            poly = wrect(pc[0], pc[1], PD_W, PD_D, yaw_p)
+            if free(poly, [plaza_poly, road_poly]):
+                paddock = (pc, side, shift, poly)
+                break
+        if paddock:
+            break
+    if not paddock:
+        sys.exit('no clear spot for the visitor paddock beside the plaza')
+    pc, pside, pshift, pd_poly = paddock
+    ra = plaza_c + dw * pshift + nrm * pside * (PL_W / 2 - 6)      # paddock road: plaza edge -> paddock edge, straight
+    rb = pc - nrm * pside * (PD_D / 2 - 6)
+    pd_road = resample_open(np.array([ra, rb]), 6.0)
+    pd_road_poly = LineString([ra, rb]).buffer(PD_ROAD / 2)
+    BAY_W, BAY_D, AISLE = 10.0, 22.0, 20.0
+    CP_W, CP_D = 12 * BAY_W, 2 * BAY_D + AISLE
+    carpark = None
+    for side in (-pside, pside):
+        for shift in (0, -20, 20, -40, 40):
+            cc = plaza_c + dw * shift + nrm * side * (PL_W / 2 + CP_D / 2)
+            poly = wrect(cc[0], cc[1], CP_W, CP_D, yaw_p)
+            if free(poly, [road_poly, pd_poly, pd_road_poly], clear=10):
+                carpark = (cc, side, poly)
+                break
+        if carpark:
+            break
+    if not carpark:                                               # fall back: beside the paddock, away from the plaza
+        for shift in (0, 40, -40, 80, -80):
+            cc = pc + dw * shift + nrm * pside * (PD_D / 2 + 4 + CP_D / 2)
+            poly = wrect(cc[0], cc[1], CP_W, CP_D, yaw_p)
+            if free(poly, [road_poly, pd_road_poly, plaza_poly], clear=10):
+                carpark = (cc, pside, poly)
+                break
+    if not carpark:
+        sys.exit('no clear spot for the car park')
+    cc, cside, cp_poly = carpark
+    paddock_def = {'x': round(float(pc[0]), 2), 'y': TOP, 'z': round(float(pc[1]), 2),
+                   'dx': round(float(-nrm[0] * pside), 4), 'dz': round(float(-nrm[1] * pside), 4),
+                   'w': PD_W, 'd': PD_D, 'yaw': yaw_deg, 'verified': False,
+                   'source': 'gameplay: visitor/team paddock outside the track beside the plaza (circuit menu ring)'}
+    paddock_road = {'pts': [round(float(v), 2) for q in pd_road for v in (q[0], TOP, q[1])], 'width': PD_ROAD}
+    car_park = [{'x': round(float(cc[0]), 2), 'y': TOP, 'z': round(float(cc[1]), 2), 'w': CP_W, 'd': CP_D, 'yaw': yaw_deg,
+                 'bayW': BAY_W, 'bayD': BAY_D, 'bays': 24, 'verified': False,
+                 'source': 'gameplay: visitor car park with marked bays beside the plaza'}]
+    # signs: dx/dz = the way the sign face looks (toward its readers). Thailand drives on the left, so road signs
+    # stand on the left verge of the arrival road.
+    left = -nrm
+    arrow = lambda side: '<-' if side == -1 else '->'
+    signs = [
+        ('road', 'BIRA CIRCUIT ->', jw + dw * 40 + left * 22, -dw, 18, 6, 9),
+        ('pylon', 'BIRA CIRCUIT', plaza_c - dw * (PL_D / 2 + 14) + left * 24, -dw, 10, 26, 0),
+        ('road', arrow(pside) + ' PADDOCK', plaza_c - dw * (PL_D / 2 - 6) + nrm * pside * 20, -dw, 16, 5, 8),
+        ('road', 'P CAR PARK ' + arrow(cside), plaza_c - dw * (PL_D / 2 - 6) + nrm * cside * 20, -dw, 16, 5, 8),
+        ('board', 'PADDOCK', pc + nrm * pside * (PD_D / 2 - 3), -nrm * pside, 30, 7, 10),
+    ]
+    signs_def = [{'kind': k_, 'text': t_, 'x': round(float(p_[0]), 2), 'y': TOP, 'z': round(float(p_[1]), 2),
+                  'dx': round(float(f_[0]), 4), 'dz': round(float(f_[1]), 4), 'w': w_, 'h': h_, 'post': po_}
+                 for k_, t_, p_, f_, w_, h_, po_ in signs]
+    flag_poles = []
+    for k in range(4):                                            # two rows of flags lining the road into the gate
+        for sd in (-1, 1):
+            q = plaza_c + dw * (PL_D / 2 - 6 - k * 26) + nrm * sd * 19
+            flag_poles.append({'x': round(float(q[0]), 2), 'y': TOP, 'z': round(float(q[1]), 2), 'color': k % 4})
+    lamp_posts = []
+    for poly_, inset in ((pd_poly, 4), (cp_poly, 3), (plaza_poly, 4)):
+        cs = np.array(poly_.exterior.coords)[:4]
+        ctr2 = cs.mean(0)
+        for q in cs:
+            dq = ctr2 - q
+            dq = dq / np.linalg.norm(dq)
+            p2 = q + dq * inset
+            lamp_posts.append({'x': round(float(p2[0]), 2), 'y': TOP, 'z': round(float(p2[1]), 2),
+                               'dx': round(float(dq[0]), 4), 'dz': round(float(dq[1]), 4)})
+    # verge ground: low slabs (top 1 stud under the road) under the arrival area, and sloped shoulders on every edge,
+    # so a car that leaves the road rolls down 1 stud onto flat ground instead of dropping 4 studs onto terrain
+    VERGE_PAD = 30.0
+    verge = [{'x': round(float((jw + gw)[0] / 2), 2), 'z': round(float((jw + gw)[1] / 2), 2), 'w': round(float(tlen), 1),
+              'd': 26 + 2 * VERGE_PAD, 'yaw': yaw_deg, 'y': TOP - 1.0}]
+    for cx_, cz_, w_, d_ in ((plaza_c[0], plaza_c[1], PL_D, PL_W), (pc[0], pc[1], PD_W, PD_D), (cc[0], cc[1], CP_W, CP_D)):
+        verge.append({'x': round(float(cx_), 2), 'z': round(float(cz_), 2), 'w': round(float(w_ + 2 * VERGE_PAD), 1),
+                      'd': round(float(d_ + 2 * VERGE_PAD), 1), 'yaw': yaw_deg, 'y': TOP - 1.0})
+    rmid = (ra + rb) / 2
+    verge.append({'x': round(float(rmid[0]), 2), 'z': round(float(rmid[1]), 2), 'w': PD_ROAD + 2 * VERGE_PAD,
+                  'd': round(float(np.linalg.norm(rb - ra)), 1), 'yaw': yaw_deg, 'y': TOP - 1.0})
+    shoulders = []                                                # edge a -> b (x, z), o = outward, y = top at the edge
+    def edge(a, b, o, y=TOP):
+        shoulders.append({'ax': round(float(a[0]), 2), 'az': round(float(a[1]), 2), 'bx': round(float(b[0]), 2),
+                          'bz': round(float(b[1]), 2), 'ox': round(float(o[0]), 4), 'oz': round(float(o[1]), 4), 'y': y})
+    for sd in (-1, 1):
+        edge(jw + nrm * sd * 13, gw + nrm * sd * 13, nrm * sd)
+        edge(ra + dw * sd * PD_ROAD / 2, rb + dw * sd * PD_ROAD / 2, dw * sd)
+    for poly_ in (plaza_poly, pd_poly, cp_poly):
+        cs = np.array(poly_.exterior.coords)[:4]
+        ctr2 = cs.mean(0)
+        for k in range(4):
+            a, b = cs[k], cs[(k + 1) % 4]
+            ab = (b - a) / np.linalg.norm(b - a)
+            o = (a + b) / 2 - ctr2
+            o = o - ab * (o @ ab)
+            edge(a, b, o / np.linalg.norm(o))
+    flat_zone = road_poly.union(plaza_poly).union(pd_poly).union(cp_poly).union(pd_road_poly).buffer(VERGE_PAD)
     # ground heightfield for terrain under the facility (DEM, pulled under the track so it never pokes through)
     cell = 32.0
     fac = stadium.buffer(40)
@@ -529,6 +680,12 @@ def main(cfg_path):
                 yt = float(np.min(y_trk[near])) - 1.5                 # lowest track surface around the cell
                 w8 = min(max((dd[j] - zone) / 30, 0), 1)
                 yd = yt if dd[j] < zone else min(yd, yt + (yd - yt) * w8) if yd > yt else yd * w8 + yt * (1 - w8)
+            # arrival area: terrain flat 1 stud under the road top, blended back to the ground over 64 studs
+            dz_ = flat_zone.distance(Point(x0 + (jx + 0.5) * cell, z0 + (jz + 0.5) * cell))
+            if dz_ < 64:
+                wf = dz_ / 64
+                yf = (TOP - 1.0) * (1 - wf) + yd * wf
+                yd = min(yd, yf) if near.any() else yf
             gh.append(int(math.floor(yd)))
     ground = {'x0': round(x0, 2), 'z0': round(z0, 2), 'cell': cell, 'nx': nx, 'nz': nz,
               'base': round(min(gh) - 12, 1), 'h': gh}
@@ -576,6 +733,8 @@ def main(cfg_path):
                    'scaleFrom': round(kc, 4), 'scaleTo': round(ks, 4), 'realLengthM': round(acc_len, 1),
                    'lengthStuds': round(float(tlen), 1), 'note': 'straight transition: slack from un-compressing the venue, not a real distance'},
         'serviceRoads': serv,
+        'paddock': paddock_def, 'paddockRoad': paddock_road, 'carPark': car_park, 'signs': signs_def,
+        'flagPoles': flag_poles, 'lampPosts': lamp_posts, 'verge': verge, 'shoulders': shoulders,
         'floodlights': flood,
         'ground': ground,
         'sources': [

@@ -30,6 +30,15 @@ if #list == 0 then
 	warn("[Circuit] no circuit definitions could be loaded")
 	return
 end
+-- a venue with a `paddock` (built by CircuitBuilder beside its entrance plaza) gets the ring, the travel target and the
+-- "moved to the paddock" spot there instead of at the gate; the map/GPS keep pointing at the gate (`entrance`)
+for _, c in list do
+	local p = c.def.paddock
+	if p then
+		local at = Vector3.new(p.x, p.y or c.entrance.Position.Y, p.z)
+		c.entrance = CFrame.lookAt(at, at + Vector3.new(p.dx or 1, 0, p.dz or 0))
+	end
+end
 -- tell the client map where each venue's entrance really is (the world-map export only has a placeholder)
 local worldMap = ReplicatedStorage:FindFirstChild("PattayaWorldMap")
 if worldMap then

@@ -6,7 +6,9 @@
 --     day tile size), glowing street lamps with their SpotLights on.
 --  3. Floodlights: any BasePart with attribute FloodLight=true anywhere in workspace gets its SpotLight children
 --     enabled at night (circuit poles). Lamp and floodlight SpotLights share a budget: only the nearest
---     LOD_SpotCap (60) within range of the camera are on (see section 3; LOD_Enabled = false lifts it).
+--     LOD_SpotCap (60) within range of the camera are on (see section 3; LOD_Enabled = false lifts it). Any BasePart
+--     with NightNeon=true turns Neon with its NightColor attribute at night and back to SmoothPlastic + DayColor by
+--     day (circuit window bands, lamp heads).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
@@ -246,6 +248,13 @@ local function applyFlood(part: BasePart)
 		end
 	end
 end
+-- NightNeon=true parts (circuit window bands, lamp heads): Neon + NightColor at night, SmoothPlastic + DayColor by day
+local neons = setmetatable({}, {__mode = "k"})
+local function applyNeon(part: BasePart)
+	local col = part:GetAttribute(if night then "NightColor" else "DayColor")
+	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	if typeof(col) == "Color3" then part.Color = col end
+end
 workspace.DescendantAdded:Connect(function(d)
 	if d:IsA("SpotLight") then
 		local p = d.Parent
@@ -256,19 +265,36 @@ workspace.DescendantAdded:Connect(function(d)
 				registerSpot(d, false) -- a lamp's SpotLight that streamed in after its part
 			end
 		end
-	elseif d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-		task.defer(applyFlood, d)
+	elseif d:IsA("BasePart") then
+		if d:GetAttribute("FloodLight") == true then
+			task.defer(applyFlood, d)
+		end
+		if d:GetAttribute("NightNeon") == true then
+			neons[d] = true
+			task.defer(applyNeon, d)
+		end
 	end
 end)
 task.spawn(function()
 	for i, d in workspace:GetDescendants() do
-		if d:IsA("BasePart") and d:GetAttribute("FloodLight") == true then
-			applyFlood(d)
+		if d:IsA("BasePart") then
+			if d:GetAttribute("FloodLight") == true then
+				applyFlood(d)
+			end
+			if d:GetAttribute("NightNeon") == true then
+				neons[d] = true
+				applyNeon(d)
+			end
 		end
 		if i % 5000 == 0 then task.wait() end
 	end
 end)
-onNightChanged(updateSpots)
+onNightChanged(function()
+	updateSpots()
+	for p in neons do
+		if p.Parent then applyNeon(p) end
+	end
+end)
 
 -- 4. Car lights ----------------------------------------------------------------------------------------------------
 local CAR_LIGHT_RANGE = 350 -- studs from the camera
