@@ -197,7 +197,7 @@ NearMiss.OnServerEvent:Connect(function(plr: Player)
 	end
 	ns.combo = if now - ns.at < 4 then math.min(ns.combo + 1, 10) else 1
 	ns.at = now
-	NitroBonus:FireClient(plr, 6 + 2 * ns.combo)
+	NitroBonus:FireClient(plr, (6 + 2 * ns.combo) * (if plr:GetAttribute("EventActive") then 2 else 1)) -- x2 in events
 	local st = active[plr]
 	if st then
 		st.nearTip += NEAR_TIP
