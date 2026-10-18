@@ -31,7 +31,7 @@ right-side toasts).
   speedometer shrinks (Responsive) instead of overlapping.
 
 ## Legacy HUD migration (no deletion)
-- When `MidnightHUD` exists, ui-core sets `workspace:SetAttribute("MidnightHUD", true)`. Every legacy ScreenGui
+- When `MidnightHUD` exists, ui-core sets `Players.LocalPlayer:SetAttribute("MidnightHUD", true)` (client-local, per player; never a workspace or replicated value, so multiplayer is unaffected). Every legacy ScreenGui
   (`CarHUD`, `RaceHUD`, `SprintHUD`, `ChallengeHUD`, `EventHUD`, `CircuitHUD`, `GPSHUD`, `MinimapHUD`, `JobHUD`,
   `GarageUI`) keeps working but hides the parts the new HUD replaces (`Visible = false`) while the attribute is true,
   and shows them again when it is false (the old HUD is one attribute away: that is the migration plan).
@@ -59,8 +59,8 @@ right-side toasts).
 - Jobs: `RequestJob`, `CancelJob`, `JobUpdate`. Garage: `GarageRequest` RemoteFunction.
 - Car (client-local, published by ui-race's CarController edit at ≤ 20 Hz as LocalPlayer attributes):
   `HUD_SpeedKmh` (studs/s shown as km/h, the existing convention: 160 studs/s = "160 km/h"), `HUD_Nitro` (0–100),
-  `HUD_Boosting`, `HUD_Drifting`, `HUD_Gear` (derived from speed bands, documented as derived), `HUD_RPM01` (0–1
-  within the gear band, derived), `HUD_CarName`, `HUD_Class`, `HUD_PI`, `HUD_InCar`.
+  `HUD_Boosting`, `HUD_Drifting`, `HUD_CarName`, `HUD_Class`, `HUD_PI`, `HUD_InCar`. No gear or RPM: the arcade
+  car has no gearbox, and the owner forbids derived gear/RPM presented as engine data (the gauge arc is speed / top speed).
 - World: `ReplicatedStorage.PattayaWorldMap` (districts/POIs/roads for the map), `PattayaCorridorMap`,
   `workspace.PattayaWorldMap` attributes `Circuit_<id>` (entrance positions).
 
@@ -72,3 +72,14 @@ right-side toasts).
 - Thai strings where the old UI had Thai (HOW_TO_PLAY_TH.md); English elsewhere, same as now.
 - Nothing is "tested" unless it ran in Studio; the teams cannot run Studio, so every report says "written, not run".
 - Commit on your own branch only; no pushes; messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+
+## Owner acceptance conditions (2026-10-19)
+1. `docs/images/ui_mockup_owner.png` is the visual target: proportions, colours, spacing and elements as close as possible.
+2. Legacy-HUD hiding is per player (LocalPlayer attribute, client-local) and must not affect multiplayer.
+3. Free Roam HUD and Racing HUD are clearly separate layouts.
+4. No virtual gear/RPM presented as real engine data.
+5. Tested at 1920×1080, 1366×768 and mobile landscape.
+6. Checked for overlapping HUD, unclickable buttons, text overflow, UI covering the camera corners.
+7. No significant FPS drop from the new UI (PerfProbe before/after).
+8. When the driving HUD is done: real Studio captures by day, by night and at Bira Circuit for the owner.
+No secondary UI (garage/results/missions screens) before the owner approves the driving HUD captures.
