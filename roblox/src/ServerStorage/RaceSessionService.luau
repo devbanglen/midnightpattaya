@@ -685,8 +685,13 @@ local function isRace(s): boolean
 end
 
 -- cutting costs CUT_PENALTY at most once per lap (one chicane cut gives a cut event per bump and missed gates)
+-- race rules (penalties, teleport DQ) apply from lights out: on lap 1+ or on the out lap of a grid ahead of the line
+local function raceRules(s, p): boolean
+	return isRace(s) and (p.timer.lap > 0 or p.outLap == true)
+end
+
 local function cutPenalty(s, p, text: string)
-	if isRace(s) and p.timer.lap > 0 and p.cutLap ~= p.timer.lap then
+	if raceRules(s, p) and p.cutLap ~= p.timer.lap then
 		p.cutLap = p.timer.lap
 		penalise(s, p, CUT_PENALTY, text)
 	end
@@ -758,7 +763,8 @@ local function handle(s, p, ev, t: number)
 		if not s.timing then
 			return
 		end
-		local results = p.timer:onGate(gate, ev.t, refsFor(s), if isRace(s) then s.outAt else nil)
+		-- lap 1 is timed from lights out only when the grid is behind the line; after an out lap it starts at the line
+		local results = p.timer:onGate(gate, ev.t, refsFor(s), if isRace(s) and not p.outLap then s.outAt else nil)
 		if isRace(s) then
 			local key = p.timer.lap * 1000 + ev.gate
 			p.keyTimes[key] = ev.t
@@ -771,6 +777,7 @@ local function handle(s, p, ev, t: number)
 				end
 				send(p.plr, "sector", r)
 			elseif r.kind == "start" then
+				p.outLap = nil
 				attrs(p.plr, {CircuitLap = p.timer.lap, CircuitLapStart = p.timer.lapStart, CircuitLapValid = true})
 			elseif r.kind == "lap" then
 				onLap(s, p, r, ev.t)
@@ -780,7 +787,7 @@ local function handle(s, p, ev, t: number)
 			end
 		end
 	elseif kind == "teleport" then
-		if isRace(s) and p.timer.lap > 0 then
+		if raceRules(s, p) then
 			dropPart(p, "Disqualified: moved too fast (teleport)")
 		else
 			invalidate(s, p, "teleport")
@@ -789,7 +796,7 @@ local function handle(s, p, ev, t: number)
 		p.plr:SetAttribute("CircuitOff", ev.on)
 	elseif kind == "trackLimit" then
 		invalidate(s, p, "track limits")
-		if isRace(s) and p.timer.lap > 0 then
+		if raceRules(s, p) then
 			p.limitStrikes += 1
 			if p.limitStrikes > LIMIT_FREE_WARNINGS then
 				penalise(s, p, LIMIT_PENALTY, "Track limits")
@@ -815,7 +822,7 @@ local function handle(s, p, ev, t: number)
 			s.circuit.pit and s.circuit.pit.limit or 0)})
 	elseif kind == "pitPenalty" then
 		invalidate(s, p, "pit lane speeding")
-		if isRace(s) and p.timer.lap > 0 then
+		if raceRules(s, p) then
 			penalise(s, p, PIT_PENALTY, "Pit lane speeding")
 		end
 		fire("onIncident", s, p, "pitSpeeding", ev)
@@ -851,6 +858,10 @@ local function progressOf(s, p): number
 		along = 0
 	elseif p.tracker.lastGate == #c.gates and along < c.len / 2 then
 		along = c.len
+	end
+	if p.outLap then
+		-- out lap (grid ahead of the line): the whole lap counts as before lap 1
+		return along - c.len
 	end
 	if p.timer.lap == 0 then
 		return if along > c.len / 2 then along - c.len else along
@@ -997,11 +1008,14 @@ local function goRacing(s)
 		local near = Registry.nearest(c, pos)
 		if near.s > c.len - 300 then
 			-- grid behind the line: the first crossing starts lap 1, timed from lights out
+			p.outLap = nil
 		else
+			-- grid ahead of the line: an out lap. The tracker is armed so its gates, limits and cuts are judged, but
+			-- the timer only starts lap 1 at the first line crossing, so the partial lap never counts as a lap, PB
+			-- or record. The race is still s.laps full laps after it; race time runs from lights out.
 			p.tracker:armAt(near.s)
-			p.timer:startLap(s.outAt)
-			p.timer.sector = if near.s < c.sectorS[1] then 1 elseif near.s < c.sectorS[2] then 2 else 3
-			attrs(p.plr, {CircuitLap = 1, CircuitLapStart = s.outAt})
+			p.outLap = true
+			attrs(p.plr, {CircuitLap = 0})
 		end
 		p.plr:SetAttribute("CircuitLapStart", s.outAt)
 	end
@@ -1026,7 +1040,7 @@ local function showResults(s)
 	end)
 	local prog = {}
 	for _, p in others do
-		prog[p] = if p.dnf and p.timer.lap == 0 then -1e9 else progressOf(s, p)
+		prog[p] = if p.dnf and p.timer.lap == 0 and not p.outLap then -1e9 else progressOf(s, p)
 	end
 	table.sort(others, function(a, b) return prog[a] > prog[b] end)
 	local rows = {}

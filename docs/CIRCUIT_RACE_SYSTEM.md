@@ -107,7 +107,10 @@ open:    Idle -> Racing (rolling laps) -> Idle (when the last driver leaves)
   - Jump start: moving more than 4 studs from the slot before the lights go out costs +5 s.
 - **Racing**:
   - If the grid is behind the line, the first line crossing starts lap 1. Lap 1 is timed from lights out.
-  - If the grid is ahead of the line, lap 1 starts at lights out (`armAt`).
+  - If the grid is ahead of the line, the drive to the line is an **out lap**: the tracker is armed at the grid
+    (`armAt`), so gates, track limits, cuts, pit speeding and teleports are judged and penalised from lights out,
+    but lap 1 only starts at the first line crossing. The partial segment is never a lap, PB or record, and the
+    race is still `laps` full laps after it. Race time runs from lights out. The HUD shows OUT LAP until the line.
 - **Finishing**: once the winner crosses the line, everyone else has 60 s, then they are DNF. There is also a
   safety time limit of `laps × length / 30 + 120` s.
 - **Results** (12 s): finishers are sorted by time plus penalties, then DNFs by progress. Rewards are paid.
