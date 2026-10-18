@@ -84,15 +84,24 @@ GPSRequest.OnServerEvent:Connect(function(plr: Player, id)
 	GPSUpdate:FireClient(plr, "clear", "Destination not on the map yet")
 end)
 
+-- at most one route per Heartbeat (a route is a nearest-edge scan plus a Dijkstra over the whole graph, ~5-6 ms on
+-- the wide world): with many GPS users the refreshes are spread over frames instead of landing in the same one.
+-- The most overdue player goes first; each player still gets a route at least every REFRESH seconds when the
+-- server keeps up (60 routes/s at most).
 RunService.Heartbeat:Connect(function()
 	local now = os.clock()
+	local due, dueAt = nil, math.huge
 	for plr, st in active do
 		if not plr.Parent then
 			active[plr] = nil
-		elseif now - st.at >= REFRESH then
-			st.at = now
-			send(plr, st.dest)
+		elseif now - st.at >= REFRESH and st.at < dueAt then
+			due, dueAt = plr, st.at
 		end
+	end
+	if due then
+		local st = active[due]
+		st.at = now
+		send(due, st.dest)
 	end
 end)
 

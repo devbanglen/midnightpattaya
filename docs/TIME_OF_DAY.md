@@ -91,8 +91,9 @@ the template's grey to deep violet. That makes the neon signs, the lit windows a
   - **Traffic cars** (`PattayaTraffic`) already have their own neon head and tail parts and get no extra lights.
 
 ## Performance notes
-- **Light counts:** at night the worst case adds 16 dynamic lights for cars (8 SpotLights + 8 PointLights). The 291
-  street-lamp SpotLights from Phase 7 are on top of that. None of them cast shadows.
+- **Light counts:** at night the worst case adds 16 dynamic lights for cars (8 SpotLights + 8 PointLights). The lamp and
+  floodlight SpotLights are on top of that, capped by the SpotLight budget (nearest 60 within 350 / 550 studs,
+  `docs/PERFORMANCE_BUDGET.md`). None of them cast shadows.
 - **Updates:** presets are written 4 times a second, not every frame, and only a handful of properties change.
   Floodlights are only touched when the night state changes.
 - **Post-processing:** Bloom size 28 and the Atmosphere are cheap on desktop. On low-end mobile, Roblox scales
