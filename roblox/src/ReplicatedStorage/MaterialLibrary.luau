@@ -114,11 +114,14 @@ ML.NightStyles = {
 	LitWindow = {
 		smallArea = 20,
 		small = {material = Enum.Material.Neon, colorMul = 0.68},
-		large = {material = Enum.Material.SmoothPlastic, colorMul = 1.5},
+		-- leader, Studio check 2026-10-19: SmoothPlastic x1.5 read as flat beige wall under the navy ambient; dim Neon
+		-- x0.68 reads as warm interior light without the old blown-out yellow (captures vis71_after_neon_*)
+		large = {material = Enum.Material.Neon, colorMul = 0.68},
 	},
 	Shopfront = {material = Enum.Material.Glass, colorMul = 1.4},
 	NeonSurface = {material = Enum.Material.Neon, palette = true, maxValue = 0.85},
-	NeonSign = {palette = true, maxValue = 0.85},
+	-- the base-layer sign slabs (PattayaBuilder Props, 20 x 6 studs) are dimmed a little as well
+	NeonSign = {palette = true, colorMul = 0.75, maxValue = 0.85},
 	_default = {material = Enum.Material.Neon, palette = true},
 }
 ML.SHOPFRONT_NAMES = {ShopGlow = true, ShopGlass = true, LobbyGlass = true}
