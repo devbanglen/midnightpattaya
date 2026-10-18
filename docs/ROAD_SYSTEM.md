@@ -49,3 +49,9 @@ Root causes and fixes (both in `export_roblox.main_wide`, the central slice expo
   module changes because of them: 1,104 in the wide world, 13 on the corridor. The same hairline can exist at a
   straight internal joint inside one edge (split_long pieces, turn 0 so no stretch); the corridor check found 1 such
   probe. Not changed, because it lives in the builder's stripe(), which the base slice also uses.
+
+## Whole-map road audit and fix pass (2026-10-19, team4/roadfix)
+`tools/mapgen/road_audit.py` (classes crossing / tee / parallel / acute / short / kink / step over all three
+datasets) and `tools/mapgen/road_fix.py` (kink fillets, bend joint discs + jA/jB trims, the sidewalk rule for the
+central slice too, `noMarks` ranges where markings would lie on another road, central joint discs). Results, changed
+chunk ids, rebuild steps (`PattayaBuilder.RebuildChunks`) and the Studio probe: `docs/ROAD_AUDIT.md`.

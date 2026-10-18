@@ -68,12 +68,16 @@ def load_dataset(rdir):
     for f in sorted(os.listdir(rdir)):
         if not (f.startswith('chunk_') and f.endswith('.luau')):
             continue
-        for m in EDGE_RE.finditer(open(os.path.join(rdir, f), encoding='utf-8').read()):
+        text = open(os.path.join(rdir, f), encoding='utf-8').read()
+        for m in EDGE_RE.finditer(text):
             flat = [float(v) for v in m.group(10).split(',') if v]
+            rest = text[m.end():text.find(chr(10), m.end())]       # road_fix fields after swSide: jA / jB bend trims
+            ja, jb = re.search(r', jA = ([\d.]+)', rest), re.search(r', jB = ([\d.]+)', rest)
             edges.append({'id': m.group(1), 'way': int(m.group(2)), 'tier': m.group(3), 'oneway': m.group(4) == 'true',
                           'lanes': int(m.group(5)), 'width': float(m.group(6)), 'sidewalk': float(m.group(7)),
                           'a': int(m.group(8)), 'b': int(m.group(9)), 'pts': np.array(flat).reshape(-1, 2), 'chunk': f[6:-5],
                           'swSide': int(m.group(11)) if m.group(11) else None,
+                          'jA': float(ja.group(1)) if ja else 0.0, 'jB': float(jb.group(1)) if jb else 0.0,
                           'set': os.path.basename(os.path.dirname(rdir.rstrip('/\\'))) + '/' + os.path.basename(rdir.rstrip('/\\'))})
     return edges, discs, jr
 
@@ -139,7 +143,7 @@ def trim(pts, d0, d1):
 def sidewalk_rects(e, jr):
     if e['sidewalk'] <= 0:
         return []
-    ra, rb = jr.get(e['a'], 0), jr.get(e['b'], 0)
+    ra, rb = jr.get(e['a'], 0) or e.get('jA', 0), jr.get(e['b'], 0) or e.get('jB', 0)   # as PattayaBuilder.buildEdge
     sw = trim(e['pts'], ra + e['sidewalk'] if ra > 0 else 0, rb + e['sidewalk'] if rb > 0 else 0)
     if sw is None:
         return []
