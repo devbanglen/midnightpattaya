@@ -27,6 +27,7 @@ $scripts = @()
 $scripts += Entries 'roblox/src/ServerScriptService' 'ServerScriptService'
 $scripts += Entries 'roblox/src/ServerStorage' 'ServerStorage'
 $scripts += Entries 'roblox/src/ReplicatedStorage' 'ReplicatedStorage'
+$scripts += Entries 'roblox/src/ReplicatedStorage/MidnightUI' 'ReplicatedStorage/MidnightUI'   # UI modules (Folder MidnightUI)
 $scripts += Entries 'roblox/src/ReplicatedFirst' 'ReplicatedFirst'
 $scripts += Entries 'roblox/src/StarterPlayer/StarterPlayerScripts' 'StarterPlayerScripts'
 Bundle 'scripts' $scripts

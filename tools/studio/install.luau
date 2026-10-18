@@ -1,6 +1,8 @@
 -- MIDNIGHT PATTAYA — Studio installer. Run in the command bar (edit mode) while tools/studio/install.ps1 serves the
 -- bundles. (Re)creates every script and data module from the repo without deleting anything else in the place.
 -- After it: build the world if the place is empty (see docs/ROBLOX_INTEGRATION.md "Rebuild from scratch").
+-- Keys may name sub-folders (e.g. ReplicatedStorage/MidnightUI/Theme): folder() creates a Folder per extra segment, so
+-- the HUD modules land in ReplicatedStorage.MidnightUI as ModuleScripts (scripts.json, from install.ps1).
 local Http = game:GetService("HttpService")
 local was = Http.HttpEnabled
 Http.HttpEnabled = true

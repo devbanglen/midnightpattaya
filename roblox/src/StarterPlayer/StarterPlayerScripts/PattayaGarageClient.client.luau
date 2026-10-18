@@ -29,6 +29,15 @@ local DARK = Color3.fromRGB(16, 12, 26)
 local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
 local Style = if styleModule then require(styleModule) :: any else nil
 
+-- MIDNIGHT HUD (ui-core): Bus hook "garage.open" for the quick menu, and the legacy-hide flag (LocalPlayer attribute
+-- "MidnightHUD", client-local). While it is true the new HUD shows the garage toasts; the shop and ring prompt stay.
+local uiFolder = ReplicatedStorage:FindFirstChild("MidnightUI")
+local busModule = uiFolder and uiFolder:FindFirstChild("Bus")
+local Bus = if busModule then require(busModule) :: any else nil
+local function midnight(): boolean
+	return player:GetAttribute("MidnightHUD") == true
+end
+
 -- UI helpers ---------------------------------------------------------------------------------------------------------
 local gui = Instance.new("ScreenGui")
 gui.Name = "GarageUI"
@@ -85,6 +94,10 @@ toastLabel.TextXAlignment = Enum.TextXAlignment.Center
 toastLabel.TextStrokeTransparency = 0.3
 toastLabel.Visible = false
 local function toast(text: string)
+	if midnight() and Bus then
+		Bus.fire("toast", {title = "GARAGE", body = text, kind = "info", icon = "garage"})
+		return
+	end
 	toastLabel.Text = text
 	toastLabel.Visible = true
 	local stamp = os.clock()
@@ -94,7 +107,15 @@ local function toast(text: string)
 	end)
 end
 player:GetAttributeChangedSignal("GarageMsgAt"):Connect(function()
+	if midnight() then
+		return -- MidnightHUD shows GarageMsg itself
+	end
 	toast(player:GetAttribute("GarageMsg") or "")
+end)
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(function()
+	if midnight() then
+		toastLabel.Visible = false
+	end
 end)
 
 -- shop window
@@ -340,8 +361,9 @@ spawnBtn.Activated:Connect(function()
 	end
 end)
 
--- Ring prompt --------------------------------------------------------------------------------------------------------
+-- Ring prompt (nearRing: updated every frame below, read by the quick-menu hook) --------------------------------------------------------------------------------------------------------
 local bound = false
+local nearRing = false
 local function setBound(on: boolean)
 	if on and not bound then
 		ContextActionService:BindAction("PattayaGarage", function(_, state)
@@ -379,6 +401,7 @@ RunService.RenderStepped:Connect(function()
 			here = seat == nil or Vector3.new(v.X, 0, v.Z).Magnitude < STOP_SPEED
 		end
 	end
+	nearRing = here
 	prompt.Visible = here and not open
 	setBound(here or open)
 	if open and not here then
@@ -389,3 +412,17 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 end)
+
+-- quick menu (MidnightHUD TopRight "Garage"): opens the same shop window as E, only inside the garage ring
+if Bus then
+	Bus.on("garage.open", function()
+		if nearRing then
+			if not open then
+				task.spawn(setOpen, true)
+			end
+		else
+			Bus.fire("toast", {title = "GARAGE", kind = "info", icon = "garage",
+				body = "ไปที่วงม่วงข้างจุดเกิด แล้วกด E  ·  Go to the purple ring by the spawn, press E"})
+		end
+	end)
+end
