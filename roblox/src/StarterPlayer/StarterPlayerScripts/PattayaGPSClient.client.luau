@@ -1,6 +1,12 @@
 -- GPS client: G cycles the destination (Bira Circuit, back to Central Pattaya, off). Draws the route as a cyan line
 -- on the road (rebuilt from the server's refresh every few seconds, only the next ~2,500 studs to keep parts low),
 -- a cyan arrow over the car, a HUD line with the distance, and a toast on arrival.
+-- Premium HUD (docs/UI_CONTRACT.md, docs/UI_MAP.md): colours come from ReplicatedStorage.MidnightUI.Theme. While the
+-- LocalPlayer attribute MidnightHUD == true (set locally by ui-core) the on-screen GPS panel, hint and centre toast hide: the minimap header in
+-- MidnightHUD.BottomLeft shows destination + distance (published here as the client-local LocalPlayer attributes
+-- GPS_Label / GPS_Km) and route set / arrived / cleared go to the Bus "toast". With the attribute false the old GPSHUD
+-- shows again. Bus "gps.set" (id | nil) from other HUD scripts (quick menu) is forwarded to GPSRequest; the map script
+-- calls GPSRequest itself and tags its own Bus fire with source "map", which is not forwarded a second time.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
@@ -17,7 +23,14 @@ if not (GPSRequest and GPSUpdate) then
 	return
 end
 
-local CYAN = Color3.fromRGB(0, 220, 255)
+-- design tokens + client bus (ReplicatedStorage.MidnightUI); the GPS keeps working without them
+local uiFolder = ReplicatedStorage:WaitForChild("MidnightUI", 10)
+local themeModule = uiFolder and uiFolder:FindFirstChild("Theme")
+local busModule = uiFolder and uiFolder:FindFirstChild("Bus")
+local Theme = if themeModule then require(themeModule) :: any else nil
+local Bus = if busModule then require(busModule) :: any else nil
+
+local CYAN = if Theme then Theme.color.cyan else Color3.fromRGB(0, 220, 255)
 local DRAW_STUDS = 2500
 
 -- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
@@ -31,14 +44,14 @@ local panel = Instance.new("TextLabel")
 panel.AnchorPoint = Vector2.new(1, 0)
 panel.Position = UDim2.new(1, -16, 0, 150)
 panel.Size = UDim2.fromOffset(330, 30)
-panel.BackgroundColor3 = Color3.fromRGB(0, 30, 40)
-panel.BackgroundTransparency = 0.3
-panel.Font = Enum.Font.GothamBold
+panel.BackgroundColor3 = if Theme then Theme.color.navy else Color3.fromRGB(0, 30, 40)
+panel.BackgroundTransparency = if Theme then Theme.alpha.panel else 0.3
+panel.Font = if Theme then Theme.font.bold else Enum.Font.GothamBold
 panel.TextScaled = true
 panel.TextColor3 = CYAN
 panel.Visible = false
 panel.Parent = gui
-Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+Instance.new("UICorner", panel).CornerRadius = UDim.new(0, if Theme then Theme.radius.button else 8)
 if Style then
 	Style.accent(panel, 8)
 end
@@ -47,9 +60,9 @@ hint.AnchorPoint = Vector2.new(0, 1)
 hint.Position = UDim2.new(0, 16, 1, -84)
 hint.Size = UDim2.fromOffset(360, 20)
 hint.BackgroundTransparency = 1
-hint.Font = Enum.Font.GothamMedium
+hint.Font = if Theme then Theme.font.body else Enum.Font.GothamMedium
 hint.TextSize = 15
-hint.TextColor3 = Color3.fromRGB(150, 230, 255)
+hint.TextColor3 = if Theme then Theme.color.textDim else Color3.fromRGB(150, 230, 255)
 hint.TextStrokeTransparency = 0.5
 hint.TextXAlignment = Enum.TextXAlignment.Left
 hint.Text = "G  GPS: Bira Circuit"
@@ -60,7 +73,7 @@ toast.AnchorPoint = Vector2.new(0.5, 0.5)
 toast.Position = UDim2.new(0.5, 0, 0.36, 0)
 toast.Size = UDim2.fromOffset(620, 40)
 toast.BackgroundTransparency = 1
-toast.Font = Enum.Font.GothamBlack
+toast.Font = if Theme then Theme.font.display else Enum.Font.GothamBlack
 toast.TextScaled = true
 toast.TextColor3 = CYAN
 toast.TextStrokeTransparency = 0.3
@@ -68,7 +81,15 @@ toast.Visible = false
 toast.Parent = gui
 gui.Parent = player:WaitForChild("PlayerGui")
 
+-- legacy-hide: the new HUD (ui-core sets the local LocalPlayer attribute MidnightHUD = true) replaces the panel, hint and centre toast
+local function newHud(): boolean
+	return player:GetAttribute("MidnightHUD") == true
+end
+
 local function showToast(text: string)
+	if newHud() then
+		return -- notify() sends the Bus toast instead while the new HUD is on
+	end
 	toast.Text = text
 	toast.Visible = true
 	local stamp = os.clock()
@@ -76,6 +97,15 @@ local function showToast(text: string)
 	task.delay(4, function()
 		if toast:GetAttribute("Stamp") == stamp then toast.Visible = false end
 	end)
+end
+
+-- a toast for the new HUD (Bus "toast") or the old centre toast, never both
+local function notify(text: string, kind: string?)
+	if newHud() and Bus then
+		Bus.fire("toast", {title = "GPS", body = text, kind = kind or "info"})
+	else
+		showToast(text)
+	end
 end
 
 local destinations = {} -- {{id, label}, ...} from the server
@@ -126,26 +156,65 @@ local function draw(pts: {Vector3})
 	tip.Parent = arrow
 end
 
+-- minimap header data (client-local attributes, read by PattayaMinimapClient): GPS_Label (string | nil), GPS_Km
+local function publish(text: string?, km: number?)
+	player:SetAttribute("GPS_Label", text)
+	player:SetAttribute("GPS_Km", km)
+end
+local function refreshPanel()
+	panel.Visible = route ~= nil and not newHud()
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(function()
+	refreshPanel()
+	if newHud() then
+		hint.Visible = false
+		toast.Visible = false
+	end
+end)
+
 GPSUpdate.OnClientEvent:Connect(function(kind, payload, extra)
 	if kind == "list" then
 		destinations = payload
 	elseif kind == "route" then
+		local changed = payload.id ~= current or route == nil -- the server re-sends the route every few seconds
 		current, route, label = payload.id, payload.route, payload.label
 		draw(payload.route)
-		panel.Visible = true
+		refreshPanel()
+		if changed then
+			publish(label, if type(payload.length) == "number" then payload.length * 0.28 / 1000 else nil)
+			if newHud() and Bus then
+				Bus.fire("toast", {title = "GPS", body = tostring(label), kind = "info"})
+			end
+		end
 	elseif kind == "arrived" then
 		current, route = nil, nil
 		clearDrawing()
-		panel.Visible = false
-		showToast(("You have arrived: %s"):format(tostring(payload)))
+		refreshPanel()
+		publish(nil, nil)
+		notify(("You have arrived: %s"):format(tostring(payload)), "reward")
 	elseif kind == "clear" then
+		local had = route ~= nil
 		current, route = nil, nil
 		clearDrawing()
-		panel.Visible = false
-		if payload then showToast(tostring(payload)) end
+		refreshPanel()
+		publish(nil, nil)
+		if payload then
+			notify(tostring(payload), "warn")
+		elseif had and newHud() and Bus then
+			Bus.fire("toast", {title = "GPS", body = "GPS off", kind = "info"})
+		end
 	end
 end)
 GPSRequest:FireServer("list")
+
+-- other HUD scripts (quick menu, missions) pick a destination through the Bus; the map tags its own fires "map"
+if Bus then
+	Bus.on("gps.set", function(id, source)
+		if source ~= "map" then
+			GPSRequest:FireServer(id)
+		end
+	end)
+end
 
 local function inCar(): BasePart?
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
@@ -163,7 +232,7 @@ ContextActionService:BindAction("GPSCycle", function(_, state)
 	end
 	if #destinations == 0 then
 		GPSRequest:FireServer("list")
-		showToast("GPS: no destinations on the map yet")
+		notify("GPS: no destinations on the map yet", "warn")
 		return Enum.ContextActionResult.Pass
 	end
 	local nextIndex = 1
@@ -174,21 +243,55 @@ ContextActionService:BindAction("GPSCycle", function(_, state)
 	end
 	if nextIndex > #destinations then
 		GPSRequest:FireServer(nil)
-		showToast("GPS off")
+		showToast("GPS off") -- new HUD: the server's "clear" reply sends the Bus toast
 	else
 		local d = destinations[nextIndex]
 		current = d.id
 		GPSRequest:FireServer(d.id)
-		showToast(("GPS: %s"):format(d.label))
+		showToast(("GPS: %s"):format(d.label)) -- new HUD: the server's "route" reply sends the Bus toast
 	end
 	return Enum.ContextActionResult.Pass
 end, true, Enum.KeyCode.G, Enum.KeyCode.DPadUp)
 ContextActionService:SetTitle("GPSCycle", "GPS")
 ContextActionService:SetPosition("GPSCycle", UDim2.new(1, -340, 1, -240))
 
+local function focusPart(chassis: BasePart?): BasePart?
+	if chassis then
+		return chassis
+	end
+	local char = player.Character
+	return char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+-- distance left along the route (from the first point ahead), not as the crow flies
+local function remainingStuds(pos: Vector3, pts: {Vector3}): number
+	local remaining = 0
+	local started = false
+	for i = 1, #pts - 1 do
+		if not started and Vector3.new(pts[i].X - pos.X, 0, pts[i].Z - pos.Z).Magnitude > 25 then
+			started = true
+			remaining += Vector3.new(pts[i].X - pos.X, 0, pts[i].Z - pos.Z).Magnitude
+		end
+		if started then
+			remaining += (pts[i + 1] - pts[i]).Magnitude
+		end
+	end
+	return remaining
+end
+
+local lastPublish = 0
 RunService.RenderStepped:Connect(function()
 	local chassis = inCar()
-	hint.Visible = chassis ~= nil and current == nil and #destinations > 0
+	-- minimap header distance at <= 4 Hz, in the car or on foot
+	local now = os.clock()
+	if route and now - lastPublish >= 0.25 then
+		lastPublish = now
+		local part = focusPart(chassis)
+		if part then
+			publish(label, remainingStuds(part.Position, route) * 0.28 / 1000)
+		end
+	end
+	hint.Visible = chassis ~= nil and current == nil and #destinations > 0 and not newHud()
 	if hint.Visible and destinations[1] then
 		hint.Text = ("G  GPS: %s"):format(destinations[1].label)
 	end
@@ -213,17 +316,7 @@ RunService.RenderStepped:Connect(function()
 		local tip = arrow:FindFirstChild("Tip") :: Part
 		tip.CFrame = arrow.CFrame * CFrame.new(0, 0, -5)
 	end
-	-- distance left along the route (from the first point ahead), not as the crow flies
-	local remaining = 0
-	local started = false
-	for i = 1, #route - 1 do
-		if not started and Vector3.new(route[i].X - pos.X, 0, route[i].Z - pos.Z).Magnitude > 25 then
-			started = true
-			remaining += Vector3.new(route[i].X - pos.X, 0, route[i].Z - pos.Z).Magnitude
-		end
-		if started then
-			remaining += (route[i + 1] - route[i]).Magnitude
-		end
+	if panel.Visible then
+		panel.Text = ("GPS  %s   %.1f km"):format(label, remainingStuds(pos, route) * 0.28 / 1000)
 	end
-	panel.Text = ("GPS  %s   %.1f km"):format(label, remaining * 0.28 / 1000)
 end)
