@@ -145,3 +145,20 @@ Everything is written, not run in Studio. Check the Output window for errors fro
 - The other-driver dots show every player within streaming range (no "challenger" filter); remove the pool if the
   owner does not want other players on the map.
 - Theme module is required (`ReplicatedStorage.MidnightUI.Theme`); without it the minimap does not start (warns).
+
+## Owner fixes (team5/ui-fix, written, not run in Studio)
+
+- **Circuit track layer.** CircuitServer publishes, next to `Circuit_<id>`, on `ReplicatedStorage.PattayaWorldMap`:
+  `CircuitPath_<id>` = closed centreline `"x,z;x,z;..."` (world studs, integers, first point = start/finish line,
+  loop closed by the client) and `CircuitPit_<id>` = pit lane (open polyline, only when the circuit has one). Both are
+  Douglas-Peucker decimated in XZ to <= 250 points (10 studs max deviation; the tolerance grows only if 250 is not
+  reached), a few KB each. The minimap and the full map draw them in a "Track" layer (between Corridor and Route) from
+  a pooled segment set: track `textDim` 4 px, pit lane `textMuted` 2 px, start/finish tick `yellow`. A missing or
+  garbled attribute = no layer. The full map's ALL view now also frames the circuit venues; legend row added.
+- **Header in a session.** `CircuitActive == true` -> header `"<CircuitName>  •  <mode>"` (e.g. "BIRA CIRCUIT  •
+  TIME ATTACK"), yellow pin; otherwise GPS / district as before. The header shrinks (TextScaled, 10-14 px) instead of
+  ending in "…".
+- **Arrow in the venue.** `focus()` falls back to the seat itself when the car model has no PrimaryPart (before, that
+  case put the arrow at the map origin).
+- **GPS distance.** PattayaGPSClient now projects the car onto the nearest route segment and sums from there (the old
+  walk counted from the route start once the car had left it, so the header distance did not count down).

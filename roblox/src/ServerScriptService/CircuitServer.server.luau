@@ -48,6 +48,83 @@ if worldMap then
 			worldMap:SetAttribute("Circuit_" .. c.id, Vector3.new(e.x, 0, e.z))
 		end
 	end
+	-- track layer for the minimap/full map: packed centreline "x,z;x,z;..." (world studs, rounded, pts[1] = the
+	-- start/finish line), Douglas-Peucker decimated in XZ to <= 250 points with <= 10 studs deviation where
+	-- possible; CircuitPit_<id> is the pit lane (open polyline). A few KB each, far under the 200 KB attribute limit.
+	local MAX_PTS, MAX_DEV = 250, 10
+	local function segDist(p: Vector3, a: Vector3, b: Vector3): number
+		local ax, az, bx, bz = a.X, a.Z, b.X, b.Z
+		local dx, dz = bx - ax, bz - az
+		local l2 = dx * dx + dz * dz
+		local t = if l2 > 0 then math.clamp(((p.X - ax) * dx + (p.Z - az) * dz) / l2, 0, 1) else 0
+		local ex, ez = p.X - (ax + dx * t), p.Z - (az + dz * t)
+		return math.sqrt(ex * ex + ez * ez)
+	end
+	local function simplify(pts: {Vector3}, tol: number): {Vector3}
+		local n = #pts
+		if n <= 2 then
+			return table.clone(pts)
+		end
+		local keep = table.create(n, false)
+		keep[1], keep[n] = true, true
+		local stack = {1, n}
+		while #stack > 0 do
+			local j = table.remove(stack)
+			local i = table.remove(stack)
+			local best, bi = -1, nil
+			for k = i + 1, j - 1 do
+				local d = segDist(pts[k], pts[i], pts[j])
+				if d > best then
+					best, bi = d, k
+				end
+			end
+			if bi and best > tol then
+				keep[bi] = true
+				table.insert(stack, i)
+				table.insert(stack, bi)
+				table.insert(stack, bi)
+				table.insert(stack, j)
+			end
+		end
+		local out = {}
+		for k = 1, n do
+			if keep[k] then
+				table.insert(out, pts[k])
+			end
+		end
+		return out
+	end
+	local function pack(pts: {Vector3}?, closed: boolean): string?
+		if not pts or #pts < 2 then
+			return nil
+		end
+		local src = table.clone(pts)
+		if closed then
+			table.insert(src, pts[1]) -- close the loop so the last leg is simplified too
+		end
+		local tol, out = MAX_DEV, nil
+		repeat
+			out = simplify(src, tol)
+			tol *= 1.5
+		until #out <= MAX_PTS or tol > 2000
+		if closed and #out > 2 then
+			table.remove(out) -- drop the duplicated start; the client closes the loop
+		end
+		local parts = table.create(#out)
+		for i, p in out do
+			parts[i] = string.format("%d,%d", math.round(p.X), math.round(p.Z))
+		end
+		return table.concat(parts, ";")
+	end
+	for _, c in list do
+		local ok, err = pcall(function()
+			worldMap:SetAttribute("CircuitPath_" .. c.id, pack(c.pts, true))
+			worldMap:SetAttribute("CircuitPit_" .. c.id, pack(c.pit and c.pit.pts, false))
+		end)
+		if not ok then
+			warn("[Circuit] map path for " .. c.id .. " not published: " .. tostring(err))
+		end
+	end
 end
 
 -- test surfaces ------------------------------------------------------------------------------------------------------

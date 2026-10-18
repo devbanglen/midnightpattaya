@@ -13,6 +13,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local remotes = ReplicatedStorage:WaitForChild("PattayaRemotes", 60)
@@ -44,6 +46,12 @@ end
 -- shared MIDNIGHT PATTAYA panel style (ReplicatedStorage.MidnightStyle); styling only, the HUD works without it
 local styleModule = ReplicatedStorage:WaitForChild("MidnightStyle", 10)
 local Style = if styleModule then require(styleModule) :: any else nil
+-- premium HUD tokens + bus (ReplicatedStorage.MidnightUI), optional: only used while MidnightHUD == true
+local uiFolder = ReplicatedStorage:FindFirstChild("MidnightUI")
+local themeModule = uiFolder and uiFolder:FindFirstChild("Theme")
+local busModule = uiFolder and uiFolder:FindFirstChild("Bus")
+local Theme = if themeModule then require(themeModule) :: any else nil
+local Bus = if busModule then require(busModule) :: any else nil
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "CircuitHUD"
@@ -219,6 +227,61 @@ end
 player:GetAttributeChangedSignal("MidnightHUD"):Connect(applyLegacyHide)
 applyLegacyHide()
 gui.Parent = player:WaitForChild("PlayerGui")
+
+-- timing tower under the premium HUD (owner fix): while MidnightHUD == true it sits under the player card
+-- (TopLeft anchor; on touch under the quick menu, TopRight, because the minimap takes the space under the card),
+-- scaled with the HUD, in Theme colours and fonts. MidnightHUD false = the old look and place at (16, 268).
+local towerScale = Instance.new("UIScale")
+towerScale.Parent = tower
+local towerStroke = Instance.new("UIStroke")
+towerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+towerStroke.Enabled = false
+towerStroke.Parent = tower
+local function hudAnchor(name: string): GuiObject?
+	local hudGui = player:FindFirstChildOfClass("PlayerGui") and player.PlayerGui:FindFirstChild("MidnightHUD")
+	local a = hudGui and hudGui:FindFirstChild(name)
+	return if a and a:IsA("GuiObject") then a else nil
+end
+local function placeTower()
+	local styled = player:GetAttribute("MidnightHUD") == true and Theme ~= nil
+	local touch = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+	local a = if styled then hudAnchor(if touch then "TopRight" else "TopLeft") else nil
+	if styled and a then
+		local sc = a:FindFirstChildOfClass("UIScale")
+		towerScale.Scale = if sc then sc.Scale else 1
+		local pos, size = a.AbsolutePosition, a.AbsoluteSize
+		if touch then
+			tower.AnchorPoint = Vector2.new(1, 0)
+			tower.Position = UDim2.fromOffset(pos.X + size.X, pos.Y + size.Y + 8)
+		else
+			tower.AnchorPoint = Vector2.new(0, 0)
+			tower.Position = UDim2.fromOffset(pos.X, pos.Y + size.Y + 8)
+		end
+		tower.BackgroundColor3 = Theme.color.surface
+		tower.BackgroundTransparency = Theme.alpha.panel
+		towerStroke.Enabled = true
+		towerStroke.Color = Theme.color.line
+		towerStroke.Thickness = Theme.stroke.thin
+		towerStroke.Transparency = 0.2
+		for _, l in towerLines do
+			l.Font = Theme.font.mono
+			l.TextSize = Theme.size.caption + 1
+		end
+	else
+		towerScale.Scale = 1
+		tower.AnchorPoint = Vector2.new(0, 0)
+		tower.Position = UDim2.fromOffset(16, 268)
+		tower.BackgroundColor3 = PANEL
+		tower.BackgroundTransparency = 0.3
+		towerStroke.Enabled = false
+		for _, l in towerLines do
+			l.Font = Enum.Font.Code
+			l.TextSize = 14
+		end
+	end
+end
+player:GetAttributeChangedSignal("MidnightHUD"):Connect(placeTower)
+placeTower()
 
 -- menu options remembered between openings
 local opt = {laps = 3, gridBy = "join", collisions = true, classIndex = 0, timing = true}
@@ -451,12 +514,36 @@ closeBtn.Activated:Connect(function()
 	menu.Visible = false
 end)
 
+-- the menu opens only when the player asked for it (owner fix: a join through the CircuitRequest remote, e.g. the
+-- test kit, or the server's menu refresh after join/leave made it pop up over the HUD): P / the CIRCUIT button,
+-- the paddock ProximityPrompt (F) or Bus "circuit.open". Any other "menu" message only refreshes the content.
+local menuAskedAt = -math.huge
+local function askMenu()
+	menuAskedAt = os.clock()
+	request("menu")
+end
 local function toggleMenu()
 	if menu.Visible then
 		menu.Visible = false
 	else
-		request("menu")
+		askMenu()
 	end
+end
+ProximityPromptService.PromptTriggered:Connect(function(prompt, plr)
+	if plr ~= player then
+		return
+	end
+	local m = prompt:FindFirstAncestorWhichIsA("Model")
+	if m and string.sub(m.Name, 1, 8) == "Paddock_" then
+		menuAskedAt = os.clock() -- the server answers this prompt with "menu" itself
+	end
+end)
+if Bus then
+	Bus.on("circuit.open", function()
+		if not menu.Visible then
+			askMenu()
+		end
+	end)
 end
 
 ContextActionService:BindAction("CircuitMenu", function(_, state)
@@ -529,7 +616,10 @@ end
 CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 	if kind == "menu" then
 		render(payload)
-		menu.Visible = true
+		if os.clock() - menuAskedAt < 5 then -- asked for (P / prompt / Bus); else a silent refresh
+			menuAskedAt = -math.huge
+			menu.Visible = true
+		end
 	elseif kind == "toast" then
 		timed(toastLabel, tostring(payload), WHITE, 4)
 	elseif kind == "warn" then
@@ -563,7 +653,7 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 		tower.Size = UDim2.fromOffset(300, 8 + (math.min(#rows, 12 - head) + head) * 18)
 		for i = 1, 12 do
 			local r = rows[i - head]
-			towerLines[i].TextColor3 = WHITE
+			towerLines[i].TextColor3 = if Theme and player:GetAttribute("MidnightHUD") == true then Theme.color.text else WHITE
 			if head == 1 and i == 1 then
 				towerLines[i].Text = "RANKED RACE"
 				towerLines[i].TextColor3 = RANKED
@@ -578,6 +668,7 @@ CircuitMsg.OnClientEvent:Connect(function(kind, payload)
 			end
 		end
 		tower:SetAttribute("Until", os.clock() + 3)
+		placeTower() -- follows the HUD scale / viewport (cheap: a few property writes per tower update)
 	elseif kind == "results" then
 		local ranked = payload.ranked == true
 		resultsTitle.Text = ("%s  -  %s  -  %d laps%s"):format(payload.name, payload.mode, payload.laps,

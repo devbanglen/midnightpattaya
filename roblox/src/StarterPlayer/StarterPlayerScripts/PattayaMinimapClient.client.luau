@@ -196,6 +196,14 @@ local header = text(card, {font = Theme.font.bold, size = Theme.size.label, colo
 header.Name = "Header"
 header.Position = UDim2.fromOffset(PAD + 20, 0)
 header.Size = UDim2.new(1, -(PAD + 20) - 40, 0, HEADER_H)
+header.TextScaled = true -- long GPS / circuit lines shrink (down to 10 px) instead of ending in "…"
+header.TextTruncate = Enum.TextTruncate.None
+do
+	local lim = Instance.new("UITextSizeConstraint")
+	lim.MaxTextSize = Theme.size.label
+	lim.MinTextSize = 10
+	lim.Parent = header
+end
 
 local compass = text(card, {font = Theme.font.display, size = Theme.size.label, color = C.text, text = "N",
 	align = Enum.TextXAlignment.Center})
@@ -283,7 +291,7 @@ zoom.Scale = 1
 zoom.Parent = world
 
 local layers = {}
-for i, name in {"Land", "Coast", "Roads", "Corridor", "Route", "Labels", "Pois", "Players", "Me"} do
+for i, name in {"Land", "Coast", "Roads", "Corridor", "Track", "Route", "Labels", "Pois", "Players", "Me"} do
 	local f = Instance.new("Frame")
 	f.Name = name
 	f.BackgroundTransparency = 1
@@ -297,6 +305,8 @@ end
 local lineList = {} -- {f, len, t}
 local routeSegs = {} -- pooled route segments, same shape as lineList entries
 local routeUsed = 0
+local trackSegs = {} -- pooled circuit track / pit lane / start-finish segments (rebuilt on attribute change only)
+local trackUsed = 0
 local scaledList = {} -- {f, w, h, stroke?, sw?}
 local curScale = 1
 
@@ -348,6 +358,9 @@ local function applyScale(s: number)
 	end
 	for i = 1, routeUsed do
 		sizeLine(routeSegs[i])
+	end
+	for i = 1, trackUsed do
+		sizeLine(trackSegs[i])
 	end
 	for _, e in scaledList do
 		e.f.Size = UDim2.fromOffset(e.w / s, e.h / s)
@@ -649,6 +662,91 @@ local function setRoute(points: {Vector3}?)
 	routeUsed = n
 end
 
+-- circuit track layer: CircuitPath_<id> (closed centreline, first point = start/finish) and CircuitPit_<id> (pit
+-- lane), packed "x,z;x,z;..." in world studs on PattayaWorldMap by CircuitServer. Missing/garbled = no layer.
+local trackBounds: {minX: number, maxX: number, minZ: number, maxZ: number}? = nil
+local function unpackPath(v: any): {number}?
+	if type(v) ~= "string" or v == "" then
+		return nil
+	end
+	local flat = {}
+	for xs, zs in string.gmatch(v, "(%-?[%d%.]+),(%-?[%d%.]+)") do
+		local x, z = tonumber(xs), tonumber(zs)
+		if x and z then
+			table.insert(flat, x)
+			table.insert(flat, z)
+		end
+	end
+	return if #flat >= 4 then flat else nil
+end
+local function trackSeg(x1: number, z1: number, x2: number, z2: number, thickness: number, color: Color3, transparency: number)
+	trackUsed += 1
+	local e = trackSegs[trackUsed]
+	if not e then
+		e = newLine(layers.Track, thickness, color, transparency)
+		trackSegs[trackUsed] = e
+	end
+	e.t = thickness
+	e.f.BackgroundColor3 = color
+	e.f.BackgroundTransparency = transparency
+	e.f.Visible = true
+	placeLine(e, x1, z1, x2, z2)
+end
+local function rebuildTrack()
+	trackUsed = 0
+	local b = {minX = math.huge, maxX = -math.huge, minZ = math.huge, maxZ = -math.huge}
+	local function grow(flat: {number})
+		for i = 1, #flat, 2 do
+			b.minX, b.maxX = math.min(b.minX, flat[i]), math.max(b.maxX, flat[i])
+			b.minZ, b.maxZ = math.min(b.minZ, flat[i + 1]), math.max(b.maxZ, flat[i + 1])
+		end
+	end
+	for name, v in mapModule:GetAttributes() do
+		if string.sub(name, 1, 12) == "CircuitPath_" then
+			local flat = unpackPath(v)
+			if flat then
+				grow(flat)
+				local n = #flat
+				for i = 1, n - 1, 2 do
+					local j = if i + 2 <= n then i + 2 else 1 -- closed loop
+					trackSeg(flat[i], flat[i + 1], flat[j], flat[j + 1], 4, C.textDim, 0.05)
+				end
+				-- start/finish tick: perpendicular to the first leg through the first point
+				local dx, dz = flat[3] - flat[1], flat[4] - flat[2]
+				local l = math.sqrt(dx * dx + dz * dz)
+				if l > 0 then
+					local hx, hz = -dz / l * 40, dx / l * 40 -- 40 studs each side (about a track width)
+					trackSeg(flat[1] - hx, flat[2] - hz, flat[1] + hx, flat[2] + hz, 4, C.yellow, 0)
+				end
+			end
+		elseif string.sub(name, 1, 11) == "CircuitPit_" then
+			local flat = unpackPath(v)
+			if flat then
+				grow(flat)
+				for i = 1, #flat - 3, 2 do
+					trackSeg(flat[i], flat[i + 1], flat[i + 2], flat[i + 3], 2, C.textMuted, 0.1)
+				end
+			end
+		end
+	end
+	-- start/finish ticks above the track segments (siblings in the Track layer; pooled frames get reused, so set it)
+	for i = 1, #trackSegs do
+		local e = trackSegs[i]
+		if i > trackUsed then
+			e.f.Visible = false
+		else
+			e.f.ZIndex = layers.Track.ZIndex + (if e.f.BackgroundColor3 == C.yellow then 1 else 0)
+		end
+	end
+	trackBounds = if b.minX < math.huge then b else nil
+end
+rebuildTrack()
+mapModule.AttributeChanged:Connect(function(name: string)
+	if string.sub(name, 1, 12) == "CircuitPath_" or string.sub(name, 1, 11) == "CircuitPit_" then
+		rebuildTrack()
+	end
+end)
+
 applyScale(ZOOMS[zoomIndex])
 
 -- full map overlay (built once) -----------------------------------------------------------------------------------
@@ -783,6 +881,7 @@ legendRow(COL.players, "", "Other drivers", true)
 legendRow(COL.me, "▲", "You", true)
 legendRow(COL.route, "", "GPS route", false)
 legendRow(COL.express, "", "Sukhumvit (express)", false)
+legendRow(C.textDim, "", "Circuit track (yellow = start/finish)", false)
 
 local destButtons = {} -- rebuilt only when the server sends a new list
 local function linkSelection()
@@ -851,11 +950,24 @@ end
 
 -- header (card + full map title bar) ------------------------------------------------------------------------------
 local districtName: string? = nil
+local CIRCUIT_MODE = {TimeAttack = "TIME ATTACK", FreePractice = "FREE PRACTICE", TrackDay = "TRACK DAY",
+	CircuitRace = "RACE", PrivateRoom = "PRIVATE ROOM"}
 local function updateHeader()
 	mapDistrict.Text = districtName or ""
 	local lbl = player:GetAttribute("GPS_Label")
 	local km = player:GetAttribute("GPS_Km")
-	if type(lbl) == "string" and lbl ~= "" then
+	if player:GetAttribute("CircuitActive") == true then -- inside a circuit session: venue + session mode
+		local name = player:GetAttribute("CircuitName")
+		local mode = player:GetAttribute("CircuitMode")
+		local s = string.upper(if type(name) == "string" and name ~= "" then name else "CIRCUIT")
+		if type(mode) == "string" and mode ~= "" then
+			s ..= "  •  " .. (CIRCUIT_MODE[mode] or string.upper(mode))
+		end
+		header.Text = s
+		header.TextColor3 = C.text
+		pin.BackgroundColor3 = C.yellow
+		fGps.Text = s
+	elseif type(lbl) == "string" and lbl ~= "" then
 		local s = string.upper(lbl)
 		if type(km) == "number" then
 			s = ("%s  •  %.1f KM"):format(s, km)
@@ -873,6 +985,9 @@ local function updateHeader()
 end
 player:GetAttributeChangedSignal("GPS_Label"):Connect(updateHeader)
 player:GetAttributeChangedSignal("GPS_Km"):Connect(updateHeader)
+for _, a in {"CircuitActive", "CircuitName", "CircuitMode"} do
+	player:GetAttributeChangedSignal(a):Connect(updateHeader)
+end
 
 local function districtAt(x: number, z: number): string?
 	for _, d in map.districts or {} do
@@ -991,11 +1106,17 @@ local viewW, viewH = MAP_W, MAP_H
 local forceRedraw = true
 local function boundsOf(name: string)
 	local b = map.bounds
-	if name == "ALL" and corridor and corridor.bounds then
-		local e = corridor.bounds
-		return math.min(b.minX, e.minX), math.max(b.maxX, e.maxX), math.min(b.minZ, e.minZ), math.max(b.maxZ, e.maxZ)
+	local minX, maxX, minZ, maxZ = b.minX, b.maxX, b.minZ, b.maxZ
+	if name == "ALL" then -- whole world: city + corridor + circuit venues
+		local extra = {}
+		if corridor and corridor.bounds then table.insert(extra, corridor.bounds) end
+		if trackBounds then table.insert(extra, trackBounds) end
+		for _, e in extra do
+			minX, maxX = math.min(minX, e.minX), math.max(maxX, e.maxX)
+			minZ, maxZ = math.min(minZ, e.minZ), math.max(maxZ, e.maxZ)
+		end
 	end
-	return b.minX, b.maxX, b.minZ, b.maxZ
+	return minX, maxX, minZ, maxZ
 end
 local function applyView()
 	if view == "NEAR" then
@@ -1142,7 +1263,11 @@ local function focus(): (Vector3, number)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local seat = hum and hum.SeatPart
-	local part = if seat and seat:IsA("VehicleSeat") then seat.Parent.PrimaryPart else (char and char:FindFirstChild("HumanoidRootPart"))
+	-- in a car: the car model's PrimaryPart, else the seat itself (a nested seat/model without PrimaryPart must not
+	-- drop the arrow back to the map origin, e.g. inside the circuit venue)
+	local part = if seat and seat:IsA("VehicleSeat")
+		then ((seat.Parent and seat.Parent:IsA("Model") and (seat.Parent :: Model).PrimaryPart) or seat)
+		else (char and char:FindFirstChild("HumanoidRootPart"))
 	if part then
 		local lv = part.CFrame.LookVector
 		return part.Position, math.deg(math.atan2(lv.X, -lv.Z))

@@ -248,3 +248,11 @@ Compare RenderStepped/Heartbeat rates and `Instances` memory; repeat once with 3
 - No mockup crown icon, no "+" on the money pill (no shop to open), no slanted chip edges: left out rather than faked.
 - `docs/UI_CONTRACT.md` still says `workspace:SetAttribute("MidnightHUD")`; the owner's acceptance condition
   (LocalPlayer attribute) supersedes it and is what the code does.
+
+## Owner fixes (team5/ui-fix, written, not run in Studio)
+
+- `Components.label` with `fit = true` no longer shows an ellipsis: TextScaled down to `minSize`, `TextTruncate.None`
+  (pass `truncate = true` to keep "…" for free text; the toast title/body do). The quick-menu tile label uses the full
+  tile width minus 6 px and `minSize = 8`, so "Missions"/"Settings" fit at 88 px across HUD scale 0.62-1.3.
+- Player card: name/title were already `fit`; the level label ("LV. n", rich text) is `TextTruncate.None`.
+- `Components.label` adds no text stroke (unchanged).
