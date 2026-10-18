@@ -218,7 +218,7 @@ end
 function TK.concat(...)
 	local out = {}
 	for _, p in {...} do
-		for _, v in p do table.insert(out, v) end
+		for i = 1, #p do table.insert(out, p[i]) end
 		if p.flat then out.flat = true end
 	end
 	return out
@@ -234,7 +234,8 @@ end
 -- index of the path point nearest to pos (flat distance)
 function TK.nearestIndex(pts, pos: Vector3): (number, number)
 	local best, bd = 1, math.huge
-	for i, p in pts do
+	for i = 1, #pts do -- numeric: path tables also carry the keys flat/closed (generalised iteration would hit them)
+		local p = pts[i]
 		local d = flat(p - pos).Magnitude
 		if d < bd then best, bd = i, d end
 	end
@@ -930,7 +931,7 @@ function TK.lapPath(pathSource, laps: number, opts)
 		end
 		if pit and not pitted and lap == opts.pitOnLap and i == pitIn then
 			pitted = true
-			for _, p in pit do add(p, pitSpeed) end
+			for k = 1, #pit do add(pit[k], pitSpeed) end
 			local nextI = pitOut % n + 1
 			if pitOut < pitIn then -- the pit lane passes the line
 				crossings += 1
