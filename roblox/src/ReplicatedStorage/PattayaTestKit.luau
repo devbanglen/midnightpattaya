@@ -976,21 +976,34 @@ function TK.lapCircuit(pathSource, laps: number?, opts)
 end
 
 -- misc -------------------------------------------------------------------------------------------------------------
--- traffic cars non-solid for this client (the drive tests run "traffic made non-solid")
-function TK.ghostTraffic(on: boolean)
+-- traffic cars non-solid for this client (the drive tests ran with traffic made non-solid). Only each car's root
+-- ("Body") collides, and PattayaTraffic turns it solid again when a car stops ghosting, so this re-applies it on
+-- every Heartbeat until ghostTraffic(false).
+function TK.ghostTraffic(on: boolean): number
 	local folder = workspace:FindFirstChild("PattayaTraffic")
-	if not folder then return 0 end
-	local n = 0
-	local function set(d: Instance)
-		if d:IsA("BasePart") then
-			d.CanCollide = not on
-			n += 1
-		end
+	if TK.trafficConn then
+		TK.trafficConn:Disconnect()
+		TK.trafficConn = nil
 	end
-	for _, d in folder:GetDescendants() do set(d) end
-	if TK.trafficConn then TK.trafficConn:Disconnect() TK.trafficConn = nil end
-	if on then TK.trafficConn = folder.DescendantAdded:Connect(set) end
-	return n
+	if not folder then
+		return 0
+	end
+	local function apply(solid: boolean): number
+		local n = 0
+		for _, m in folder:GetChildren() do
+			local root = m:IsA("Model") and m.PrimaryPart
+			if root then
+				root.CanCollide = solid
+				n += 1
+			end
+		end
+		return n
+	end
+	if on then
+		TK.trafficConn = RunService.Heartbeat:Connect(function() apply(false) end)
+		return apply(false)
+	end
+	return apply(true)
 end
 
 function TK.stopAll()
