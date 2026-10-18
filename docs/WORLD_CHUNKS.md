@@ -53,3 +53,21 @@ Prerequisite: save the place (or rely on version history). Studio memory/time be
    The central `manifest` and chunk modules stay as they are (race, spawn, landmarks unchanged).
 7. **Undo**: `B.RemoveExtension()` removes WideChunks, WideJunctions and the wide terrain rectangles; restore the
    old `graph`/`jobs`/`traffic` modules from `build/central_pattaya/roblox/`.
+
+## Imported by the leader (2026-10-18, Studio)
+- Data in: `PattayaDataWide` (manifest + 444 chunk modules, loaded from one JSON bundle in a single HTTP call to stay
+  under HttpService's request limit), `PattayaDataCorridor` (deduplicated corridor, 11 chunks), merged runtime graph
+  `PattayaData.graph` + `graph_part_1/2` (central 463 nodes / 614 edges first, then 2,462 wide nodes, then 16
+  corridor nodes; 3,818 edges), wide `jobs` (25 stands), wide `PattayaTraffic` (84 loops), `PattayaWorldMap`.
+- `Extend({roads = false})`: wide terrain in 13 s (Ground under Jomtien and Naklua probes, Water west of Jomtien).
+- Chunks: the first 69-chunk seam call crashed Studio part-way (37 built; Auto-Recovery brought the place back).
+  Rebuilt in groups of 8 chunks per `Extend({only = ...})` call: seam 69, pratumnak 106 (8,988 parts), jomtien 127
+  (11,657), south 14 (1,529), central 14 (1,652), north 29 (3,255), naklua 85 (5,334), corridor 11; **455 wide chunks,
+  ~35k parts, no errors, about 30 s of build time in total.** Studio memory went from 3.4 to 3.9 GB.
+- Probes (raycast every 25 studs along every new edge, 24,994 points): 95.9% hit road at y = 1; 966 hit a
+  sidewalk at y 1.6 (close parallel roads / dual carriageways overlap at ×0.5, the known central-slice issue, a
+  0.6-stud bump) and 62 hit nothing (gaps to investigate; 228 edges have at least one miss, most just one point at
+  a junction). The corridor: 1,240 probes, 0 misses.
+- `removeBaseConflicts` was NOT run: the 8 seam buildings listed in the manifest are still there.
+- Build in small `only` groups from now on: one 69-chunk call crashed Studio once (64 GB machine, Studio at 3.4 GB,
+  so not memory); 8-chunk calls never did.
