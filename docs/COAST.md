@@ -226,3 +226,10 @@ from the replay (another tool wrote terrain there). Look before writing.
 - The props are not LOD-hidden by name (see above). 5,993 Parts rely on streaming.
 - Visual check needed: canopy height (8.6 studs), the lounger size, the hut without corner posts, and whether the
   4-stud water over sand reads as shallow at the place's `WaterTransparency`.
+
+## Seam trench (leader, 2026-10-19, Studio)
+The 4-stud Air row at z -3776..-3772 (wide ground ends at -3776, the base frame starts at -3772) was filled in
+Studio: for x 14,000..30,000 in 512-stud regions, every seam column whose top was Air with land (not Water/Air) on
+both the z-4 and z+4 sides got the z-4 column's voxels copied in (`ReadVoxels` → edit the arrays → `WriteVoxels`,
+6 regions, 672 columns). Verification read-back: 0 land-neighboured Air columns left. The root cause (frame offset
+between `Build()` ground and `Extend()` ground) is still in PattayaBuilder; a full rebuild would reopen it.
