@@ -21,7 +21,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local DEFAULTS = {LOD_FacadeRange = 700, LOD_PropRange = 900, LOD_Budget = 300}
 local HYSTERESIS = 40 -- studs: hide beyond range + this, show again inside range
-local PROP_NAMES = {PalmTrunk = true, PalmFrond = true, NeonSign = true, SignFrame = true}
+local PROP_NAMES = {PalmTrunk = true, PalmFrond = true, NeonSign = true, SignFrame = true,
+	-- street furniture layer (PattayaFurnitureBuilder, 2026-10-19): small parts hidden beyond LOD_PropRange too
+	SignalArm = true, SignalHead = true, SignalLamp = true, NameSignBoard = true, BusSign = true, TaxiSign = true,
+	TaxiVest = true, TaxiCanopy = true, ShelterRoof = true, PoleArm = true, PoleWire = true, ZebraStripe = true}
 
 local function knob(name: string): number
 	local v = workspace:GetAttribute(name)
