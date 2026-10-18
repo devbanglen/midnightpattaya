@@ -168,6 +168,31 @@ local function strip(parent: Instance, name: string, pts: {Vector3}, widths: {nu
 	return made
 end
 
+-- Lowers each slab so its top never rises above any of the given surface points inside the slab's footprint (plus
+-- `margin`). Wide pitched rectangles on a bend that also climbs or drops can't follow both: a far corner can end up
+-- above the track (seen at Bira T2: a run-off slab 4 studs over the asphalt). Points are checked with their lateral
+-- offsets (centre and both track edges).
+local function sinkBelow(parts: {Part}, pts: {Vector3}, nrm: {Vector3}, halfWidths: {number}, margin: number)
+	for _, part in parts do
+		local cf, sz = part.CFrame, part.Size
+		local lower = 0
+		for i, p in pts do
+			local hw = halfWidths[i]
+			for _, off in {0, hw, -hw} do
+				local q = p + nrm[i] * off
+				local l = cf:PointToObjectSpace(q)
+				if math.abs(l.X) <= sz.X / 2 + 1 and math.abs(l.Z) <= sz.Z / 2 + 1 then
+					local excess = (sz.Y / 2 - l.Y) + margin -- top plane above the point by this much (along the part's up)
+					if excess > lower then lower = excess end
+				end
+			end
+		end
+		if lower > 0 then
+			part.CFrame = cf * CFrame.new(0, -lower, 0)
+		end
+	end
+end
+
 -- wall/curb piece between two offset points (thin things: shared end points + OVERLAP, no bend extension)
 local function piece(parent: Instance, name: string, a: Vector3, b: Vector3, w: number, h: number, color: Color3,
 	collide: boolean): Part?
@@ -213,7 +238,11 @@ local function buildTrack(root: Instance, def: any, c: {Vector3}, nrm: {Vector3}
 		rw[i] = r + l + 2
 	end
 	rp[n + 1], rw[n + 1] = rp[1], rw[1]
-	strip(runoff, "Runoff", rp, rw, RUNOFF_DROP, SLAB, COLORS.runoff, true)
+	local runoffParts = strip(runoff, "Runoff", rp, rw, RUNOFF_DROP, SLAB, COLORS.runoff, true)
+	local hw = table.create(n)
+	for i = 1, n do hw[i] = def.width[i] / 2 end
+	sinkBelow(runoffParts, c, nrm, hw, RUNOFF_DROP)
+	task.wait()
 
 	-- white edge lines (decoration, not queried)
 	local lines = model(root, "Lines")
