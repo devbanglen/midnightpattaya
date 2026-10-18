@@ -509,7 +509,13 @@ Autopilot driving the client-owned car; the server judged everything.
   - **Bug found:** "JUMP START +5 s" fired 1 s before the lights went out although the car was held still. The
     rule measured from the grid slot from the moment of release, when the client-owned car is still settling after
     the server's PivotTo and ownership handoff. Fixed: the reference position is taken 0.75 s after the lights
-    start (`JUMP_SETTLE`), then 4 studs of movement is a jump start. Not re-tested yet.
+    start (`JUMP_SETTLE`), then 4 studs of movement is a jump start. **Re-test: still a false penalty.** A
+    server-side recorder showed the released car creeping on its own with no input, accelerating from 0.3 to
+    1.6 studs/s and covering 5.3 studs over the 5 s of lights (a CarController idle quirk, see below). Second fix:
+    the rule is now **ground speed > 10 studs/s before lights out** (`JUMP_SPEED`); idle creep never reaches it, a
+    throttle launch passes it within 0.3 s. **Re-tested: a car held still through the lights got penalty 0.**
+  - **Known quirk:** a driven car with no input creeps forward at up to ~1.6 studs/s (seen on the flat test oval).
+    CarController should brake to a stop when idle; not changed here.
 
 **Bira (real venue, physics-driven lap: the autopilot only set horizontal velocity and yaw, so gravity and the
 car's own raycast suspension handled the hills):**
