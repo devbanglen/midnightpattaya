@@ -61,7 +61,8 @@ script, to tune it.
 **Readable-road rule still holds:** exposure is unchanged in every preset (MidnightClear 0.95 with the owner's
 NightExposure +0.4 baked in, Wet 1.0), ambient is unchanged, and bloom only *adds* light around bright pixels, so
 lowering it cannot darken the road. What changes: lane markings and headlight flares lose their soft halo. MidnightWet
-also gets Atmosphere Haze 1.3 → **1.5** at night (humid air); density is unchanged, so the far road stays visible.
+also gets Atmosphere Haze 1.3 → **1.5** at night and night-sky Haze 2.0 → **2.2** (with the default `NightSky = 1`
+the night-sky value is the one shown); density is unchanged, so the far road stays visible.
 
 Scripts:
 - `StarterPlayerScripts.PattayaNightLights`: the presets, street-lamp colours, neon palette and headlight colour.
@@ -130,7 +131,7 @@ Roles: see "Preset roles" at the top.
 | Brightness / Exposure | 1.7 / 0.95 | 1.7 / **0.95** (owner baseline) | 1.7 / 1.0 | 1.7 / 0.95 | 1.7 / 1.1 |
 | EnvDiffuse / EnvSpecular | 0.45 / 0.8 | 0.45 / 0.8 | 0.4 / **1.0** | 0.45 / 0.8 | 0.5 / 0.8 |
 | Atmosphere density / haze / colour | 0.26 / 1.1 / 90,65,140 | **0.22** / 1.0 / 70,84,120 | 0.26 / **1.5** (VIS-7.1) / 72,86,122 | 0.22 / 1.0 / 90,110,160 | 0.22 / 1.0 / 70,84,120 |
-| Night sky (NightSky=1): Decay / Color / Haze / Offset | 70,50,150 / 200,110,210 / 2.6 / 0.32 | **34,42,118 indigo** / 96,92,150 / 1.8 / 0.22 | same, haze 2.0 | 60,78,170 / 150,120,170 / 2.0 / 0.26 | 44,56,120 / 96,92,150 / 1.8 / 0.22 |
+| Night sky (NightSky=1): Decay / Color / Haze / Offset | 70,50,150 / 200,110,210 / 2.6 / 0.32 | **34,42,118 indigo** / 96,92,150 / 1.8 / 0.22 | same, haze **2.2** (VIS-7.1) | 60,78,170 / 150,120,170 / 2.0 / 0.26 | 44,56,120 / 96,92,150 / 1.8 / 0.22 |
 | Stars | 3000 | 3000 | 1500 (haze) | 1500 | 2000 |
 | Bloom intensity / size / threshold (VIS-7.1) | 1.0 / 24 / 0.92 | **0.35 / 24 / 1.45** | 0.40 / 24 / 1.40 | 0.35 / 24 / 1.45 | 0.4 / 24 / 1.35 |
 | Grade brightness / contrast / saturation / tint | 0.04 / 0.1 / 0.16 / 232,224,255 lilac | 0.02 / 0.12 / 0.12 / 240,244,255 cool neutral | 0.02 / 0.14 / 0.16 / 236,242,255 | as Clear | 0.02 / 0.08 / 0.12 / as Clear |
