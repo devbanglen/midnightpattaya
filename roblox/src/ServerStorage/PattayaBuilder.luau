@@ -23,6 +23,9 @@ type Edge = {
 	id: string, way: number, class: string, tier: string, name: string?, nameEn: string?, oneway: boolean,
 	lanes: number, width: number, sidewalk: number, coastal: boolean, a: number, b: number, pts: {number},
 	swSide: number?, -- wide world: only this side (-1 / 1) gets a sidewalk (the other lies on a parallel road)
+	noMarks: {number}?, -- road_fix: arc ranges s0, s1, ... along pts with no markings (they would lie on another road)
+	jA: number?, jB: number?, -- road_fix: a bend joint disc at end a / b: markings and sidewalks stop short of it like
+	-- at a junction disc (the inner kerb of a sharp bend would otherwise run into the other road)
 }
 
 local function newPart(parent: Instance, name: string, size: Vector3, cf: CFrame, color: Color3, collide: boolean): Part
@@ -153,22 +156,41 @@ local function buildEdge(chunk: Instance, e: Edge, junctionR: {[number]: number}
 	if e.name then road:SetAttribute("NameTh", e.name) end
 	stripe(road, "Road", pts, e.width, ROAD_TOP, ROAD_THICK, COLORS.road, true)
 
-	-- markings stop short of junction discs
-	local ra, rb = junctionR[e.a] or 0, junctionR[e.b] or 0
-	local inner = trim(pts, ra, rb)
-	if inner and e.tier ~= "soi" then
-		if e.oneway then
-			for k = 1, e.lanes - 1 do
-				dashes(road, offset(inner, (k - e.lanes / 2) * e.width / e.lanes), 8, gap, 0.5, COLORS.lane)
+	-- markings stop short of junction discs, and skip the noMarks ranges (tools/mapgen/road_fix.py: where they would
+	-- lie on another road, e.g. the other carriageway of a dual road squeezed together at x0.5)
+	local ra, rb = junctionR[e.a] or e.jA or 0, junctionR[e.b] or e.jB or 0
+	local pieces = {{ra, rb}} -- trim amounts {from the start, from the end} per marked piece
+	if e.noMarks and #e.noMarks > 0 then
+		local total = 0
+		for i = 1, #pts - 1 do
+			total += (pts[i + 1] - pts[i]).Magnitude
+		end
+		pieces = {}
+		local s, hi = ra, total - rb
+		for k = 1, #e.noMarks, 2 do
+			if e.noMarks[k] > s then
+				table.insert(pieces, {s, total - math.min(e.noMarks[k], hi)})
 			end
-		else
-			stripe(road, "Centre", offset(inner, -0.5), 0.45, ROAD_TOP + MARK_THICK, MARK_THICK, COLORS.centre, false)
-			stripe(road, "Centre", offset(inner, 0.5), 0.45, ROAD_TOP + MARK_THICK, MARK_THICK, COLORS.centre, false)
-			local perSide = math.floor(e.lanes / 2)
-			for k = 1, perSide - 1 do
-				local d = k * e.width / e.lanes
-				dashes(road, offset(inner, d), 8, gap, 0.5, COLORS.lane)
-				dashes(road, offset(inner, -d), 8, gap, 0.5, COLORS.lane)
+			s = math.max(s, e.noMarks[k + 1])
+		end
+		table.insert(pieces, {s, rb})
+	end
+	for _, piece in pieces do
+		local inner = trim(pts, piece[1], piece[2])
+		if inner and e.tier ~= "soi" then
+			if e.oneway then
+				for k = 1, e.lanes - 1 do
+					dashes(road, offset(inner, (k - e.lanes / 2) * e.width / e.lanes), 8, gap, 0.5, COLORS.lane)
+				end
+			else
+				stripe(road, "Centre", offset(inner, -0.5), 0.45, ROAD_TOP + MARK_THICK, MARK_THICK, COLORS.centre, false)
+				stripe(road, "Centre", offset(inner, 0.5), 0.45, ROAD_TOP + MARK_THICK, MARK_THICK, COLORS.centre, false)
+				local perSide = math.floor(e.lanes / 2)
+				for k = 1, perSide - 1 do
+					local d = k * e.width / e.lanes
+					dashes(road, offset(inner, d), 8, gap, 0.5, COLORS.lane)
+					dashes(road, offset(inner, -d), 8, gap, 0.5, COLORS.lane)
+				end
 			end
 		end
 	end
@@ -617,6 +639,35 @@ local function buildTerrain(man: any)
 	end
 end
 
+-- joint discs (flat rows osmNode, x, z, r of a data folder's `joints` module) that `model` does not have yet; they
+-- close hairline gaps at degree-1/2 nodes and trim no markings or sidewalks. `shift` = ORIGIN when `model` is already
+-- in world space, zero when the caller pivots it afterwards.
+local function addJoints(model: Instance, rows: {number}, shift: Vector3): number
+	local have: {[number]: BasePart} = {}
+	for _, p in model:GetChildren() do
+		local id = p:GetAttribute("OsmNode")
+		if p.Name == "Joint" and type(id) == "number" and p:IsA("BasePart") then
+			have[id] = p
+		end
+	end
+	local added = 0
+	for i = 1, #rows, 4 do
+		local old = have[rows[i]]
+		if old then
+			if math.abs(old.Size.Y - rows[i + 3] * 2) > 0.01 then
+				old.Size = Vector3.new(ROAD_THICK, rows[i + 3] * 2, rows[i + 3] * 2)
+			end
+		else
+			local cf = CFrame.new(rows[i + 1], ROAD_TOP - ROAD_THICK / 2 - 0.01, rows[i + 2]) * CFrame.Angles(0, 0, math.rad(90))
+			local p = newPart(model, "Joint", Vector3.new(ROAD_THICK, rows[i + 3] * 2, rows[i + 3] * 2), cf + shift, COLORS.junction, true)
+			p.Shape = Enum.PartType.Cylinder
+			p:SetAttribute("OsmNode", rows[i])
+			added += 1
+		end
+	end
+	return added
+end
+
 function Builder.Build(opts: {terrain: boolean?}?)
 	local options = (opts or {}) :: {terrain: boolean?}
 	local data = game:GetService("ServerStorage"):WaitForChild("PattayaData")
@@ -643,6 +694,10 @@ function Builder.Build(opts: {terrain: boolean?}?)
 		local p = newPart(junctions, "Junction", Vector3.new(ROAD_THICK, j.r * 2, j.r * 2), cf, COLORS.junction, true)
 		p.Shape = Enum.PartType.Cylinder
 		p:SetAttribute("OsmNode", j.id)
+	end
+	local jointsModule = data:FindFirstChild("joints") -- road_fix: joint discs of the base slice (optional)
+	if jointsModule then
+		addJoints(junctions, require(jointsModule) :: any, Vector3.zero)
 	end
 	junctions:PivotTo(junctions:GetPivot() + Builder.ORIGIN)
 	junctions.Parent = world
@@ -753,19 +808,23 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 		-- WideJunctions. When it already exists (an earlier Extend, or another data folder such as the corridor),
 		-- only the discs it does not have yet are added, so a later dataset's discs are no longer skipped.
 		local existing = world:FindFirstChild("WideJunctions")
-		local have: {[string]: boolean} = {}
+		local have: {[string]: BasePart} = {}
 		if existing then
 			for _, p in existing:GetChildren() do
 				local id = p:GetAttribute("OsmNode")
-				if id then
-					have[p.Name .. ":" .. tostring(id)] = true
+				if id and p:IsA("BasePart") then
+					have[p.Name .. ":" .. tostring(id)] = p
 				end
 			end
 		end
 		local junctions = Instance.new("Model")
 		junctions.Name = "WideJunctions"
 		local function disc(kind: string, id: number, x: number, z: number, r: number)
-			if have[kind .. ":" .. tostring(id)] then
+			local old = have[kind .. ":" .. tostring(id)]
+			if old then
+				if kind == "Joint" and math.abs(old.Size.Y - r * 2) > 0.01 then
+					old.Size = Vector3.new(ROAD_THICK, r * 2, r * 2) -- road_fix: bend joints got a wider disc
+				end
 				return
 			end
 			local cf = CFrame.new(x, ROAD_TOP - ROAD_THICK / 2 - 0.01, z) * CFrame.Angles(0, 0, math.rad(90))
@@ -863,6 +922,102 @@ function Builder.Extend(opts: {folder: string?, terrain: boolean?, roads: boolea
 		extendTerrain(man, man[options.groundKey or "groundRects"] or {})
 	end
 	return ("wide: %d chunks built now (%d parts), %d base buildings removed; %d chunks in manifest"):format(built, parts, removed, #man.chunks)
+end
+
+-- Rebuild single chunks in place after a data fix (docs/ROAD_AUDIT.md), without touching anything else:
+--   B.RebuildChunks({"2_2", "3_0"})                                   -- base slice (ServerStorage.PattayaData)
+--   B.RebuildChunks({"0_6"}, {folder = "PattayaDataWide"})            -- wide world  (= delete + Extend only)
+--   B.RebuildChunks({"24_2"}, {folder = "PattayaDataCorridor"})       -- corridor
+-- Base chunks: the old Chunk_<id> models in PattayaWorld.Chunks are replaced (roads, buildings, props of that chunk,
+-- from a Clone() of the chunk module, so a just-replaced module is not served from the require cache), missing joint
+-- discs of PattayaData.joints are added to PattayaWorld.Junctions, and the base buildings the wide world lists as seam
+-- conflicts (PattayaDataWide manifest.baseBuildingConflicts) stay removed when the old chunk no longer had them.
+-- Junction discs, landmarks, race, terrain and every other chunk are not touched.
+function Builder.RebuildChunks(ids: {string}, opts: {folder: string?}?): string
+	local folderName = (opts and opts.folder) or "PattayaData"
+	local world = workspace:FindFirstChild("PattayaWorld")
+	assert(world, "PattayaBuilder.RebuildChunks: no workspace.PattayaWorld")
+	if folderName ~= "PattayaData" then
+		local wide = world:FindFirstChild("WideChunks")
+		local removed = 0
+		for _, id in ids do
+			local old = wide and wide:FindFirstChild("Chunk_" .. id)
+			if old then
+				old:Destroy()
+				removed += 1
+			end
+		end
+		return ("%d old chunks removed; "):format(removed) .. Builder.Extend({folder = folderName, terrain = false, only = ids})
+	end
+	local ServerStorage = game:GetService("ServerStorage")
+	local data = ServerStorage:WaitForChild("PattayaData")
+	local man = require(data:WaitForChild("manifest"):Clone()) :: any
+	local junctionR: {[number]: number} = {}
+	for _, j in man.junctions do
+		junctionR[j.id] = j.r
+	end
+	local conflicts: {[number]: boolean} = {}
+	local wideData = ServerStorage:FindFirstChild("PattayaDataWide")
+	if wideData and world:GetAttribute("WideWorld") then
+		local wm = require(wideData:WaitForChild("manifest")) :: any
+		for _, id in wm.baseBuildingConflicts or {} do
+			conflicts[id] = true
+		end
+	end
+	local chunksFolder = world:WaitForChild("Chunks")
+	local built, parts, dropped = 0, 0, 0
+	for _, id in ids do
+		local old = chunksFolder:FindFirstChild("Chunk_" .. id)
+		local hadConflicts = false
+		if old then
+			for _, d in old:GetDescendants() do
+				local bid = d:GetAttribute("OsmBuilding")
+				if type(bid) == "number" and conflicts[bid] then
+					hadConflicts = true
+				end
+			end
+		end
+		local chunkData = require(data:WaitForChild("chunk_" .. id):Clone()) :: any
+		local chunk = Instance.new("Model")
+		chunk.Name = "Chunk_" .. id
+		chunk.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+		for _, e in chunkData.edges do
+			buildEdge(chunk, e :: Edge, junctionR)
+		end
+		buildBuildings(chunk, chunkData.buildings or {}, man)
+		buildProps(chunk, chunkData.palms or {}, chunkData.lights or {}, chunkData.signs or {})
+		if not hadConflicts then -- removeBaseConflicts had been run on this chunk (or it has none): keep them out
+			for _, d in chunk:GetDescendants() do
+				local bid = d:GetAttribute("OsmBuilding")
+				if d:IsA("BasePart") and type(bid) == "number" and conflicts[bid] and d.Parent then
+					for _, r in (d.Parent :: Instance):GetChildren() do
+						if r:IsA("BasePart") and r.Name == "Roof" and math.abs(r.Position.X - d.Position.X) < 0.05
+							and math.abs(r.Position.Z - d.Position.Z) < 0.05 then
+							r:Destroy()
+						end
+					end
+					d:Destroy()
+					dropped += 1
+				end
+			end
+		end
+		chunk:PivotTo(chunk:GetPivot() + Builder.ORIGIN)
+		for _, d in chunk:GetDescendants() do
+			if d:IsA("BasePart") then parts += 1 end
+		end
+		if old then
+			old:Destroy()
+		end
+		chunk.Parent = chunksFolder
+		built += 1
+		task.wait()
+	end
+	local joints = 0
+	local jointsModule = data:FindFirstChild("joints")
+	if jointsModule then
+		joints = addJoints(world:WaitForChild("Junctions"), require(jointsModule:Clone()) :: any, Builder.ORIGIN)
+	end
+	return ("base: %d chunks rebuilt (%d parts), %d joint discs added, %d seam-conflict buildings left out"):format(built, parts, joints, dropped)
 end
 
 -- Undo Extend(): removes the wide chunks/discs and clears the wide terrain rectangles (the base slice is untouched;
