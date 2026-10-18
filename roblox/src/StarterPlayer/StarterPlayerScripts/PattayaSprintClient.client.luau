@@ -138,21 +138,38 @@ end
 SprintUpdate.OnClientEvent:Connect(function(kind, payload)
 	if kind == "start" then
 		clear()
-		sprint = {cps = payload.checkpoints, next = 1, start = payload.start, timeLimit = payload.timeLimit, length = payload.length}
+		sprint = {cps = payload.checkpoints, next = 1, start = payload.start, timeLimit = payload.timeLimit, length = payload.length,
+			title = payload.title or "SPRINT"}
 		sprint.gates = buildGates(payload.checkpoints, payload.dirs)
 		paint(1, GOLD)
 		panel.Visible = true
-		showToast(("STREET SPRINT  %.1f km"):format(payload.length * 0.28 / 1000), 2.5)
+		if payload.rivals then -- street challenge (PattayaChallengeServer)
+			showToast(("CHALLENGE vs %s  %.1f km"):format(table.concat(payload.rivals, ", "), payload.length * 0.28 / 1000), 3)
+		else
+			showToast(("STREET SPRINT  %.1f km"):format(payload.length * 0.28 / 1000), 2.5)
+		end
 	elseif kind == "next" and sprint then
 		paint(sprint.next, Color3.fromRGB(60, 60, 70))
 		sprint.next = payload
 		paint(payload, GOLD)
 	elseif kind == "finish" then
 		clear()
-		showToast(("SPRINT FINISHED  %.2f s"):format(payload.time), 4)
+		showToast(payload.text or ("SPRINT FINISHED  %.2f s"):format(payload.time), 4)
 	elseif kind == "stop" then
 		clear()
 		showToast(tostring(payload), 3)
+	end
+end)
+
+-- street challenge standings (PattayaChallengeServer) go into the same HUD line
+task.spawn(function()
+	local ChallengeMsg = remotes:WaitForChild("ChallengeMsg", 60)
+	if ChallengeMsg then
+		ChallengeMsg.OnClientEvent:Connect(function(kind, names, place)
+			if kind == "standings" and sprint then
+				sprint.place, sprint.count = place, #names
+			end
+		end)
 	end
 end)
 
@@ -191,7 +208,8 @@ RunService.RenderStepped:Connect(function()
 			local tip = arrow:FindFirstChild("Tip") :: Part
 			tip.CFrame = arrow.CFrame * CFrame.new(0, 0, -5)
 		end
-		panel.Text = ("SPRINT  CP %d/%d   %d m   %.1f s / %d s"):format(sprint.next, #sprint.cps,
-			math.floor(flat.Magnitude * 0.28), elapsed, sprint.timeLimit)
+		panel.Text = ("%s  CP %d/%d   %d m   %.1f s / %d s%s"):format(sprint.title, sprint.next, #sprint.cps,
+			math.floor(flat.Magnitude * 0.28), math.max(0, elapsed), sprint.timeLimit,
+			if sprint.place then ("   P%d/%d"):format(sprint.place, sprint.count) else "")
 	end
 end)

@@ -67,6 +67,8 @@ end
 
 RunService.RenderStepped:Connect(function()
 	local state = player:GetAttribute("RaceState") or "idle"
+	-- the loop panel steps aside during a sprint, challenge or job (they have their own HUD line below it)
+	panel.Visible = state == "racing" or not (player:GetAttribute("SprintActive") or player:GetAttribute("JobActive"))
 	if state == "racing" then
 		local nextCp = player:GetAttribute("RaceNext") or 2
 		local elapsed = workspace:GetServerTimeNow() - (player:GetAttribute("RaceStart") or 0)

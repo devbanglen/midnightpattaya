@@ -133,6 +133,42 @@ function Route.along(pts: {Vector2}, spacing: number): {Vector2}
 	return out
 end
 
+-- A point-to-point race route from the junction nearest `pos` (preferring ones ahead along `look`): random
+-- destination minLen..maxLen away by road, checkpoints every `spacing` ending at the destination.
+-- Returns {cps = {Vector3}, dirs = {Vector3}, route = {Vector3}, length} or nil, reason.
+function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen: number, spacing: number)
+	local src = Route.nearestNode(Route.toLocal(pos), 400, Vector2.new(look.X, look.Z))
+	if not src then
+		return nil, "No road nearby"
+	end
+	local dist, prev = Route.dijkstra(src)
+	local candidates = {}
+	for n, d in dist do
+		if d >= minLen and d <= maxLen then
+			table.insert(candidates, n)
+		end
+	end
+	if #candidates == 0 then
+		return nil, "No route from here"
+	end
+	local dst = candidates[math.random(1, #candidates)]
+	local pts = Route.polylineOf(prev, src, dst)
+	local cps, dirs = {}, {}
+	local prevPt = nodes[src]
+	for _, c in Route.along(pts, spacing) do
+		local dir = (c - prevPt)
+		dir = if dir.Magnitude > 0.1 then dir.Unit else Vector2.new(1, 0)
+		table.insert(cps, Route.toWorld(c))
+		table.insert(dirs, Vector3.new(dir.X, 0, dir.Y))
+		prevPt = c
+	end
+	local route = {}
+	for _, q in pts do
+		table.insert(route, Route.toWorld(q))
+	end
+	return {cps = cps, dirs = dirs, route = route, length = Route.length(pts)}
+end
+
 -- distance from point c to the segment a-b on the ground plane (a car's path since the last sample)
 function Route.segDist(a: Vector3, b: Vector3, c: Vector3): number
 	local ab = Vector3.new(b.X - a.X, 0, b.Z - a.Z)

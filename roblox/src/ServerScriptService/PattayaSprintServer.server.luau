@@ -49,41 +49,12 @@ RequestSprint.OnServerEvent:Connect(function(plr: Player)
 	if not chassis or active[plr] or Route.busy(plr) then
 		return
 	end
-	local p = Route.toLocal(chassis.Position)
-	local look = Vector2.new(chassis.CFrame.LookVector.X, chassis.CFrame.LookVector.Z)
-	local src = Route.nearestNode(p, 400, look)
-	if not src then
-		SprintUpdate:FireClient(plr, "stop", "No road nearby")
+	local r, why = Route.pointToPoint(chassis.Position, chassis.CFrame.LookVector, MIN_LEN, MAX_LEN, CP_SPACING)
+	if not r then
+		SprintUpdate:FireClient(plr, "stop", why)
 		return
 	end
-	local dist, prev = Route.dijkstra(src)
-	local candidates = {}
-	for n, d in dist do
-		if d >= MIN_LEN and d <= MAX_LEN then
-			table.insert(candidates, n)
-		end
-	end
-	if #candidates == 0 then
-		SprintUpdate:FireClient(plr, "stop", "No route from here")
-		return
-	end
-	local dst = candidates[math.random(1, #candidates)]
-	local pts = Route.polylineOf(prev, src, dst)
-	local cps2 = Route.along(pts, CP_SPACING)
-	local cps, dirs = {}, {}
-	local length = Route.length(pts)
-	local prevPt = Route.nodes[src]
-	for _, c in cps2 do
-		local dir = (c - prevPt)
-		dir = if dir.Magnitude > 0.1 then dir.Unit else Vector2.new(1, 0)
-		table.insert(cps, Route.toWorld(c))
-		table.insert(dirs, Vector3.new(dir.X, 0, dir.Y))
-		prevPt = c
-	end
-	local route = {}
-	for _, q in pts do
-		table.insert(route, Route.toWorld(q))
-	end
+	local cps, dirs, route, length = r.cps, r.dirs, r.route, r.length
 	local now0 = workspace:GetServerTimeNow()
 	active[plr] = {cps = cps, dirs = dirs, next = 1, start = now0, length = length, last = chassis.Position,
 		lastCpAt = now0, lastCpPos = chassis.Position}

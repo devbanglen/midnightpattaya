@@ -123,6 +123,31 @@ near-miss remote is handled in `PattayaJobsServer`.
 The loop race also ignores any sample-to-sample jump longer than 60 studs. In testing, a teleport (respawn or a
 test move) from the grid across gate 1 started a race.
 
+## 7. Street Challenge (RayCity 1-on-1 on the live streets, up to 4 cars)
+Runtime: `PattayaChallengeServer`, `PattayaChallengeClient`. The race itself is drawn by `PattayaSprintClient` (gates,
+GPS arrow, HUD with position). Routes come from `PattayaRoute.pointToPoint`, which Street Sprint also uses.
+- **Challenging:** while driving, press **C** (L1 on a gamepad, a RACE button on mobile). This challenges the nearest
+  free driver within 150 studs. They see "NAME challenges you!" and have 10 s to press **Y** (accept) or **N**
+  (decline). You can send at most one request every 3 s.
+- **No driver near:** an AI street racer (Ae Turbo, Nong Benz, Somchai R, …) pulls up in a copy of one of the
+  parked cars and races you.
+  - Its speed profile comes from route curvature: 135 studs/s top speed, a lateral-grip limit in corners, braking at
+    110 studs/s² and accelerating at 45.
+  - It is a ghost: no collisions. It is the base for RayCity-style Road Fight bosses later.
+- **Start:** the route starts at the junction nearest the cars, 1,500–2,600 studs long with checkpoints every 250.
+  Cars are placed side by side at its start and held (anchored) through a 3-2-1-GO countdown.
+- **Rules:**
+  - Checkpoints are passed in order, within 26 studs.
+  - First to the last checkpoint wins.
+  - Overall limit 180 s. Everyone else is out 60 s after the winner.
+  - Leaving the car forfeits. The 260 studs/s teleport check applies.
+  - Catch-up: a driver behind the leader gets 30 nitro per checkpoint instead of 20.
+- **Pay:**
+  - Winner: length/15 + 100 × (cars − 1) ฿ and length/30 EXP.
+  - Others who finish: length/40 ฿ and length/60 EXP.
+  - Did not finish: nothing.
+- While a challenge, sprint or job runs, the loop race panel hides so its banner doesn't cover the HUD.
+
 ## Tested (2026-10-18, Studio Play, client-owned car moved by a client-side test autopilot at 140 studs/s)
 - **Jobs:**
   - Delivery Windy Plaza → Wat Chai Mongkhon (2,135 studs): road under the car at 116/116 samples. It paid, but the
@@ -141,6 +166,18 @@ test move) from the grid across gate 1 started a race.
   - Head-on crash under real physics: 57 → −14 studs/s bounce, then the traffic car ghosted through.
   - Taxi Walking Street → Windy Plaza with traffic on: 1,224 studs in 12.5 s, 0 knocks, 5 near misses accepted
     (2 sent by the test, 3 real). Tip 61 = 36 for time left + 25 for near misses, total 243 ฿. 60 FPS while driving.
+- **Street Challenge vs the AI:**
+  - Pressing C with nobody near brought in "Somchai R" 14 studs beside the car. The car was held through the
+    countdown. Screenshot of the HUD: `CHALLENGE CP 1/9 … P2/2`.
+  - Leaving the car mid-race forfeited it, cleared the gates and removed the AI car after 4 s.
+  - Autopilot at 150 studs/s: P1 at halfway. "YOU WIN! 12.43 s", paid 211 ฿ (1,673/15 + 100).
+  - Autopilot at 70 studs/s: the AI led, the player finished 2nd in 22.96 s and was paid 39 ฿. Catch-up nitro was 30
+    per checkpoint while behind.
+  - Street Sprint still starts after the refactor.
+  - **Not tested:** two real players (invite / accept / decline). This needs Studio "Test → Clients and Servers"
+    with 2 players, which the tools here can't start.
+  - **Seen once and not reproduced:** a parked grid car ended up 21 studs ahead of its slot, past gate 1, after the
+    player got in. That started the loop race. Getting out and back in, it moved only ~1 stud.
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
   race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.
