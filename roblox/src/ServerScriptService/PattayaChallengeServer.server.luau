@@ -60,7 +60,7 @@ local function flat(v: Vector3): Vector3
 end
 
 -- AI street racer --------------------------------------------------------------------------------------------------
-local function botModel(name: string): Model?
+local function botModel(name: string, carId: string?): Model?
 	local pool = {}
 	for _, m in workspace:GetChildren() do
 		local seat = m:FindFirstChild("DriveSeat")
@@ -72,6 +72,11 @@ local function botModel(name: string): Model?
 		return nil
 	end
 	local src = pool[math.random(1, #pool)]
+	for _, m in pool do
+		if carId and m.Name == "RaceCar_" .. carId then
+			src = m
+		end
+	end
 	local m = src:Clone()
 	m:SetAttribute("RaceCar", nil)
 	m:SetAttribute("RivalBot", true)
@@ -103,7 +108,7 @@ local function botModel(name: string): Model?
 end
 
 -- speed profile along the route: slow for corners (lateral grip), brake ahead of them
-local function botProfile(route: {Vector3}, vmax: number)
+local function botProfile(route: {Vector3}, vmax: number, grip: number?)
 	local pts = {}
 	for i = 1, #route - 1 do
 		local a, b = route[i], route[i + 1]
@@ -119,7 +124,7 @@ local function botProfile(route: {Vector3}, vmax: number)
 		local a, b, c = pts[math.max(1, i - K)], pts[i], pts[math.min(#pts, i + K)]
 		local d1, d2 = flat(b - a), flat(c - b)
 		local theta = if d1.Magnitude > 0.1 and d2.Magnitude > 0.1 then math.acos(math.clamp(d1.Unit:Dot(d2.Unit), -1, 1)) else 0
-		v[i] = if theta > 0.02 then math.min(vmax, math.sqrt(150 * 20 / theta)) else vmax
+		v[i] = if theta > 0.02 then math.min(vmax, math.sqrt((grip or 150) * 20 / theta)) else vmax
 	end
 	for i = #pts - 1, 1, -1 do -- braking pass, 110 studs/s2
 		v[i] = math.min(v[i], math.sqrt(v[i + 1] ^ 2 + 2 * 110 * (cum[i + 1] - cum[i])))
@@ -172,6 +177,8 @@ local function standings(race)
 	return order
 end
 
+local onBossResult -- defined with the Road Fight stands below
+
 local function endRace(race, reason: string?)
 	if race.ended then
 		return
@@ -187,7 +194,9 @@ local function endRace(race, reason: string?)
 				chassis.Anchored = false
 				pcall(function() chassis:SetNetworkOwner(p.plr) end)
 			end
-			if p.place then
+			if race.boss then
+				onBossResult(p, race, reason)
+			elseif p.place then
 				local winner = p.place == 1
 				local money = math.floor(race.length / (if winner then 15 else 40) + (if winner then 100 * (n - 1) else 0))
 				local exp = math.floor(race.length / (if winner then 30 else 60))
@@ -207,11 +216,19 @@ local function endRace(race, reason: string?)
 			task.delay(4, function() m:Destroy() end)
 		end
 	end
+	if race.boss then
+		race.boss.busy = false
+		local b = race.boss
+		task.delay(4, function() -- the boss parks at its spot again
+			if b.display then b.display.Parent = b.folder end
+		end)
+	end
 	table.remove(races, table.find(races, race))
 end
 
-local function startRace(parts)
-	-- route from the junction nearest the cars, heading the way the first car faces
+local function startRace(parts, boss)
+	-- route from the junction nearest the cars, heading the way the first car faces; a Road Fight boss always races
+	-- its own course (same start and seed every time, so it can be learned)
 	local centre, look = Vector3.zero, nil
 	local count = 0
 	for _, p in parts do
@@ -226,7 +243,13 @@ local function startRace(parts)
 		end
 	end
 	centre /= count
-	local r, why = Route.pointToPoint(centre, look, MIN_LEN, MAX_LEN, CP_SPACING)
+	local r, why
+	if boss then
+		r, why = Route.pointToPoint(boss.pos, boss.dir, boss.def.courseMin, boss.def.courseMax, CP_SPACING,
+			Random.new(boss.def.order * 7919))
+	else
+		r, why = Route.pointToPoint(centre, look, MIN_LEN, MAX_LEN, CP_SPACING)
+	end
 	if not r then
 		for _, p in parts do
 			if p.plr then msg(p.plr, "Challenge: " .. why) end
@@ -242,7 +265,7 @@ local function startRace(parts)
 	local d0 = flat(p1 - p0).Unit
 	local right = Vector3.new(-d0.Z, 0, d0.X)
 	local now = workspace:GetServerTimeNow()
-	local race = {parts = parts, cps = r.cps, length = r.length, goAt = now + COUNTDOWN, standingsAt = 0}
+	local race = {parts = parts, cps = r.cps, length = r.length, goAt = now + COUNTDOWN, standingsAt = 0, boss = boss}
 	local names = {}
 	for i, p in parts do
 		local row, col = (i - 1) // 2, (i - 1) % 2
@@ -261,7 +284,7 @@ local function startRace(parts)
 		else
 			p.cf = cf
 			p.offset = p.model.PrimaryPart.CFrame:ToObjectSpace(p.model:GetPivot())
-			p.pts, p.cum, p.prof = botProfile(r.route, p.vmax)
+			p.pts, p.cum, p.prof = botProfile(r.route, p.vmax, p.grip)
 			p.s, p.v, p.idx = 0, 0, 1
 			p.laneOffset = right * (if (i - 1) % 2 == 0 then -7 else 7)
 			p.model:PivotTo(cf * p.offset)
@@ -277,7 +300,7 @@ local function startRace(parts)
 				if n ~= p.name then table.insert(rivals, n) end
 			end
 			SprintUpdate:FireClient(p.plr, "start", {checkpoints = r.cps, dirs = r.dirs, route = r.route, length = r.length,
-				start = race.goAt, timeLimit = TIME_LIMIT, title = "CHALLENGE", rivals = rivals})
+				start = race.goAt, timeLimit = TIME_LIMIT, title = if boss then "ROAD FIGHT" else "CHALLENGE", rivals = rivals})
 			ChallengeMsg:FireClient(p.plr, "countdown", race.goAt)
 		end
 	end
@@ -299,13 +322,13 @@ local function playerPart(plr: Player)
 	return {plr = plr, name = plr.DisplayName}
 end
 
-local function botPart(vmax: number?)
-	local name = BOT_NAMES[math.random(1, #BOT_NAMES)]
-	local m = botModel(name)
+local function botPart(vmax: number?, name: string?, carId: string?, grip: number?)
+	name = name or BOT_NAMES[math.random(1, #BOT_NAMES)]
+	local m = botModel(name :: string, carId)
 	if not m then
 		return nil
 	end
-	return {name = name, model = m, vmax = vmax or 135}
+	return {name = name, model = m, vmax = vmax or 135, grip = grip}
 end
 
 ChallengeRequest.OnServerEvent:Connect(function(plr: Player)
@@ -458,6 +481,172 @@ RunService.Heartbeat:Connect(function(dt)
 			endRace(race, "Did not finish (60 s after the winner)")
 		elseif now - race.goAt > TIME_LIMIT then
 			endRace(race, "Time up")
+		end
+	end
+end)
+
+-- Road Fight (RayCity single-player mode): a Road Master waits at a real spot in each district (ServerStorage.
+-- PattayaData.roadfight, generated). Beat them in order, South -> Central -> North; then the Road King unlocks.
+-- Stop in a boss's red ring and press E. Each boss races its own fixed course, faster than the last.
+-- Wins are saved (Player attribute RoadFight, bit per boss) and give titles: "Road Fighter" after the three Road
+-- Masters, "Road King" after the King. First wins pay full, repeat wins a third.
+local RoadFightRequest = remote("RoadFightRequest")
+local FIRST_MONEY = {300, 400, 500, 1000}
+local FIRST_EXP = {150, 200, 250, 500}
+local bossDefs = if data:FindFirstChild("roadfight") then require(data.roadfight) else {}
+local bosses = {} -- [id] = {def, pos, dir, folder, display, busy}
+local byOrder = {}
+local rfFolder = workspace.PattayaWorld:FindFirstChild("RoadFight")
+if rfFolder then
+	rfFolder:Destroy()
+end
+rfFolder = Instance.new("Folder")
+rfFolder.Name = "RoadFight"
+rfFolder.Parent = workspace.PattayaWorld
+
+local function beaten(plr: Player, order: number): boolean
+	return bit32.btest(plr:GetAttribute("RoadFight") or 0, bit32.lshift(1, order - 1))
+end
+
+for _, d in bossDefs do
+	local pos = Route.toWorld(Vector2.new(d.x, d.z), 1)
+	local dir = Vector3.new(d.dx, 0, d.dz)
+	local m = Instance.new("Model")
+	m.Name = d.id
+	m.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
+	m:SetAttribute("Order", d.order)
+	m:SetAttribute("Boss", d.boss)
+	m:SetAttribute("Label", d.label)
+	m:SetAttribute("Source", d.source)
+	local ring = Instance.new("Part")
+	ring.Name = "Ring"
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Anchored, ring.CanCollide, ring.CanQuery, ring.CanTouch = true, false, false, false
+	ring.Size = Vector3.new(0.3, 36, 36)
+	ring.CFrame = CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	ring.Material = Enum.Material.Neon
+	ring.Color = if d.order == 4 then Color3.fromRGB(255, 200, 40) else Color3.fromRGB(230, 30, 40)
+	ring.Transparency = 0.6
+	ring.Parent = m
+	local pole = Instance.new("Part")
+	pole.Name = "Pole"
+	pole.Anchored, pole.CanCollide, pole.CanQuery, pole.CanTouch = true, false, false, false
+	pole.Size = Vector3.new(1, 22, 1)
+	pole.Position = pos + Vector3.new(d.kx, 0, d.kz) * 12 + Vector3.new(0, 11, 0)
+	pole.Material = Enum.Material.Neon
+	pole.Color = ring.Color
+	pole.Parent = m
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(260, 64)
+	bb.StudsOffset = Vector3.new(0, 14, 0)
+	bb.MaxDistance = 900
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Font = Enum.Font.GothamBlack
+	t.TextScaled = true
+	t.TextColor3 = ring.Color
+	t.TextStrokeTransparency = 0.1
+	t.Text = d.label .. "\n" .. d.boss
+	t.Parent = bb
+	bb.Parent = pole
+	m.PrimaryPart = ring
+	m.Parent = rfFolder
+	local b = {def = d, pos = pos, dir = dir, folder = m, busy = false}
+	bosses[d.id] = b
+	byOrder[d.order] = b
+end
+
+-- the boss's car waits parked in front of its ring (a copy of a grid car, so wait for RaceCarServer to make them)
+task.spawn(function()
+	for _ = 1, 60 do
+		local any = false
+		for _, m in workspace:GetChildren() do
+			if m:GetAttribute("RaceCar") then any = true break end
+		end
+		if any then break end
+		task.wait(0.5)
+	end
+	for _, b in bosses do
+		local car = botModel(b.def.boss, b.def.car)
+		if car then
+			local at = b.pos + b.dir * 14 + Vector3.new(0, CAR_Y - 1, 0)
+			local offset = car.PrimaryPart.CFrame:ToObjectSpace(car:GetPivot())
+			car:PivotTo(CFrame.lookAt(at, at + b.dir) * offset)
+			car.Parent = b.folder
+			b.display = car
+		end
+	end
+end)
+
+onBossResult = function(p, race, reason: string?)
+	local b, plr = race.boss, p.plr
+	local d = b.def
+	if p.place == 1 then
+		local first = not beaten(plr, d.order)
+		plr:SetAttribute("RoadFight", bit32.bor(plr:GetAttribute("RoadFight") or 0, bit32.lshift(1, d.order - 1)))
+		local money = math.floor(FIRST_MONEY[d.order] / (if first then 1 else 3))
+		local exp = math.floor(FIRST_EXP[d.order] / (if first then 1 else 3))
+		local ls = plr:FindFirstChild("leaderstats")
+		local title = ls and ls:FindFirstChild("Title") and ls.Title.Value or ""
+		if d.order == 4 then
+			Progress.SetTitle(plr, "Road King")
+		elseif title == "" and beaten(plr, 1) and beaten(plr, 2) and beaten(plr, 3) then
+			Progress.SetTitle(plr, "Road Fighter")
+		end
+		Progress.Award(plr, money, exp, "Road Fight: beat " .. d.boss)
+		local nextBoss = byOrder[d.order + 1]
+		SprintUpdate:FireClient(plr, "finish", {time = p.time, length = race.length, money = money, exp = exp,
+			text = ("YOU BEAT %s!  %.2f s"):format(string.upper(d.boss), p.time)})
+		if first then
+			msg(plr, if nextBoss then ("Unlocked: %s - %s"):format(nextBoss.def.label, nextBoss.def.boss)
+				elseif d.order == 4 then "You are the ROAD KING of Pattaya!" else "")
+		end
+	elseif p.place then
+		local exp = math.floor(race.length / 80)
+		Progress.Award(plr, 0, exp, "Road Fight: lost to " .. d.boss)
+		SprintUpdate:FireClient(plr, "finish", {time = p.time, length = race.length, money = 0, exp = exp,
+			text = ("%s wins. Come back faster."):format(d.boss)})
+	elseif not p.out then
+		SprintUpdate:FireClient(plr, "stop", reason or "Did not finish")
+	end
+end
+
+RoadFightRequest.OnServerEvent:Connect(function(plr: Player, id)
+	local b = bosses[id]
+	local chassis = Route.carOf(plr)
+	if not (b and chassis) or Route.busy(plr) or byPlayer[plr] then
+		return
+	end
+	local v = chassis.AssemblyLinearVelocity
+	if flat(chassis.Position - b.pos).Magnitude > 22 or Vector3.new(v.X, 0, v.Z).Magnitude > 30 then
+		return
+	end
+	for k = 1, b.def.order - 1 do
+		if not beaten(plr, k) then
+			msg(plr, ("Locked: beat %s (%s) first"):format(byOrder[k].def.boss, byOrder[k].def.district))
+			return
+		end
+	end
+	if b.busy then
+		msg(plr, b.def.boss .. " is racing someone else. Wait a moment.")
+		return
+	end
+	local part = botPart(b.def.vmax, b.def.boss, b.def.car, b.def.grip)
+	if not part then
+		return
+	end
+	b.busy = true
+	if b.display then
+		b.display.Parent = nil
+	end
+	msg(plr, ('%s: "%s"'):format(b.def.boss, b.def.line))
+	startRace({playerPart(plr), part}, b)
+	if not byPlayer[plr] then -- no course from here: put things back
+		b.busy = false
+		part.model:Destroy()
+		if b.display then
+			b.display.Parent = b.folder
 		end
 	end
 end)

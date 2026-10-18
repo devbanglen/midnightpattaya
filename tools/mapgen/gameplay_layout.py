@@ -249,9 +249,10 @@ def main(cfg_path):
                               'source': f"OSM way {e['way']} ({e['name_en'] or e['name']})"})
 
     # --- job stands (taxi pick-up / delivery depots, RayCity-style missions) at real POIs ---------------------------
-    # the stand sits in the kerb lane of the nearest road, on the side the POI is on
+    # the stand sits in the kerb lane of the nearest road, on the side the POI is on. Road Fight bosses (kind "boss")
+    # are placed the same way and keep their extra fields.
     stands = []
-    for js in L.get('job_stands', []):
+    for js in L.get('job_stands', []) + [dict(b, kind='boss') for b in L.get('road_fight', [])]:
         poi = next((p for p in src['pois'] if p['id'] == js['osm_id']), None)
         if poi is None:
             print(f"job stand {js['id']}: OSM node {js['osm_id']} not in the data, skipped")
@@ -275,7 +276,9 @@ def main(cfg_path):
                        'dx': round(d[0], 3), 'dz': round(d[1], 3),
                        'kx': round(nrm[0] * side, 3), 'kz': round(nrm[1] * side, 3),   # towards the kerb / the POI
                        'source': f"OSM node {js['osm_id']} ({poi['name_en'] or poi['name']}) snapped to way {e['way']}",
-                       'snap_studs': round(snap, 1)})
+                       'snap_studs': round(snap, 1),
+                       **{k: js[k] for k in ('boss', 'district', 'order', 'car', 'vmax', 'grip', 'course_min', 'course_max',
+                                             'line') if k in js}})
 
     # route centreline for GPS / minimap / test autopilot: resampled every 20 studs
     # starts at gate 1 so path[1] is the start/finish line

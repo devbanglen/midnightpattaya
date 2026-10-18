@@ -37,6 +37,10 @@ local function setup(plr: Player)
 	local exp = Instance.new("IntValue")
 	exp.Name = "EXP"
 	exp.Parent = ls
+	local title = Instance.new("StringValue") -- Road Fight title ("Road Fighter", "Road King")
+	title.Name = "Title"
+	title.Parent = ls
+	plr:SetAttribute("RoadFight", 0) -- bit k-1 set = Road Fight boss of order k beaten
 	ls.Parent = plr
 	if store then
 		local ok, data = pcall(function()
@@ -46,6 +50,8 @@ local function setup(plr: Player)
 			level.Value = data.level or 1
 			money.Value = data.money or 0
 			exp.Value = data.exp or 0
+			title.Value = data.title or ""
+			plr:SetAttribute("RoadFight", data.roadFight or 0)
 		end
 	end
 end
@@ -55,7 +61,8 @@ local function save(plr: Player)
 	if not (store and ls) then
 		return
 	end
-	local data = {level = ls.Level.Value, money = ls.Money.Value, exp = ls.EXP.Value}
+	local data = {level = ls.Level.Value, money = ls.Money.Value, exp = ls.EXP.Value, title = ls.Title.Value,
+		roadFight = plr:GetAttribute("RoadFight") or 0}
 	pcall(function()
 		(store :: any):SetAsync("p" .. plr.UserId, data)
 	end)
@@ -78,6 +85,13 @@ function Progress.Award(plr: Player, money: number, exp: number, reason: string)
 	plr:SetAttribute("LastReward", ("+%d ฿  +%d EXP  (%s)%s"):format(money, exp, reason, if gained > 0 then "  LEVEL UP!" else ""))
 	plr:SetAttribute("LastRewardAt", workspace:GetServerTimeNow())
 	return gained
+end
+
+function Progress.SetTitle(plr: Player, title: string)
+	local ls = stats(plr)
+	if ls then
+		ls.Title.Value = title
+	end
 end
 
 local started = false

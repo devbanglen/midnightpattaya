@@ -148,6 +148,32 @@ GPS arrow, HUD with position). Routes come from `PattayaRoute.pointToPoint`, whi
   - Did not finish: nothing.
 - While a challenge, sprint or job runs, the loop race panel hides so its banner doesn't cover the HUD.
 
+## 8. Road Fight (RayCity single-player bosses)
+Generator: `road_fight` in the `layout` config block. Bosses are snapped to roads like job stands, written to
+`roadfight.luau` and loaded as `ServerStorage.PattayaData.roadfight`. Runtime: in `PattayaChallengeServer`, which
+reuses the Street Challenge race engine, and `PattayaChallengeClient` for the E prompt.
+
+| Order | Road Master | Spot (OSM) | Car | Top speed / corner grip | Course |
+|---|---|---|---|---|---|
+| 1 | Walking Street Wolf (South Pattaya) | Royal Garden | jdm_coupe | 128 / 140 | 1,974 studs |
+| 2 | Beach Road Baron (Central Pattaya) | Basaya Beach Hotel | muscle | 142 / 150 | 2,283 studs |
+| 3 | Naklua Night Hawk (North Pattaya) | The Beach Garden Resort | gt_sedan | 155 / 165 | 2,527 studs |
+| 4 | **Road King** | "Pattaya" city node | supercar | 172 / 185 | 3,358 studs |
+
+- **Starting a fight:** each boss has a red ring (gold for the King) with a sign, and its car parked in front of the
+  ring. Stop in the ring and press **E** (Y on a gamepad, a FIGHT button on mobile). The boss says its line and the
+  race starts.
+- **Fixed course:** each boss always races its own course. It starts from the junction nearest its spot and the
+  route pick is seeded, so it is the same every time and can be learned.
+- **Order:** beat them South → Central → North. The King unlocks after all three. A locked ring says who to beat
+  first.
+- **Rewards:**
+  - First win: 300 / 400 / 500 / 1,000 ฿ and 150 / 200 / 250 / 500 EXP. Rematches pay a third.
+  - Losing (finishing 2nd) pays a little EXP and no money.
+- **Titles:** "Road Fighter" after the three Road Masters, "Road King" after the King. The title shows in a new
+  leaderboard column, `Title`.
+- **Saving:** wins (attribute `RoadFight`, one bit per boss) and the title are saved with the player's progress.
+
 ## Tested (2026-10-18, Studio Play, client-owned car moved by a client-side test autopilot at 140 studs/s)
 - **Jobs:**
   - Delivery Windy Plaza → Wat Chai Mongkhon (2,135 studs): road under the car at 116/116 samples. It paid, but the
@@ -187,6 +213,21 @@ GPS arrow, HUD with position). Routes come from `PattayaRoute.pointToPoint`, whi
     the AI instead. The other car was over the 150-stud range at that moment (138 studs a few seconds later).
   - **Seen once and not reproduced:** a parked grid car ended up 21 studs ahead of its slot, past gate 1, after the
     player got in. That started the loop race. Getting out and back in, it moved only ~1 stud.
+- **Road Fight (autopilot, one Play session):**
+  - All 4 rings came up with their boss car parked. No script errors.
+  - The Central ring before South said "Locked: beat Walking Street Wolf (South Pattaya) first".
+  - South at 150 studs/s: "YOU BEAT WALKING STREET WOLF! 14.32 s", +300 ฿ / +150 EXP, "Unlocked: … Beach Road
+    Baron".
+  - Central at 80: lost ("Beach Road Baron wins. Come back faster.", 0 ฿, +28 EXP). Central at 165: won, +400 ฿.
+    Both runs used the same 2,283-stud course.
+  - North at 175: won, +500 ฿, title "Road Fighter".
+  - King at 205 (nitro speed): won in 17.90 s, +1,000 ฿, title "Road King".
+  - South rematch: same 1,974-stud course, paid a third (100 ฿ / 50 EXP).
+  - Afterwards all boss cars were back in place and no race bots were left behind. Street Challenge (C) still
+    started a normal AI race.
+  - Not checked: how the boss stands look (the screenshot of the 3D view came back white; only the HUD rendered),
+    and whether a human can actually beat the King without nitro. Its top speed of 172 is above the car's 160, so
+    nitro is needed on straights.
 - **Regression after the route-module refactor:** Street Sprint 1,571 studs, 6/6 checkpoints, 11.23 s, paid. Loop
   race: driving through gate 1 started it and gates 2–5 counted.
 - **Loop race:** 2 laps.

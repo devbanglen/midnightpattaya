@@ -135,8 +135,9 @@ end
 
 -- A point-to-point race route from the junction nearest `pos` (preferring ones ahead along `look`): random
 -- destination minLen..maxLen away by road, checkpoints every `spacing` ending at the destination.
+-- With `rng` (a Random) the pick is repeatable: the same start and seed give the same course (Road Fight bosses).
 -- Returns {cps = {Vector3}, dirs = {Vector3}, route = {Vector3}, length} or nil, reason.
-function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen: number, spacing: number)
+function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen: number, spacing: number, rng: Random?)
 	local src = Route.nearestNode(Route.toLocal(pos), 400, Vector2.new(look.X, look.Z))
 	if not src then
 		return nil, "No road nearby"
@@ -151,7 +152,8 @@ function Route.pointToPoint(pos: Vector3, look: Vector3, minLen: number, maxLen:
 	if #candidates == 0 then
 		return nil, "No route from here"
 	end
-	local dst = candidates[math.random(1, #candidates)]
+	table.sort(candidates) -- table order is not stable between servers
+	local dst = candidates[if rng then rng:NextInteger(1, #candidates) else math.random(1, #candidates)]
 	local pts = Route.polylineOf(prev, src, dst)
 	local cps, dirs = {}, {}
 	local prevPt = nodes[src]

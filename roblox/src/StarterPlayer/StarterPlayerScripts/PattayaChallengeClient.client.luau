@@ -1,6 +1,7 @@
 -- Street Challenge client: C (or the RACE button) challenges the nearest driver, or a street racer if nobody is near.
 -- Shows incoming challenges (Y accept / N decline), the 3-2-1-GO countdown and challenge messages. The race itself
 -- (gates, GPS arrow, HUD with position) is drawn by PattayaSprintClient.
+-- Road Fight: stopped in a boss's red ring, E challenges that Road Master (locked ones say who to beat first).
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
@@ -14,6 +15,7 @@ end
 local ChallengeRequest = remotes:WaitForChild("ChallengeRequest", 30)
 local ChallengeReply = remotes:WaitForChild("ChallengeReply", 30)
 local ChallengeMsg = remotes:WaitForChild("ChallengeMsg", 30)
+local RoadFightRequest = remotes:WaitForChild("RoadFightRequest", 30)
 if not (ChallengeRequest and ChallengeReply and ChallengeMsg) then
 	return
 end
@@ -56,6 +58,10 @@ hint.TextXAlignment = Enum.TextXAlignment.Left
 hint.Text = "C  challenge a driver to a street race"
 hint.Visible = false
 hint.Parent = gui
+local bossPrompt = label(UDim2.new(0.5, 0, 1, -167), UDim2.fromOffset(560, 34), RED)
+bossPrompt.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+bossPrompt.BackgroundTransparency = 0.35
+Instance.new("UICorner", bossPrompt).CornerRadius = UDim.new(0, 8)
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local function toast(text: string)
@@ -146,7 +152,57 @@ end, true, Enum.KeyCode.C, Enum.KeyCode.ButtonL1)
 ContextActionService:SetTitle("StreetChallenge", "RACE")
 ContextActionService:SetPosition("StreetChallenge", UDim2.new(1, -270, 1, -240))
 
+-- Road Fight prompt ---------------------------------------------------------------------------------------------
+local rfFolder = workspace:WaitForChild("PattayaWorld", 30) and workspace.PattayaWorld:WaitForChild("RoadFight", 30)
+local promptBoss: Model? = nil
+local rfBound = false
+local function bossPromptStep(chassis: BasePart?)
+	promptBoss = nil
+	if chassis and rfFolder and RoadFightRequest and not busy() then
+		local v = chassis.AssemblyLinearVelocity
+		if Vector3.new(v.X, 0, v.Z).Magnitude < 30 then
+			for _, m in rfFolder:GetChildren() do
+				local ring = m:FindFirstChild("Ring")
+				if ring and Vector3.new(ring.Position.X - chassis.Position.X, 0, ring.Position.Z - chassis.Position.Z).Magnitude < 18 then
+					promptBoss = m
+					break
+				end
+			end
+		end
+	end
+	if promptBoss then
+		local order = promptBoss:GetAttribute("Order") or 1
+		local flags = player:GetAttribute("RoadFight") or 0
+		local locked = false
+		for k = 1, order - 1 do
+			if not bit32.btest(flags, bit32.lshift(1, k - 1)) then locked = true end
+		end
+		bossPrompt.Text = if locked then ("LOCKED - beat the Road Masters before %s"):format(promptBoss:GetAttribute("Boss"))
+			else ("E   ROAD FIGHT vs %s%s"):format(promptBoss:GetAttribute("Boss"),
+				if bit32.btest(flags, bit32.lshift(1, order - 1)) then "  (rematch)" else "")
+		bossPrompt.Visible = true
+		if not rfBound then
+			ContextActionService:BindAction("RoadFight", function(_, state)
+				if state == Enum.UserInputState.Begin and promptBoss then
+					RoadFightRequest:FireServer(promptBoss.Name)
+				end
+				return Enum.ContextActionResult.Sink
+			end, true, Enum.KeyCode.E, Enum.KeyCode.ButtonY)
+			ContextActionService:SetTitle("RoadFight", "FIGHT")
+			ContextActionService:SetPosition("RoadFight", UDim2.new(1, -200, 1, -310))
+			rfBound = true
+		end
+	else
+		bossPrompt.Visible = false
+		if rfBound then
+			ContextActionService:UnbindAction("RoadFight")
+			rfBound = false
+		end
+	end
+end
+
 RunService.RenderStepped:Connect(function()
+	bossPromptStep(inCar())
 	hint.Visible = inCar() ~= nil and not busy()
 	if inviteUntil > 0 and os.clock() > inviteUntil then
 		closeInvite()

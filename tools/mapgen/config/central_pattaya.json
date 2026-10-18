@@ -68,7 +68,21 @@
       {"id": "hong_tu_la", "kind": "delivery", "label": "Hong Tu La Night Market", "osm_id": 27487186},
       {"id": "windy_plaza", "kind": "delivery", "label": "Windy Plaza", "osm_id": 153537963}
     ],
-    "job_stand_max_snap_studs": 220
+    "job_stand_max_snap_studs": 220,
+    "road_fight": [
+      {"id": "boss_south", "order": 1, "boss": "Walking Street Wolf", "district": "South Pattaya", "label": "Road Master: South Pattaya",
+       "osm_id": 1557021548, "car": "jdm_coupe", "vmax": 128, "grip": 140, "course_min": 1800, "course_max": 2400,
+       "line": "New face in South Pattaya? Let's see what you've got."},
+      {"id": "boss_central", "order": 2, "boss": "Beach Road Baron", "district": "Central Pattaya", "label": "Road Master: Central Pattaya",
+       "osm_id": 259502643, "car": "muscle", "vmax": 142, "grip": 150, "course_min": 2000, "course_max": 2600,
+       "line": "Beach Road is mine. Nobody passes me here."},
+      {"id": "boss_north", "order": 3, "boss": "Naklua Night Hawk", "district": "North Pattaya", "label": "Road Master: North Pattaya",
+       "osm_id": 284964061, "car": "gt_sedan", "vmax": 155, "grip": 165, "course_min": 2200, "course_max": 2800,
+       "line": "You beat the Baron? Luck. Try me."},
+      {"id": "boss_king", "order": 4, "boss": "Road King", "district": "Pattaya", "label": "ROAD KING",
+       "osm_id": 278056967, "car": "supercar", "vmax": 172, "grip": 185, "course_min": 2800, "course_max": 3600,
+       "line": "Three Road Masters down. Now race the King."}
+    ]
   },
 
   "traffic": {
