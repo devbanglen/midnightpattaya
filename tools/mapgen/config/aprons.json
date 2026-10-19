@@ -1,0 +1,37 @@
+{
+  "name": "aprons",
+  "note": "Junction aprons + sidewalk corner fills (tools/mapgen/junction_aprons.py). Closes the ground exposed 3 studs below the road at junction corners and soi mouths (terrain y -2, road top 1.0, sidewalk top 1.6). Distances in map-local studs (x0.5 compression, 0.28 m per stud).",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+  "chunk_size_studs": 512,
+  "inputs": {
+    "datasets": [["central", "central_pattaya/roblox"], ["wide", "pattaya_wide/roblox"], ["corridor", "bira/roblox_corridor"]],
+    "furniture": "furniture/furniture.json",
+    "coast": "coast/roblox",
+    "landmarks": "landmarks/roblox"
+  },
+  "out_dir": "aprons",
+  "road_top": 1.0,
+  "ground_y": -2.0,
+  "apron": {"top": 0.98, "thick": 4.0, "material": "Asphalt", "color": [62, 63, 68]},
+  "corner": {"top": 1.58, "thick": 3.6, "material": "Concrete", "color": [150, 148, 142]},
+  "throat": {
+    "straight_deg": 170.0,
+    "no_sidewalk_arm_studs": 6.0,
+    "disc_core_segments": 3,
+    "min_piece_area": 1.0,
+    "min_corner_area": 2.0,
+    "open_studs": 0.08,
+    "shrink_studs": 0.03,
+    "max_pit_area": 12.0,
+    "min_tri_area": 0.05,
+    "min_tri_altitude": 0.1,
+    "max_corner_area": 900.0
+  },
+  "clearance": {"building_studs": 0.5, "prop_studs": 0.3, "road_studs": 0.02},
+  "props": {"palm_radius": 1.0, "light_radius": 0.5, "coast_stride_radius": {"umbrellas": [5, 5.0], "lamps": [4, 2.0], "towers": [4, 6.0]}},
+  "audit": {"offset_studs": 2.0, "step_studs": 3.0, "drop_studs": 1.2, "cluster_link_studs": 4.5, "junction_pad_studs": 4.0,
+            "focus_world": [21040, 60], "focus_radius_studs": 600},
+  "origin_world": [20000, 0, 0],
+  "budget": {"batch_size_chunks": 8, "max_parts_per_chunk": 1500},
+  "check_images": [["soi8_beach_road", 1056, 80, 70], ["central_block", 1100, 150, 260], ["focus_600", 1040, 60, 600]]
+}
