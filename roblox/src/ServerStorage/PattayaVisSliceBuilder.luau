@@ -38,6 +38,12 @@
 -- Variety (VIS-7.1): per building a palette variant (b.pal: plaster mixed into the city wall colour, trim, glass
 -- tint), seeded AC / signboard density (b.acp / b.sgp: kit parts with dens = "ac" | "sign"), the mid module per
 -- floor band and the top module are chosen by the exporter (they are plain placement rows here).
+-- Variety v2 (VIS-7.2, team13; docs/VIS_VARIETY_2026-10-20.md; WRITTEN, NOT BUILT IN STUDIO): only when the export was
+-- made with variety.v2_enabled (manifest.variety2 present). Building fields: wx / wxc (wall lerped wx % toward
+-- variety2.stainColors[wxc]), shc (shutter colour variety2.shutterColors[shc]), gfa (shopfront pilasters in the darkened
+-- accent), and the per-part gates of the patched kit: sp.gate = {field, value} (b[field] or 1 must equal value),
+-- sp.dk / sp.dpi / sp.dinv (per-bay seeded density on b[dk]), sp.rh (balcony rhythm on b.rhp / b.rhs), colour key
+-- accentBay (accent per bay). Without those fields every gate falls back to the VIS-7.1c result.
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -278,9 +284,28 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 		trim = rgb(pal.trim)
 		glass = rgb(pal.glass)
 	end
+	-- variety v2 (VIS-7.2): weathering / stain tint on the plaster, per-building shutter colour, accent pilasters
+	local v2 = man.variety2
+	local shutterCol: Color3? = nil
+	if v2 then
+		if b.wx and b.wx > 0 then
+			wall = wall:Lerp(rgb(v2.stainColors[b.wxc or 1]), b.wx / 100)
+		end
+		if b.shc then
+			shutterCol = rgb(v2.shutterColors[b.shc])
+		end
+	end
 	local function colour(key: string): Color3
 		if key == "wall" then return wall end
 		if key == "wallDark" then return wall:Lerp(Color3.new(0, 0, 0), 0.25) end
+		if key == "shutter" and shutterCol then return shutterCol end
+		if key == "gfPilaster" then
+			if b.gfa == 1 then
+				return rgb(man.accents[b.acc]):Lerp(Color3.new(0, 0, 0), if v2 then v2.accentDarkMix else 0.3)
+			end
+			return wall:Lerp(Color3.new(0, 0, 0), 0.25)
+		end
+		if key == "accentBay" then return rgb(man.accents[b.acc]) end -- per bay: set by the placement loop
 		if key == "wallTrim" then return trim or wall:Lerp(Color3.new(1, 1, 1), 0.45) end
 		if key == "trim" and trim then return trim end
 		if key == "glass" and glass then return glass end
@@ -327,7 +352,8 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 	local text = if b.txt > 0 then man.texts[b.txt] else nil
 	local textColour = rgb(man.signCombos[b.sc].text)
 
-	local function finish(p: BasePart, sp: any, slot: string, inst: string, lit: boolean, hsh: number, upper: boolean)
+	local function finish(p: BasePart, sp: any, slot: string, inst: string, lit: boolean, hsh: number, upper: boolean,
+		over: Color3?)
 		local matName = sp.mat
 		if sp.neon then
 			p.Color = neonDay
@@ -337,7 +363,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 			p:SetAttribute("NightColor", neonNight)
 		elseif lit then
 			matName = "LitWindow"
-			local day = colour(sp.col)
+			local day = over or colour(sp.col)
 			p.Color = day
 			p.Material = Enum.Material.SmoothPlastic
 			p:SetAttribute("NightNeon", true)
@@ -345,7 +371,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 			-- warm amber, one of the manifest tones per pane; hotel/condo upper floors a slightly cooler tone
 			p:SetAttribute("NightColor", if upper then upperTone else tones[math.floor(hsh / 100) % #tones + 1])
 		else
-			p.Color = colour(sp.col)
+			p.Color = over or colour(sp.col)
 			p.Material = ctx.mats[matName] or Enum.Material.SmoothPlastic
 			styleWithLibrary(ctx.lib, p, matName, true)
 		end
@@ -377,6 +403,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 			for pi0, sp in mod.parts do
 				local pi = pi0 - 1
 				if sp.neon and not neonOk then continue end
+				if sp.gate and (b[sp.gate[1]] or 1) ~= sp.gate[2] then continue end -- v2 per-building variant gate
 				if (sp.text or sp.neon) and noText then continue end
 				-- seeded signboard density (twin of Kit.face_parts in vis_slice.py)
 				if sp.dens == "sign" and Builder.litHash(b.osm, f, mi, k, 0, pi + 50, litCfg.hash_mod) % 100 >= (b.sgp or 100) then
@@ -409,6 +436,21 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 					if sp.dens == "ac" and Builder.litHash(b.osm, f, mi, k, j, pi + 50, litCfg.hash_mod) % 100 >= (b.acp or 100) then
 						continue -- seeded AC density (per bay)
 					end
+					-- v2 (twin of Kit.face_parts): seeded per-bay density on b[dk] (dinv = the complement), balcony rhythm
+					if sp.dk and ((Builder.litHash(b.osm, f, mi, k, j, (sp.dpi or pi) + 50, litCfg.hash_mod) % 100
+						< (b[sp.dk] or 100)) == (sp.dinv == true)) then
+						continue
+					end
+					if sp.rh then
+						local rp = b.rhp or 0
+						local solid = rp > 0 and (j + k * (b.rhs or 0)) % rp == 0
+						if solid ~= (sp.rh == 2) then continue end
+					end
+					local over: Color3? = nil
+					if sp.col == "accentBay" then -- one accent per bay (awning mode 2)
+						local acc = man.accents
+						over = rgb(acc[(Builder.litHash(b.osm, f, mi, k, j, pi + 70, litCfg.hash_mod) // 7) % #acc + 1])
+					end
 					local lit, hsh = false, 0
 					if sp.lit then
 						local pct = if sp.lit == "win" then style.litWin else style.litShop
@@ -422,7 +464,7 @@ local function buildBuilding(ctx: Ctx, b: any, parent: Instance, original: BaseP
 					local cf = base * CFrame.fromMatrix(pos, face.u, Vector3.yAxis, -face.n)
 					local p = newPart(model, sp.k, Vector3.new(ub - ua, vtop - va, n1 - n0), cf, sp.shape)
 					local upper = upperStyle and v0 > 0 and vb + vh / 2 > b.h / 2 -- upper half of the building
-					finish(p, sp, mod.slot, ("%d:%d:%d"):format(pIndex, k, j), lit, hsh, upper)
+					finish(p, sp, mod.slot, ("%d:%d:%d"):format(pIndex, k, j), lit, hsh, upper, over)
 					count += 1
 				end
 			end

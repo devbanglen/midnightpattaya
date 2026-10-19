@@ -1447,7 +1447,11 @@ local function otherPos(plr: Player): Vector3?
 	end
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local seat = hum and hum.SeatPart
-	local part = if seat and seat:IsA("VehicleSeat") then seat.Parent.PrimaryPart else char:FindFirstChild("HumanoidRootPart")
+	-- as focus(): a seat whose parent is not a Model (or has no PrimaryPart) uses the seat itself; reading
+	-- PrimaryPart of a non-Model threw inside RenderStepped every 0.5 s and froze every other player's dot
+	local part = if seat and seat:IsA("VehicleSeat")
+		then ((seat.Parent and seat.Parent:IsA("Model") and (seat.Parent :: Model).PrimaryPart) or seat)
+		else char:FindFirstChild("HumanoidRootPart")
 	return part and (part :: BasePart).Position or nil
 end
 local nearBuf = {} -- reused {dist, pos} rows

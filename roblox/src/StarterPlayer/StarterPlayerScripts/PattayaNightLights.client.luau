@@ -14,6 +14,11 @@
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
 --     with lights and glow sprites; the car models on the server are not changed).
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
+-- Streaming cost (team10, 2026-10-20): the per-instance work (NightNeon / floodlight / facade / lamp / sign styling,
+-- and the restyle after a day/night or preset change) runs through ReplicatedStorage.PattayaWorkQueue: deduplicated
+-- queues inside a shared per-frame time budget (workspace WorkQueue_BudgetMs, default 1.5 ms). WorkQueue_Enabled =
+-- false = everything on the next Heartbeat, as before. Without the module: task.defer, as before. A day/night change
+-- re-applies the registered facade Textures / lamps / signs instead of walking PattayaWorld:GetDescendants() again.
 local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -21,6 +26,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
 local L: any = Lighting
+
+-- frame-budgeted queues (PattayaWorkQueue); fallback = task.defer per item (the old behaviour)
+local WQ: any = nil
+do
+	local m = ReplicatedStorage:WaitForChild("PattayaWorkQueue", 10)
+	if m and m:IsA("ModuleScript") then
+		local ok, res = pcall(require, m)
+		if ok and type(res) == "table" and res.new then
+			WQ = res
+		end
+	end
+end
+local function newQueue(name: string, fn: (any) -> ()): any
+	if WQ then
+		return WQ.new(name, fn)
+	end
+	return {push = function(_, item) task.defer(fn, item) end, cancel = function() end, size = function() return 0 end}
+end
 
 -- MaterialLibrary.NightStyles (VIS-7.1). If the module is missing or fails, every NightNeon part keeps the old
 -- behaviour (Neon + palette), so this script never breaks on it.
@@ -605,11 +628,29 @@ local function applyLamp(part: BasePart)
 	part.Material = if night then Enum.Material.Neon else Enum.Material.SmoothPlastic
 	part.Color = if night and lamp then lamp.part else orig
 end
+local qNeon = newQueue("NightLights.neon", function(p: BasePart)
+	if p.Parent and neons[p] then
+		applyNeon(p)
+	end
+end)
+local qFlood = newQueue("NightLights.flood", function(p: BasePart)
+	if p.Parent then
+		applyFlood(p)
+	end
+end)
+local qApply: any = nil -- section 2 (facades, lamps, signs); created there
+local facades: {[Texture]: boolean} = {} -- every Texture seen under PattayaWorld (re-applied on a day/night change)
 workspace.DescendantRemoving:Connect(function(d)
 	if d:IsA("BasePart") then
 		neons[d] = nil
 		signOrig[d] = nil
 		lampOrig[d] = nil
+		qNeon:cancel(d)
+		qFlood:cancel(d)
+		if qApply then qApply:cancel(d) end
+	elseif d:IsA("Texture") then
+		facades[d] = nil
+		if qApply then qApply:cancel(d) end
 	end
 end)
 workspace.DescendantAdded:Connect(function(d)
@@ -624,11 +665,11 @@ workspace.DescendantAdded:Connect(function(d)
 		end
 	elseif d:IsA("BasePart") then
 		if d:GetAttribute("FloodLight") == true then
-			task.defer(applyFlood, d)
+			qFlood:push(d)
 		end
 		if d:GetAttribute("NightNeon") == true then
 			neons[d] = true
-			task.defer(applyNeon, d)
+			qNeon:push(d)
 		end
 	end
 end)
@@ -640,7 +681,7 @@ task.spawn(function()
 			end
 			if d:GetAttribute("NightNeon") == true then
 				neons[d] = true
-				applyNeon(d)
+				qNeon:push(d)
 			end
 		end
 		if i % 5000 == 0 then task.wait() end
@@ -649,7 +690,7 @@ end)
 onNightChanged(function()
 	updateSpots()
 	for p in neons do
-		if p.Parent then applyNeon(p) end
+		qNeon:push(p)
 	end
 end)
 
@@ -773,8 +814,9 @@ local NIGHT_TILES = 4
 
 local function apply(inst: Instance)
 	local w = world
-	if not w then return end
+	if not w or not inst.Parent then return end
 	if inst:IsA("Texture") then
+		facades[inst] = true
 		local kind = inst:GetAttribute("Facade")
 		if not kind then return end
 		if inst:GetAttribute("DayU") == nil then
@@ -782,13 +824,12 @@ local function apply(inst: Instance)
 			inst:SetAttribute("DayV", inst.StudsPerTileV)
 		end
 		local u, v = inst:GetAttribute("DayU"), inst:GetAttribute("DayV")
-		if night then
-			inst.Texture = w:GetAttribute("FacadeNight_" .. kind)
-			inst.StudsPerTileU, inst.StudsPerTileV = u * NIGHT_TILES, v * NIGHT_TILES
-		else
-			inst.Texture = w:GetAttribute("Facade_" .. kind)
-			inst.StudsPerTileU, inst.StudsPerTileV = u, v
-		end
+		-- written only when different (a streamed Texture often already has the right value by day)
+		local id = w:GetAttribute(if night then "FacadeNight_" .. kind else "Facade_" .. kind)
+		local tu, tv = if night then u * NIGHT_TILES else u, if night then v * NIGHT_TILES else v
+		if inst.Texture ~= id then inst.Texture = id end
+		if inst.StudsPerTileU ~= tu then inst.StudsPerTileU = tu end
+		if inst.StudsPerTileV ~= tv then inst.StudsPerTileV = tv end
 	elseif inst:IsA("BasePart") and inst.Name == "Lamp" then
 		applyLamp(inst)
 		local light = inst:FindFirstChildOfClass("SpotLight")
@@ -798,15 +839,25 @@ local function apply(inst: Instance)
 	end
 end
 
+qApply = newQueue("NightLights.world", apply)
+local function isWorldCandidate(d: Instance): boolean
+	return d:IsA("Texture") or d.Name == "Lamp" or d.Name == "NeonSign"
+end
+-- start-up: one chunked walk of what has already streamed in (candidates are styled through the queue)
 local function applyAll()
 	local w = world
 	if not w then return end
 	for i, d in w:GetDescendants() do
-		apply(d)
+		if isWorldCandidate(d) then qApply:push(d) end
 		if i % 4000 == 0 then task.wait() end
 	end
 end
-onNightChanged(applyAll)
+-- day/night change: re-apply only what is registered (no world walk); streamed-out entries were dropped
+onNightChanged(function()
+	for t in facades do qApply:push(t) end
+	for p in lampOrig do qApply:push(p) end
+	for p in signOrig do qApply:push(p) end
+end)
 
 -- LightingPreset changed: restyle what the preset colours (only registered parts and lights, no world scan); car
 -- lights are dropped and come back on the next car-light tick (0.3 s) with the new headlight colour
@@ -814,15 +865,10 @@ table.insert(presetListeners, function()
 	for light, s in spots do
 		if light.Parent then styleSpot(light, s) end
 	end
-	for p in lampOrig do
-		if p.Parent then applyLamp(p) end
-	end
-	for p in signOrig do
-		if p.Parent then applySign(p) end
-	end
-	for p in neons do
-		if p.Parent then applyNeon(p) end
-	end
+	-- through the budgeted queues (apply() on a lamp / sign = applyLamp / applySign, as before)
+	for p in lampOrig do qApply:push(p) end
+	for p in signOrig do qApply:push(p) end
+	for p in neons do qNeon:push(p) end
 	for c in lit do
 		removeLights(c)
 	end
@@ -843,9 +889,9 @@ if not world then
 	return
 end
 world.DescendantAdded:Connect(function(d)
-	if d:IsA("Texture") or d.Name == "Lamp" or d.Name == "NeonSign" then
-		-- attributes/children may arrive a frame later when streamed
-		task.defer(apply, d)
+	if isWorldCandidate(d) then
+		-- attributes/children may arrive a frame later when streamed: styled from the queue on a later Heartbeat
+		qApply:push(d)
 	end
 end)
 applyAll()

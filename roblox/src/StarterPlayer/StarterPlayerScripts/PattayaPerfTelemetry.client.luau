@@ -36,11 +36,13 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "PerfTelemetryOverlay"
 gui.ResetOnSpawn = false
 gui.DisplayOrder = 200
-gui.IgnoreGuiInset = false
+-- drawn inside the Roblox top bar strip (its centre is empty), so it never covers the HUD (team12 UI audit: the
+-- old bottom-centre spot covered the job strip on every viewport)
+gui.IgnoreGuiInset = true
 local label = Instance.new("TextButton")
 label.AutoButtonColor = false
 label.Size = UDim2.fromOffset(250, 34)
-label.Position = UDim2.new(0.5, -125, 1, -40)
+label.Position = UDim2.new(0.5, -125, 0, 12)
 label.BackgroundColor3 = Color3.fromRGB(11, 16, 32)
 label.BackgroundTransparency = 0.35
 label.TextColor3 = Color3.fromRGB(0, 223, 255)
@@ -56,7 +58,7 @@ local compact = false
 label.Activated:Connect(function()
 	compact = not compact
 	label.Size = if compact then UDim2.fromOffset(60, 18) else UDim2.fromOffset(250, 34)
-	label.Position = if compact then UDim2.new(0.5, -30, 1, -22) else UDim2.new(0.5, -125, 1, -40)
+	label.Position = if compact then UDim2.new(0.5, -30, 0, 20) else UDim2.new(0.5, -125, 0, 12)
 end)
 gui.Parent = player:WaitForChild("PlayerGui")
 
