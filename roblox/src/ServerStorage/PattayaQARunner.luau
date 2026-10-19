@@ -295,7 +295,12 @@ local function checkActivities()
 	local se = ServerStorage:FindFirstChild("StartEvent")
 	check("events.startevent", se ~= nil and se:IsA("BindableEvent"), "ServerStorage.StartEvent")
 	local evf = world:FindFirstChild("Events")
-	check("events.ring", evf ~= nil and evf:FindFirstChild("EventRing") ~= nil, "PattayaWorld.Events.EventRing")
+	-- the ring exists only while an event gathers (PattayaEventsServer.buildRing); idle needs just the folder
+	local gathering = ev ~= nil and ev:GetAttribute("Phase") == "gathering"
+	local hasRing = evf ~= nil and evf:FindFirstChild("EventRing") ~= nil
+	check("events.ring", evf ~= nil and (hasRing or not gathering),
+		("PattayaWorld.Events folder %s, EventRing %s (phase %s)"):format(tostring(evf ~= nil), tostring(hasRing),
+			tostring(ev and ev:GetAttribute("Phase"))))
 	-- GPS / sprint / challenge need the road graph
 	local data = ServerStorage:FindFirstChild("PattayaData")
 	check("data.graph", data ~= nil and data:FindFirstChild("graph") ~= nil, "ServerStorage.PattayaData.graph")
