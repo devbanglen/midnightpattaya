@@ -1286,8 +1286,12 @@ local function layoutFull()
 	local cam = workspace.CurrentCamera
 	local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
 	local w = math.min(vp.X - 24, 1240)
-	local h = math.min(vp.Y - 24, 860)
+	-- this ScreenGui ignores the GUI inset, so on a phone (viewport height under 600) the title row with VIEW / close
+	-- would sit in Roblox's top-bar band; keep the whole panel below the inset there (leader, 2026-10-20)
+	local topInset = if vp.Y < 600 then GuiService:GetGuiInset().Y else 0
+	local h = math.min(vp.Y - 24 - topInset, 860)
 	panel.Size = UDim2.fromOffset(w, h)
+	panel.Position = UDim2.new(0.5, 0, 0.5, topInset / 2)
 	local sideW = math.clamp(math.floor(w * 0.3), 180, 300)
 	local mw, mh = w - sideW - Theme.pad.m * 3, h - TITLE_H - Theme.pad.m
 	fullView.Position = UDim2.fromOffset(Theme.pad.m, TITLE_H)
