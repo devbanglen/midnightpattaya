@@ -55,6 +55,9 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 
 | 16:50 | team9/traffic-vehicles started (owner item 9: box traffic → Blender sedan / pickup / songthaew / tuk-tuk / scooter / minivan, same collision boxes, box fallback kept; owns PattayaTraffic.client + new TrafficVehicles module) | RUNNING | branch team9/traffic-vehicles in D:\ROBLOXRACE-qa |
 
+| 17:30 | Traffic vehicles (owner item 9): team9 merged; 7 Blender vehicles (sedan/taxi, hatch, scooter pair, tuk-tuk, pickup, songthaew, minivan; 624–1,016 tris, 4 MeshParts) uploaded (ids in TrafficVehicles), templates installed in ReplicatedStorage.TrafficVehicleTemplates (7/7 parts ok). Play: 54/54 traffic cars built from meshes, 0 box fallbacks, head lamps at the front on 54/55 moving cars, collision = the old Body box only (meshes non-colliding / non-query / massless), near misses still pay (14 in 35 s). Captures pending Studio focus | DONE / TESTED | commits f281f48, 1283930 |
+| 17:35 | Palette day capture docs/images/vis71d_palette_street_day.jpg | DONE | — |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
