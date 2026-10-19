@@ -77,6 +77,8 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | day | Regression: Central → Bira by GPS 393/393 on road, up min 0.94; Central Loop 2 laps 189/189, up 1.00 | TESTED (traffic ghosted) | TK handles |
 | day | team13/vis-variety merged (off by default, export byte-identical when off; +2.05 % parts when on) | DONE / install WAITING_FOR_OWNER (fresh .rbxl needed) | docs/VIS_VARIETY_2026-10-20.md |
 | day | Owner perf overlay moved into the top bar centre (covered the job strip) | DONE / TESTED (capture) | commit 64f313b |
+| day | Traffic cars drove half over the sidewalk on wide one-way roads (outer lane at W/2) → 3W/8, same loops/cars/kinds; old module reproduced byte-for-byte before the swap | DONE / TESTED (Play: 13.4% → 0%) | commit bb120bd |
+| day | Jobs: taxi from Terminal 21 completed (312 + 70 tip, 101 EXP); Central Festival job route starts with a 130-stud connector across a block | TESTED / route snap open | QUALITY_AUDIT |
 
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.

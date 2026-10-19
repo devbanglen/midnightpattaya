@@ -291,3 +291,11 @@ index f600d22..3eed1db 100644
 - **TouchControls fix:** "ContextActionService could not find the function" lines went from about 70 per 10 s to 0.
 - **GPS:** route to Bira received (263 points, 28,838 studs).
 - **Perf overlay:** moved into the top bar centre. Studio capture at 830x439 shows it clear of the HUD.
+- **Traffic placement (fixed):** 13.4% of 559 traffic-car samples had a corner over the sidewalk. Cause: on wide
+  one-way roads the outer lane was placed at half the road width from the centre, i.e. the car centre on the road
+  edge. traffic.py and corridor_traffic.py now use 3/8 of the width. After install: 0 of 565 samples.
+- **Jobs:** a taxi job from Terminal 21 ran end to end (fare 312 + tip 70, 101 EXP, level up, 0 bumps).
+- **Job route start (open):** from the Central Festival stand the job route begins with a straight connector of
+  about 130 studs from the stand (21242, 374) across a block to (21338, 308), over terrain. The guidance line crosses
+  buildings there, and a physics test drive following it leaves the road. The route snap in PattayaRoute should
+  start from the nearest road edge, not cut across the block. Not changed yet.
