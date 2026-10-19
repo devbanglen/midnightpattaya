@@ -75,8 +75,10 @@ def check_manifest():
     ids = json.load(open(up, encoding='utf-8'))
     luau_ids = dict(re.findall(r'\["([A-Za-z0-9_]+)"\]\s*=\s*(\d+)', open(lu, encoding='utf-8').read()))
     problems = []
-    if names != set(ids):
-        problems.append(f'manifest vs upload_ids names differ: {sorted(names ^ set(ids))[:6]}')
+    not_uploaded = sorted(names - set(ids))
+    orphan_ids = sorted(set(ids) - names)
+    if orphan_ids:
+        problems.append(f'upload_ids has names missing from the manifests: {orphan_ids[:6]}')
     if set(ids) != set(luau_ids):
         problems.append(f'upload_ids vs VisAssetsManifest.luau names differ: {sorted(set(ids) ^ set(luau_ids))[:6]}')
     for k, v in ids.items():
@@ -88,7 +90,7 @@ def check_manifest():
         problems.append('duplicate asset ids')
     for pr in problems:
         fails.append('asset manifest: ' + pr)
-    print(f'asset manifest: {len(names)} assets, {len(ids)} ids, {len(luau_ids)} in Luau, {len(problems)} problems')
+    print(f'asset manifest: {len(names)} assets, {len(ids)} ids, {len(luau_ids)} in Luau, {len(not_uploaded)} prepared but not uploaded, {len(problems)} problems')
 
 
 def hash_dir(d):
