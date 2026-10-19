@@ -220,3 +220,10 @@ needed for true mobile FPS.
 - Streaming hitches dominate the 1 % low in the first seconds after a teleport / fast entry (worst frames 100–200 ms).
   During one such hitch the test car tipped (up −0.33) on the first run; the repeat run of the same route had no tilt
   (up min 0.97).
+
+- Texture A/B in the same Play session (18:30): destroying all 492 SurfaceAppearances and clearing 8,591 MaterialVariant
+  uses left GraphicsTexture at 244.7 MB after 15 s, i.e. textures are cached and an in-session A/B cannot show the PBR
+  share. The world uses only 3 distinct facade images (3,236 Texture objects). The 230–245 MB GraphicsTexture and the
+  262–272 MB "Gui" figure in Studio include Studio's own editor/CoreGui and built-in material/terrain textures, so the
+  owner's 18 MiB budget can only be checked on a **real phone client** (Roblox app → Developer Console → Memory →
+  GraphicsTexture), comparing a fresh join with and without ReplicatedStorage.MaterialLibraryMaps. PENDING_OWNER_TEST.

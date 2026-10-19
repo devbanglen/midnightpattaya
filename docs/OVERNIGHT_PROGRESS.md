@@ -62,6 +62,8 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 
 | 18:20 | Mobile baseline (Device Emulator 830×439, compact HUD): steady 59.9 fps / p99 18.8 ms parked, 59.7 fps / p99 28.2 ms driving after streaming settles; first 10–20 s after arriving have 100–200 ms streaming hitches (1 % low 14–19); GraphicsTexture 230–242 MB (≫ 18 MiB budget — mostly not the PBR maps; A/B + real phone needed) | TESTED (emulator = PC GPU) | docs/VISUAL_PERFORMANCE.md §7 |
 
+| 18:30 | Texture A/B inconclusive in Studio (cache keeps 244.7 MB after removing all PBR); only 3 distinct facade images in the world; Studio's own textures/CoreGui inflate the figures → real-phone measurement needed for the 18 MiB budget | PENDING_OWNER_TEST | docs/VISUAL_PERFORMANCE.md §7 |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
