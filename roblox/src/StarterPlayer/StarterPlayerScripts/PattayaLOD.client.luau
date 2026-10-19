@@ -97,6 +97,12 @@ end
 -- children of a streamed part can arrive a frame later)
 local queue: {Instance} = {}
 local function consider(d: Instance)
+	-- kit mesh palms (workspace.PattayaWorld.VisMeshPalms.<model>.<part>) have their own LOD (VisMeshPalmLOD): leaving
+	-- them to this sweep hid the impostor with up to ~1 s latency while driving (owner review ecbbf89 item 7)
+	local gp = d.Parent and d.Parent.Parent
+	if gp and gp.Name == "VisMeshPalms" then
+		return
+	end
 	if d:IsA("Texture") or (d:IsA("BasePart") and PROP_NAMES[d.Name]) then
 		table.insert(queue, d)
 	end

@@ -27,13 +27,17 @@ function M.Start()
 	local byModel: {[Instance]: Rec} = {}
 	local folder: Instance? = nil
 
+	-- cross-fade over FADE seconds instead of a hard swap (owner review ecbbf89 item 7: no visible pop-in at speed); the
+	-- impostor fades in while the mesh fades out, so a palm never shows nothing
+	local TweenService = game:GetService("TweenService")
+	local FADE = TweenInfo.new(0.35, Enum.EasingStyle.Linear)
 	local function setFar(r: Rec, far: boolean)
 		r.far = far
 		for _, p in r.mesh do
-			p.Transparency = if far then 1 else 0
+			TweenService:Create(p, FADE, {Transparency = if far then 1 else 0}):Play()
 		end
 		for _, p in r.imp do
-			p.Transparency = if far then 0 else 1
+			TweenService:Create(p, FADE, {Transparency = if far then 0 else 1}):Play()
 		end
 	end
 	local function add(m: Instance)

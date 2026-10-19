@@ -931,7 +931,7 @@
     "palms": {
       "comment": "every city palm in the slice bbox -> RSD_Palm_<v> at the trunk foot, yaw of the Part palm, no lean; variant = floor(|7x + 13z|) % 3",
       "assets": ["RSD_Palm_A", "RSD_Palm_B", "RSD_Palm_C"],
-      "full_range": 400,
+      "full_range": 550,
       "collider": [1.6, 20, 1.6],
       "impostor_collides": true,
       "impostor_collides_comment": "mesh-opt: the impostor trunk cylinder (at the trunk foot, invisible near the camera) is the collider; no separate VisMeshPalmCollider (5 -> 4 instances per palm). false = the VIS-7.1 collider part."
