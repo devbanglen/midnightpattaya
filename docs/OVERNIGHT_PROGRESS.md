@@ -37,6 +37,8 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 10:00 | Play check after mesh-opt + textures: 0 client errors; roads near the block carry the textured PattayaDryAsphalt variant (24/24); merged tiles: 97/97 NightNeon MeshParts lit at 21:00; 407/508 MeshParts carry SurfaceAppearance; palm impostor trunk is a working collider (raycast hits, CanCollide true); Heartbeat 60.2, p99 19.1 ms (render unfocused → not counted) | TESTED | Play session 10:00 |
 | 10:10 | Priority 5: docs/VIS8_ROLLOUT_PLAN.md and docs/SECONDARY_UI_PLAN.md (plans only, nothing implemented); palm trunks now get the Bark SurfaceAppearance, MP_Shutter mapped to the Shutter surface; slice rebuilt (23,786 parts) + mesh block rebuilt | DONE / TESTED (probes) | commit acbf71b |
 
+| 10:40 | Studio came to the front: captures of the merged block (day street / aerial / shophouse close-up / night street / hero drive with HUD) taken; palms visible in play (one-off LTM artefact at session start, 0 hidden in 48 samples while driving); clean-start drive up min 1.00; tail PointLight 1.5/10 painted crossings pink on PBR roads → 0.5/6 | DONE / TESTED | docs/VISUAL_ACCEPTANCE.md §5.3, commit f0c4a73 |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.

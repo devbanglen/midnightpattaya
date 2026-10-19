@@ -337,3 +337,17 @@ Device Emulator viewport the owner left on (685 × 313), so they are small; the 
   BuilderSans comparison are pending Studio focus (docs/NIGHT_LIGHTING.md has the font recommendation).
 - Rollback: `V.RemoveMesh()` (mesh → Part rows, palms back), `V.Remove()` (whole slice → procedural boxes),
   `RestoreReplaced`; `LightingPreset = Legacy`; `RoadLook = off`.
+
+
+### 5.3 VIS-7.1b/c captures (leader, 2026-10-20 morning, desktop viewport 1908 × 836, Studio in front)
+| Shot | File | What to look at |
+|---|---|---|
+| Street cam, merged tiles + PBR, day (Edit) | `vis71c_mesh_after_street_day.jpg` | hotel tower balcony bands, shophouse awnings/shutters, coconut palms; compare `vis71_mesh_before_street_day.jpg` |
+| Aerial, day (Edit) | `vis71c_mesh_after_aerial_day.jpg` | roofline, palm row, no tile seams at distance |
+| Shophouse close-up, day (Edit) | `vis71c_shophouse_closeup_day.jpg` | solid sign board "ร้านทอง GOLD SHOP", fabric awning, corrugated shutter with rust, plaster texture |
+| Street cam, 21:00 (Play) | `vis71c_mesh_after_street_night.jpg` | lit panes on merged tiles, neon strips, textured asphalt (dark) |
+| Hero drive, 21:00, chase camera + HUD (Play) | `vis71c_hero_drive_night.jpg` (`_ghosttraffic` = test-kit ghost traffic, ignore the translucent van) | the game as played |
+| Tail glow A/B | `vis71c_tailglow_on.jpg` / `_off.jpg` | the rear PointLight painted crossings pink → now 0.5 / 6 |
+
+Still PENDING_OWNER_TEST: focused render FPS with the merged build (render stayed at the 15 fps unfocused throttle in every
+attempt), and the owner's own look at the sample block in Studio.
