@@ -22,7 +22,7 @@ session (same place, already linked).
 1. Studio: **Ctrl+S**, then **File → Publish to Roblox** (Alt+P). It publishes to the same place; the experience stays
    Private (only you can join).
 2. Phone: Roblox app, logged in as DevSrc3rRoR → open https://www.roblox.com/games/117826785726076 → Play.
-3. The game shows a small cyan bar at the bottom centre (owner only): phase, FPS, p99 frame time, total memory and
+3. The game shows a small cyan bar at the top centre (inside the Roblox top bar) (owner only): phase, FPS, p99 frame time, total memory and
    GraphicsTexture in MB. Tap it to shrink / expand.
 4. Test order (about 6 minutes):
    - **Cold start:** stay still for 60 s right after spawning (phase `cold`).

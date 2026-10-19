@@ -271,3 +271,23 @@ index f600d22..3eed1db 100644
 +	pending[plr] = nil
  end)
 ```
+
+## Leader in-game verification (2026-10-20, Studio Play)
+
+- **Sukhumvit centre line, physics, 150 studs/s, whole road (26.6 km):** 713 of 721 probes on road (the other 8
+  are Joint parts, which are road surface), up min 1.00. No tilt.
+- **Sukhumvit outer lane:** the car flips where the carriageway narrows or ends at the road edge.
+  - Lane offset 24 studs at (25250, 13430): the road there is 52 studs wide, so the wheels left the slab and dropped
+    about 3 studs to the terrain (road top +1, terrain -2). Flipped.
+  - Lane offset 14 studs at about (24560, 900): Sukhumvit narrows from 52 to 26–39 studs between z 990 and 1060,
+    next to trunk_link pieces (the skipped underpass section). Flipped.
+  - Cause: no shoulder. Road edges drop about 3 studs to the terrain, and the width changes abruptly at cut ends.
+  - Proposed fix (needs owner approval and a fresh .rbxl, it changes the world): shoulder strips or terrain raised
+    to road level along the edges, plus the taper fills for narrowings listed in this audit.
+- **Traffic:** in one run the test car hit a traffic car at about 150 studs/s and flipped (up -0.75). This is a
+  gameplay question for the owner (should a crash at speed flip the car?), not a road defect.
+- **Central to Bira by GPS, physics, 150 studs/s, traffic ghosted:** 393 of 393 probes on road, up min 0.94.
+- **Central Loop, 2 laps, physics:** 189 of 189 probes on road, up min 1.00.
+- **TouchControls fix:** "ContextActionService could not find the function" lines went from about 70 per 10 s to 0.
+- **GPS:** route to Bira received (263 points, 28,838 studs).
+- **Perf overlay:** moved into the top bar centre. Studio capture at 830x439 shows it clear of the HUD.

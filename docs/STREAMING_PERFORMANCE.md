@@ -173,3 +173,35 @@ Since the engine's per-instance cost dominates, the real wins are fewer instance
    StreamingMesh` on large chunk models so the far city is an imposter mesh instead of full instances.
 7. **A client-visible preload manifest:** the server (or the build pipeline) writes the distinct kit MeshIds /
    TextureIDs into a ReplicatedStorage module, so PattayaPreload can fetch mesh content in the first seconds too.
+
+## Leader measurements after install (2026-10-20, Studio Play)
+
+Method: Studio render was throttled to about 15 fps (Studio not in front), so absolute frame times are inflated.
+Each run is a **fresh Play session** (empty client stream), the same seated car, then the same teleport into
+`WideChunks.Chunk_5_3` (about 19,000 instances stream in). Frames recorded for 20 s from just before the teleport.
+
+| Run | WorkQueue | Content preload | Stream-ahead | Worst frame | Frames > 100 ms | Time in those frames | p99 |
+|---|---|---|---|---|---|---|---|
+| A | on | on | on | 266 ms | 9 | 1,562 ms | 190 ms |
+| B | off | off | off | 162 ms | 5 | 639 ms | 114 ms |
+| C | on | off | off | 178 ms | 6 | 827 ms | 130 ms |
+| D | off | on | on | 591 ms | 9 | 2,682 ms | 416 ms |
+| E (repeat of B) | off | off | off | 178 ms | 8 | 1,012 ms | 114 ms |
+| F | on | on | off | 111 ms | 2 | 215 ms | 97 ms |
+
+Driving test: fresh Play, Sukhumvit Road from the south end, 9,000 studs at 150 studs/s with physics.
+
+| Run | Stream-ahead | Instances streamed | Worst frame | Frames > 100 ms | p99 |
+|---|---|---|---|---|---|
+| G | on | 19,855 | 104 ms | 1 | 73 ms |
+| H | off | 20,398 | 77 ms | 0 | 74 ms |
+
+Conclusions:
+- Stream-ahead (`RequestStreamAroundAsync` ahead of the car) made teleports clearly worse (A and D) and gave no gain
+  while driving (G vs H). It is now **opt-in**: `Preload_StreamAhead = true` turns it back on.
+- WorkQueue on its own is within run-to-run noise (C vs B and E). It is kept: it bounds script work per frame and
+  the best run (F) had it on.
+- The best configuration measured is F: WorkQueue on, content preload on, stream-ahead off. This is the default now.
+- Run-to-run spread is large (B vs E). These are Studio numbers on the PC; the phone is still unmeasured.
+- The engine's per-instance stream-in cost remains the main hitch source. The structural proposals above (fewer
+  instances per chunk, non-Atomic decorative folders) are the next lever and need owner approval plus a fresh .rbxl.
