@@ -909,7 +909,7 @@
       "MP_Glass": ["glass", "DarkGlass"],
       "MP_Metal": ["metal", "PaintedMetal"],
       "MP_MetalDark": ["rail", "PaintedMetal"],
-      "MP_Shutter": ["shutter", "PaintedMetal"],
+      "MP_Shutter": ["shutter", "Shutter"],
       "MP_Awning": ["accent", "AwningFabric"],
       "MP_Signboard": ["signBoard", "SignPanel"],
       "MP_NeonCyan": ["neonCyan", "NeonSurface"],

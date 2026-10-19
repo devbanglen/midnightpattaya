@@ -532,6 +532,7 @@ local function buildPalms(V: any, ctx: any, vm: any, A: Assets): any
 			if sp.mp == "MP_Bark" then
 				mp.Name = "PalmTrunk"
 				mp.Material = Enum.Material.Wood
+				I.styleWithLibrary(ctx.lib, mp, "Bark", true) -- Bark SurfaceAppearance (VIS-7.1c maps) when the template exists
 				bark = sp
 			else
 				mp.Name = "PalmFrond"
