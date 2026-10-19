@@ -18,6 +18,10 @@
 -- from a queue, ROAD_BUDGET parts per Heartbeat; the Heartbeat connection exists only while the queue is not empty,
 -- so once the queue has drained (steady driving, no look change) this script does NO per-frame work. Render cost:
 -- Reflectance is a material parameter (sky / environment probe only), not an extra pass.
+-- Streaming (team10, 2026-10-20): with ReplicatedStorage.PattayaWorkQueue installed the styling queue is a shared
+-- per-frame TIME budget (workspace WorkQueue_BudgetMs, default 1.5 ms, together with PattayaLOD / PattayaNightLights)
+-- instead of ROAD_BUDGET parts per frame; WorkQueue_Enabled = false = all queued parts on the next Heartbeat. Without
+-- the module the ROAD_BUDGET queue below is used, as before.
 -- Honest limit: Roblox has no screen-space reflections. Reflectance mirrors the sky / environment only, so a "wet"
 -- road shows lamp and headlight highlights (specular from real SpotLights) and a sky sheen, not mirrored neon.
 -- Debug (client command bar): _G.PattayaRoadLook.stats()
@@ -115,7 +119,23 @@ local function drain()
 	end
 end
 
+-- shared frame-budgeted queue (PattayaWorkQueue), if installed
+local wq: any = nil
+do
+	local m = ReplicatedStorage:WaitForChild("PattayaWorkQueue", 10)
+	if m and m:IsA("ModuleScript") then
+		local ok, WQ = pcall(require, m)
+		if ok and type(WQ) == "table" and WQ.new then
+			wq = WQ.new("RoadLook", style)
+		end
+	end
+end
+
 local function enqueue(part: BasePart)
+	if wq then
+		wq:push(part)
+		return
+	end
 	table.insert(queue, part)
 	if not conn then
 		conn = RunService.Heartbeat:Connect(drain)
@@ -161,7 +181,7 @@ _G.PattayaRoadLook = {
 			byKind[r.kind] = (byKind[r.kind] or 0) + 1
 			if r.styled then styled += 1 end
 		end
-		return {mode = mode, registered = n, styled = styled, queued = #queue, heartbeat = conn ~= nil,
+		return {mode = mode, registered = n, styled = styled, queued = #queue + (if wq then wq:size() else 0), heartbeat = conn ~= nil,
 			byKind = byKind}
 	end,
 }
@@ -173,6 +193,7 @@ end
 world.DescendantAdded:Connect(register)
 world.DescendantRemoving:Connect(function(d)
 	recs[d :: any] = nil
+	if wq then wq:cancel(d) end
 end)
 for i, d in world:GetDescendants() do
 	register(d)
