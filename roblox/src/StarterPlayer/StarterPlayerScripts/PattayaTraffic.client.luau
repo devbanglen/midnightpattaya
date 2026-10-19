@@ -5,6 +5,9 @@
 -- Traffic is solid for your own car (client physics): hitting it is a real knock. A traffic car about to run into
 -- your car from behind turns into a ghost for a moment instead of shoving it. Passing close without touching is a
 -- near miss: the server pays nitro (and a tip during a job) for it.
+-- Looks (team9, 2026-10-19): real vehicle meshes (sedan / taxi, hatch, scooter pair, tuk-tuk, songthaew, pickup, van)
+-- from ReplicatedStorage.TrafficVehicles + TrafficVehicleTemplates, welded to the same single collision box as before
+-- (now invisible). No template for a kind (or no module) = the box car below, unchanged. docs/TRAFFIC_VEHICLES.md
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,6 +18,15 @@ if not (dataModule and remotes) then
 	return
 end
 local routesData = require(dataModule)
+-- vehicle meshes (optional): any failure here leaves the box cars
+local tvModule = ReplicatedStorage:FindFirstChild("TrafficVehicles")
+local tvOk, TrafficVehicles = false, nil
+if tvModule then
+	tvOk, TrafficVehicles = pcall(require, tvModule)
+	if not tvOk then
+		warn("[PattayaTraffic] TrafficVehicles failed to load; box cars: " .. tostring(TrafficVehicles))
+	end
+end
 local NearMiss = remotes:WaitForChild("NearMiss", 30)
 local player = Players.LocalPlayer
 
@@ -108,6 +120,24 @@ local function makeCar(kind: number): Model
 	local root = part(m, nil, Vector3.new(sh.wid, sh.h, sh.len), CFrame.new(), color)
 	root.Name = "Body"
 	m.PrimaryPart = root
+	m:SetAttribute("Lift", 1.4 + sh.h / 2)
+	m:SetAttribute("HalfLen", sh.len / 2)
+	m:SetAttribute("HalfWid", sh.wid / 2)
+	-- mesh vehicle on the same collider: the Body stays the only collider, now invisible
+	if tvOk then
+		local ok, name = pcall(TrafficVehicles.build, kind, root, 1.4 + sh.h / 2, m)
+		if ok and name then
+			root.Transparency = 1
+			return m
+		elseif not ok then
+			warn("[PattayaTraffic] mesh vehicle failed; box car: " .. tostring(name))
+			for _, c in m:GetChildren() do
+				if c ~= root then
+					c:Destroy()
+				end
+			end
+		end
+	end
 	local glass = Color3.fromRGB(30, 40, 50)
 	if kind == 0 then
 		part(m, root, Vector3.new(sh.wid - 0.6, 2, sh.len * 0.5), CFrame.new(0, sh.h / 2 + 1, 0.5), glass, Enum.Material.Glass)
@@ -137,9 +167,6 @@ local function makeCar(kind: number): Model
 				if z < 0 then Color3.fromRGB(255, 250, 220) else Color3.fromRGB(230, 20, 20), Enum.Material.Neon)
 		end
 	end
-	m:SetAttribute("Lift", 1.4 + sh.h / 2)
-	m:SetAttribute("HalfLen", sh.len / 2)
-	m:SetAttribute("HalfWid", sh.wid / 2)
 	return m
 end
 
