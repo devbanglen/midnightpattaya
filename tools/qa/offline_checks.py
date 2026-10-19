@@ -69,6 +69,9 @@ def check_manifest():
         print('asset manifest: build/vis_assets missing (skipped)')
         return
     names = manifest_names(json.load(open(mj, encoding='utf-8')))
+    mm = os.path.join(ROOT, 'build', 'vis_assets', 'merged', 'manifest.json')
+    if os.path.exists(mm):
+        names |= manifest_names(json.load(open(mm, encoding='utf-8')))
     ids = json.load(open(up, encoding='utf-8'))
     luau_ids = dict(re.findall(r'\["([A-Za-z0-9_]+)"\]\s*=\s*(\d+)', open(lu, encoding='utf-8').read()))
     problems = []
