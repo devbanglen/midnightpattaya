@@ -709,8 +709,10 @@ local function addLights(chassis: BasePart, mine: boolean)
 	local tail = att("PattayaTailGlow", CFrame.new(0, 0.8, half + 0.4))
 	local glow = Instance.new("PointLight")
 	glow.Color = TAIL_COLOR
-	glow.Brightness = 1.5
-	glow.Range = 10
+	-- leader, 2026-10-20 (captures vis71c_tailglow_on/off): 1.5 / 10 painted zebra crossings and white markings pink
+	-- behind the car once the roads had PBR maps; a faint glow is enough
+	glow.Brightness = 0.5
+	glow.Range = 6
 	glow.Shadows = false
 	glow.Parent = tail
 	for _, s in {-1, 1} do
