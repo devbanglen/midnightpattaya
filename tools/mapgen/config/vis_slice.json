@@ -768,39 +768,43 @@
   },
   "top_heights": {"parapet_a": 1.2, "cornice_a": 1.6, "crown_a": 3.4},
   "palettes": {
-    "comment": ">= 3 palette variants per style: plaster (VisCore wall, mixed with the city colour), trim (wallTrim / trim / sill / slab colour), glass (day tint of dark glass). Picked per building by OSM-id seed.",
+    "comment": "Owner palette (review ecbbf89, 2026-10-20): off-white, cream, sand, pale blue and one muted pastel per style; plaster (VisCore wall, mixed with the city colour), trim (wallTrim / trim / sill / slab colour), glass (day tint of dark glass). Picked per building by OSM-id seed, so the variation is controlled and repeatable.",
     "shophouse": [
-      {"plaster": [226, 214, 190], "trim": [244, 240, 230], "glass": [36, 48, 66]},
-      {"plaster": [214, 170, 140], "trim": [236, 226, 210], "glass": [40, 52, 64]},
-      {"plaster": [176, 198, 186], "trim": [238, 236, 226], "glass": [34, 50, 60]},
-      {"plaster": [232, 196, 150], "trim": [250, 244, 232], "glass": [44, 50, 62]}
+      {"plaster": [240, 238, 232], "trim": [246, 244, 238], "glass": [36, 48, 66]},
+      {"plaster": [238, 228, 206], "trim": [248, 242, 228], "glass": [40, 52, 64]},
+      {"plaster": [222, 206, 176], "trim": [244, 236, 220], "glass": [34, 50, 60]},
+      {"plaster": [206, 218, 228], "trim": [244, 246, 248], "glass": [44, 50, 62]},
+      {"plaster": [206, 220, 208], "trim": [240, 244, 238], "glass": [34, 50, 60]}
     ],
     "hotel": [
-      {"plaster": [236, 232, 222], "trim": [200, 196, 188], "glass": [38, 54, 76]},
-      {"plaster": [214, 206, 190], "trim": [246, 244, 238], "glass": [34, 58, 84]},
-      {"plaster": [196, 212, 222], "trim": [244, 246, 248], "glass": [30, 52, 74]},
-      {"plaster": [228, 206, 176], "trim": [248, 242, 230], "glass": [42, 56, 70]}
+      {"plaster": [240, 238, 232], "trim": [210, 208, 202], "glass": [38, 54, 76]},
+      {"plaster": [238, 228, 206], "trim": [246, 244, 238], "glass": [34, 58, 84]},
+      {"plaster": [206, 218, 228], "trim": [244, 246, 248], "glass": [30, 52, 74]},
+      {"plaster": [222, 206, 176], "trim": [248, 242, 230], "glass": [42, 56, 70]},
+      {"plaster": [218, 212, 222], "trim": [244, 242, 246], "glass": [36, 54, 78]}
     ],
     "condo": [
-      {"plaster": [230, 230, 226], "trim": [176, 180, 186], "glass": [36, 56, 80]},
-      {"plaster": [206, 214, 220], "trim": [246, 246, 246], "glass": [32, 54, 78]},
-      {"plaster": [222, 204, 186], "trim": [244, 238, 228], "glass": [40, 54, 68]}
+      {"plaster": [240, 238, 232], "trim": [184, 188, 192], "glass": [36, 56, 80]},
+      {"plaster": [206, 218, 228], "trim": [246, 246, 246], "glass": [32, 54, 78]},
+      {"plaster": [238, 228, 206], "trim": [244, 238, 228], "glass": [40, 54, 68]},
+      {"plaster": [206, 220, 208], "trim": [242, 246, 242], "glass": [34, 54, 76]}
     ],
     "commercial": [
-      {"plaster": [210, 210, 206], "trim": [120, 124, 132], "glass": [40, 62, 88]},
-      {"plaster": [228, 220, 206], "trim": [86, 90, 98], "glass": [36, 58, 84]},
-      {"plaster": [196, 206, 214], "trim": [240, 240, 236], "glass": [44, 66, 92]},
-      {"plaster": [224, 196, 170], "trim": [250, 246, 238], "glass": [38, 56, 76]}
+      {"plaster": [240, 238, 232], "trim": [120, 124, 132], "glass": [40, 62, 88]},
+      {"plaster": [222, 206, 176], "trim": [86, 90, 98], "glass": [36, 58, 84]},
+      {"plaster": [206, 218, 228], "trim": [240, 240, 236], "glass": [44, 66, 92]},
+      {"plaster": [238, 228, 206], "trim": [250, 246, 238], "glass": [38, 56, 76]}
     ],
     "industrial": [
-      {"plaster": [176, 174, 168], "trim": [140, 140, 136], "glass": [36, 48, 66]},
-      {"plaster": [190, 186, 172], "trim": [210, 206, 196], "glass": [40, 50, 62]},
-      {"plaster": [160, 170, 176], "trim": [200, 204, 206], "glass": [34, 46, 60]}
+      {"plaster": [196, 194, 188], "trim": [150, 150, 146], "glass": [36, 48, 66]},
+      {"plaster": [222, 206, 176], "trim": [212, 206, 196], "glass": [40, 50, 62]},
+      {"plaster": [206, 218, 228], "trim": [204, 208, 210], "glass": [34, 46, 60]}
     ],
     "house": [
-      {"plaster": [238, 230, 212], "trim": [250, 248, 240], "glass": [36, 48, 66]},
-      {"plaster": [220, 190, 160], "trim": [244, 236, 222], "glass": [40, 50, 62]},
-      {"plaster": [196, 214, 196], "trim": [244, 244, 236], "glass": [34, 48, 60]}
+      {"plaster": [240, 238, 232], "trim": [250, 248, 240], "glass": [36, 48, 66]},
+      {"plaster": [238, 228, 206], "trim": [244, 236, 222], "glass": [40, 50, 62]},
+      {"plaster": [232, 216, 210], "trim": [246, 240, 236], "glass": [34, 48, 60]},
+      {"plaster": [206, 220, 208], "trim": [244, 244, 236], "glass": [34, 48, 60]}
     ]
   },
   "vismesh": {

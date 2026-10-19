@@ -41,6 +41,10 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 
 | 10:55 | **Focused render FPS measured** (desktop 2684 × 1148, Studio in front): merged tiles + PBR 59.9 fps, p50 16.7 / p99 18.1 / worst 39.6 ms, parts in view 5,203, memory 6,164 MB; A/B original Part build 60.0 fps, p99 18.0, parts in view 5,248 → no measurable cost; world map inset fix verified on desktop (no regression) | TESTED | docs/VISUAL_PERFORMANCE.md §6, commits 3ea1eaa, 2ccdaf6 |
 
+| 11:40 | Owner review ecbbf89 received: VIS-7.1c = technical baseline; VIS-8 not approved; Second Road pilot may be PREPARED (mesh-opt agent resumed with the brief, no install); palettes changed to the owner tones (exported, Studio rebuild deferred until a fresh .rbxl); docs' "pending" notes replaced | DONE | commits 17f6ae6, cecfec0, a54041a |
+| 11:50 | Palm impostor pop-in test at 150 studs/s: 119 switches at 381–450 studs, 0 inside 300; 93 frames with a palm showing neither mesh nor impostor (PattayaLOD unhide latency on the impostor) → fix planned: exclude VisMeshPalms from PattayaLOD and raise the mesh range | TESTED (finding) | Play run 11:50 |
+| 11:55 | **Road hole found** while chasing a flip (up −0.92 → 0.77 at (21032–21041, 43–63)): terrain 3 studs below road level at the mouth of Soi Pattaya 8 on Beach Road (x 21042–21070, z 50–110) — no junction fill between Soi 8's slab and the Beach Road slab; a car drifting right at the junction drops a wheel. Fix: hole audit + fill patches (reversible folder), re-drive | IN PROGRESS | tilt log, raycast grid |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
