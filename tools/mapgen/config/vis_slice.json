@@ -764,7 +764,99 @@
     "comment": "VIS-7.1 building variety. Nothing here changes a box size, position, yaw or the VisHull: only colours, module choice per floor band, the top module and AC / signboard density. palette_wall_mix: VisCore wall = city box colour lerped this far toward the palette plaster.",
     "palette_wall_mix": 0.75,
     "band_floors": [3, 7],
-    "density_spread": 20
+    "density_spread": 20,
+    "v2_enabled": false,
+    "v2_enabled_comment": "VIS-7.2 variety v2 (team13, 2026-10-20; docs/VIS_VARIETY_2026-10-20.md). false = the VIS-7.1c export byte for byte (nothing below is read). true (or vis_slice.py <config> --v2) = the knobs below, each with its own enabled switch. Every choice is seeded by the OSM id (salts 100+), so the output is repeatable. No box size, position, yaw, VisHull, collision or road changes; no new kit module, asset or texture: only colours, per-bay part variants inside existing modules and more of the existing roof modules.",
+    "v2": {
+      "mesh_blocks_structural": false,
+      "mesh_blocks_structural_comment": "false = buildings in the vismesh blocks (sample block + pilot block 2) get only the colour knobs (weathering, shutter_colors): their Part rows / roof rows feed VisMesh, and a structural change there could need merged assets that are not uploaded. true = structural knobs there too (then check build/vis_assets/merged/request.json for new merged assets before installing).",
+      "weathering": {
+        "enabled": true,
+        "comment": "plaster weathering / stain tint: on building_pct % of the buildings the wall colour (VisCore, fins, cornice bands, MP_Wall MeshParts) is lerped mix_pct % (seeded in the range) toward one of colors (warm grime, damp grey-green, dust). Applied after the owner palette mix, small enough to keep the palette (off-white, cream, sand, pale blue, muted pastel) readable. Colour only: 0 instances.",
+        "styles": ["shophouse", "hotel", "condo", "commercial", "industrial", "house"],
+        "building_pct": 60,
+        "mix_pct": [3, 12],
+        "colors": [[146, 136, 116], [124, 132, 122], [160, 150, 138]]
+      },
+      "shutter_colors": {
+        "enabled": true,
+        "comment": "per-building roller shutter / roller door colour (colour key shutter, also the MP_Shutter MeshParts): one of colors, seeded; the first is today's colour (galvanised grey), then pale blue, muted green, cream, light galvanised. Colour only: 0 instances.",
+        "styles": ["shophouse", "industrial"],
+        "colors": [[150, 154, 160], [128, 150, 170], [118, 146, 124], [200, 196, 182], [170, 172, 174]]
+      },
+      "shopfront_accent": {
+        "enabled": true,
+        "comment": "ground-floor shopfront colour accent: on building_pct % of the shophouses the shopfront_a pilasters take the building's accent colour (the awning accent) darkened by dark_mix, instead of the darkened wall. Colour only: 0 instances.",
+        "styles": ["shophouse"],
+        "building_pct": 35,
+        "dark_mix": 0.3
+      },
+      "shutters": {
+        "enabled": true,
+        "comment": "shophouse shutters down / up per bay: each shopfront_a bay shows its roller Shutter when litHash(osm, face, module, floor, bay, 3 + 50) % 100 < shp, else the shop is open and a tall ShopGlow pane (lit like the shopfront) fills the shutter area. shp is seeded per building in down_pct. Instance neutral (one part replaces the other).",
+        "styles": ["shophouse"],
+        "down_pct": [30, 85]
+      },
+      "awnings": {
+        "enabled": true,
+        "comment": "shophouse awning mode per building, seeded with mode_weights: 1 = one awning over the whole front (today), 2 = one awning per bay, each in its own accent colour (litHash per bay), a bay without an awning where the per-bay hash >= awp (awp seeded in bay_pct), 3 = no awning (shutters and signboard only). Mode 2 adds up to bays - 1 parts per shopfront, mode 3 removes one.",
+        "styles": ["shophouse"],
+        "mode_weights": [45, 40, 15],
+        "bay_pct": [65, 100]
+      },
+      "balconies": {
+        "enabled": true,
+        "comment": "balcony rhythm on hotels / condos. balcony_grid_a: every rhp-th bay (shifted by rhs per floor: 0 = vertical stacks, 1 = diagonal) gets a solid plaster BalconyInfill upstand instead of the metal rail; rhp seeded from grid_periods (0 = all rails, today). balcony_row_a: row_solid_pct % of the buildings get a solid plaster BalconyUpstand along the whole floor instead of the continuous rail. Instance neutral.",
+        "styles": ["hotel", "condo"],
+        "grid_periods": [0, 2, 3, 4],
+        "grid_shifts": [0, 0, 1],
+        "row_solid_pct": 35
+      },
+      "density_spread": {
+        "enabled": true,
+        "comment": "wider seeded AC-unit / signboard density per building (replaces the style ac_pct / sign_pct +- variety.density_spread for these styles), so some shophouse rows are dense with signs and AC units and others sparse. Changes the signboard count (each signboard = 1 Part + SurfaceGui + TextLabel + UIPadding).",
+        "styles": {
+          "shophouse": {"ac_pct": 60, "ac_spread": 30, "sign_pct": 75, "sign_spread": 30}
+        }
+      },
+      "roof_extra": {
+        "enabled": true,
+        "comment": "roof clutter: extra existing roof modules [module, % of buildings] after the style's own roof list (water tanks, AC banks); they go through the same fit test (along local x, 2-stud gaps, roof >= 14 studs high) and the same taller-box / prop drop test as the style's roof modules. A building whose v2 parts would exceed the style cap first loses its extra roof modules, then its structural v2 changes.",
+        "styles": {
+          "shophouse": [["ac_pair_a", 40], ["water_tank_a", 20]],
+          "hotel": [["water_tank_a", 45], ["ac_pair_a", 35]],
+          "condo": [["ac_pair_a", 50]],
+          "commercial": [["ac_pair_a", 45], ["water_tank_a", 25]],
+          "industrial": [["water_tank_a", 25]]
+        }
+      },
+      "kit_patch": {
+        "comment": "applied to the kit only when v2 is on: set = fields added to an existing part (by part index), add = parts appended (existing part indices, so every lit / density hash, stay the same). New part fields (Python Kit.face_parts and the builder are twins): gate [field, value] = only on buildings whose field (default 1) equals value; dk = per-bay seeded density field (litHash(osm, face, module, floor, bay, dpi + 50) % 100 < b[dk], default 100), dpi = part index for that hash (default the part's own), dinv = the complement; rh 1 / 2 = rail / solid bay of the balcony rhythm (rhp, rhs). New colour keys: accentBay (accent per bay from litHash pi + 70), gfPilaster (accent darkened when gfa = 1, else wallDark).",
+        "shopfront_a": {
+          "set": {"0": {"gate": ["awm", 1]}, "3": {"dk": "shp"}, "5": {"col": "gfPilaster"}},
+          "add": [
+            {"k": "Awning", "rep": 1, "shape": "wedge", "u": [0, 0.3, 1, -0.3], "v": [1, -3.7, 1, -2.5], "n": [0, 9],
+             "col": "accentBay", "mat": "AwningFabric", "gate": ["awm", 2], "dk": "awp"},
+            {"k": "ShopGlow", "rep": 1, "u": [0, 0.7, 1, -0.7], "v": [0, 4.6, 1, -3.7], "n": [0, 0.1], "col": "glassShop",
+             "mat": "DarkGlass", "lit": "shop", "dk": "shp", "dpi": 3, "dinv": true}
+          ]
+        },
+        "balcony_grid_a": {
+          "set": {"1": {"rh": 1}},
+          "add": [
+            {"k": "BalconyInfill", "rep": 1, "u": [0, 0.6, 1, -0.6], "v": [0, 0.5, 0, 2.4], "nh": [-0.35, 0], "col": "trim",
+             "mat": "PaintedPlaster", "rh": 2}
+          ]
+        },
+        "balcony_row_a": {
+          "set": {"1": {"gate": ["brs", 1]}},
+          "add": [
+            {"k": "BalconyUpstand", "rep": 0, "u": [0, 0, 1, 0], "v": [0, 0.5, 0, 2.4], "nh": [-0.35, 0], "col": "trim",
+             "mat": "PaintedPlaster", "gate": ["brs", 2]}
+          ]
+        }
+      }
+    }
   },
   "top_heights": {"parapet_a": 1.2, "cornice_a": 1.6, "crown_a": 3.4},
   "palettes": {

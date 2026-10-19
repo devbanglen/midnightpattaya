@@ -23,6 +23,10 @@ build/vis_slice/vis_slice_check.png.
 VIS-7.1: building variety (palette variant, mid module per floor band, top module, AC / signboard density; all seeded by
 the OSM id, nothing changes a box) and tools/mapgen/VisMesh.py (kit MeshParts for vismesh.sample_block + mesh palms):
 build/vis_slice/roblox/vismesh.luau, field `mesh` on the sample buildings, build/vis_slice/mesh_sample.json.
+VIS-7.2 variety v2 (config variety.v2_enabled / `--v2`, docs/VIS_VARIETY_2026-10-20.md): weathering tint, shutter colours,
+shopfront accent pilasters, shutters up/down and awning modes per bay, balcony rhythm, wider AC / sign density, extra
+roof modules; seeded per OSM id, exported as building fields (wx wxc shc gfa shp awm awp rhp rhs brs) + manifest
+variety2 + a kit patch. Off = the VIS-7.1c output byte for byte.
 """
 import glob, json, math, os, re, sys
 from collections import Counter, defaultdict
@@ -120,6 +124,8 @@ class Kit:
             for pi, sp in enumerate(mod['parts']):
                 if sp.get('neon') and not (flags & 1):
                     continue
+                if 'gate' in sp and b.get(sp['gate'][0], 1) != sp['gate'][1]:
+                    continue                                   # VIS-7.2 variety v2: per-building variant gate
                 if (sp.get('text') or sp.get('neon')) and (flags & 2):
                     continue
                 if sp.get('dens') == 'sign' and lit_hash(b['osm'], face, mi, k, 0, pi + 50, self.lit_cfg['hash_mod']) % 100 >= b['sgp']:
@@ -146,6 +152,14 @@ class Kit:
                         continue
                     if sp.get('dens') == 'ac' and                             lit_hash(b['osm'], face, mi, k, j, pi + 50, self.lit_cfg['hash_mod']) % 100 >= b['acp']:
                         continue                               # seeded AC density (per bay)
+                    if 'dk' in sp and (lit_hash(b['osm'], face, mi, k, j, sp.get('dpi', pi) + 50, self.lit_cfg['hash_mod']) % 100
+                                       < b.get(sp['dk'], 100)) == bool(sp.get('dinv')):
+                        continue                               # VIS-7.2: seeded per-bay density (dinv = the complement)
+                    if 'rh' in sp:                             # VIS-7.2: balcony rhythm, solid bay every rhp bays
+                        rp = b.get('rhp', 0)
+                        solid = rp > 0 and (j + k * b.get('rhs', 0)) % rp == 0
+                        if solid != (sp['rh'] == 2):
+                            continue
                     lit = False
                     if sp.get('lit'):
                         pct = style['lit_' + sp['lit']]
@@ -199,12 +213,83 @@ def face_segment(b, f):
     return mid - U * b[spank] / 2, mid + U * b[spank] / 2, N, U
 
 
-def main(cfg_path):
+def apply_kit_patch(cfg, patch):
+    """VIS-7.2: variety.v2.kit_patch -> cfg['kit'] (copy): {module: {"set": {part index: {field: value}}, "add": [parts]}}.
+    New parts are appended, so the part index (lit / density hash input) of every existing part stays the same."""
+    import copy
+    kit = copy.deepcopy(cfg['kit'])
+    for mname, pt in patch.items():
+        if mname == 'comment':
+            continue
+        parts = kit[mname]['parts']
+        for idx, fields in pt.get('set', {}).items():
+            parts[int(idx)].update(fields)
+        parts.extend(copy.deepcopy(pt.get('add', [])))
+    cfg['kit'] = kit
+
+
+def v2_fields(v2, style, osm):
+    """VIS-7.2 per-building variety fields, seeded by the OSM id (salts 100+; the VIS-7.1 salts are untouched).
+    Returns (colour fields: also on vismesh-block buildings, structural fields, extra roof module names).
+    Colour: wx/wxc weathering mix % + stain colour, shc shutter colour. Structural: gfa ground-floor accent pilasters,
+    shp shutter-down % per bay, awm awning mode (1 span, 2 per bay, 3 none) + awp per-bay awning %, rhp/rhs balcony
+    rhythm period/shift, brs balcony row style (1 rail, 2 solid upstand), acp/sgp with the v2 density spread."""
+    col, st, extra = {}, {}, []
+    w = v2['weathering']
+    if w.get('enabled') and style in w['styles'] and seeded(osm, 100, 100) < w['building_pct']:
+        lo, hi = w['mix_pct']
+        col['wx'] = lo + seeded(osm, 101, hi - lo + 1)
+        col['wxc'] = seeded(osm, 102, len(w['colors'])) + 1
+    sc = v2['shutter_colors']
+    if sc.get('enabled') and style in sc['styles']:
+        col['shc'] = seeded(osm, 103, len(sc['colors'])) + 1
+    ga = v2['shopfront_accent']
+    if ga.get('enabled') and style in ga['styles'] and seeded(osm, 104, 100) < ga['building_pct']:
+        st['gfa'] = 1
+    sh = v2['shutters']
+    if sh.get('enabled') and style in sh['styles']:
+        lo, hi = sh['down_pct']
+        st['shp'] = lo + seeded(osm, 105, hi - lo + 1)
+    aw = v2['awnings']
+    if aw.get('enabled') and style in aw['styles']:
+        x, acc = seeded(osm, 106, sum(aw['mode_weights'])), 0
+        for m, wgt in enumerate(aw['mode_weights']):
+            acc += wgt
+            if x < acc:
+                st['awm'] = m + 1
+                break
+        lo, hi = aw['bay_pct']
+        st['awp'] = lo + seeded(osm, 107, hi - lo + 1)
+    bc = v2['balconies']
+    if bc.get('enabled') and style in bc['styles']:
+        st['rhp'] = bc['grid_periods'][seeded(osm, 108, len(bc['grid_periods']))]
+        st['rhs'] = bc['grid_shifts'][seeded(osm, 109, len(bc['grid_shifts']))]
+        st['brs'] = 2 if seeded(osm, 110, 100) < bc['row_solid_pct'] else 1
+    ds = v2['density_spread']
+    if ds.get('enabled') and style in ds['styles']:
+        s = ds['styles'][style]
+        st['acp'] = max(0, min(100, s['ac_pct'] + seeded(osm, 111, 2 * s['ac_spread'] + 1) - s['ac_spread']))
+        st['sgp'] = max(0, min(100, s['sign_pct'] + seeded(osm, 112, 2 * s['sign_spread'] + 1) - s['sign_spread']))
+    rx = v2['roof_extra']
+    if rx.get('enabled'):
+        for i, (mname, pct) in enumerate(rx['styles'].get(style, [])):
+            if seeded(osm, 120 + i, 100) < pct:
+                extra.append(mname)
+    return col, st, extra
+
+
+def main(cfg_path, force_v2=False):
     cfg = json.load(open(cfg_path, encoding='utf-8'))
+    if force_v2:                                               # vis_slice.py <config> --v2 = variety.v2_enabled true
+        cfg['variety']['v2_enabled'] = True
     inp = {k: os.path.join(ROOT, v) for k, v in cfg['inputs'].items()}
     out_dir = os.path.join(ROOT, cfg['out'])
     rb_dir = os.path.join(out_dir, 'roblox')
     os.makedirs(rb_dir, exist_ok=True)
+    # VIS-7.2 variety v2 (config variety.v2_enabled + variety.v2): off = the VIS-7.1c output byte for byte
+    v2 = cfg['variety']['v2'] if cfg['variety'].get('v2_enabled') else None
+    if v2:
+        apply_kit_patch(cfg, v2.get('kit_patch', {}))
     kit = Kit(cfg)
     L = cfg['level_studs']
     G0 = L + cfg['ground_extra_studs']
@@ -406,6 +491,48 @@ def main(cfg_path):
             party = True
         return {'face': f, 'span': span, 'party': party, 'dist': best, 'main': sees_main, 'lim': lim}
 
+    def place_roofs(b, bd, ins, names, drop_stat):
+        """roof modules on the core top, placed along the local x axis; a module that would stick into a taller box /
+        prop is dropped (counted under drop_stat)"""
+        cw = b['w'] - ins[0] - ins[1]
+        cd = b['d'] - ins[2] - ins[3]
+        ccx = (ins[1] - ins[0]) / 2                            # core centre offset in local x (left inset - right inset)
+        ccz = (ins[3] - ins[2]) / 2
+        free_x = cw
+        slots, roofs = [], []
+        for rname in names:
+            need = cfg['roof_kit'][rname]['need']
+            if need[0] <= cw - 2 and need[1] <= cd - 2 and b['h'] >= 14 and sum(s[1] for s in slots) + need[0] <= free_x - 2:
+                slots.append((rname, need[0]))
+        xpos = ccx - (sum(s[1] for s in slots) + 2 * (len(slots) - 1)) / 2
+        for rname, wneed in slots:
+            roofs.append([kit.roof_mods.index(rname) + 1, round(xpos + wneed / 2, 2), round(ccz, 2)])
+            xpos += wneed + 2
+        keep = []
+        for rr in roofs:                                        # a roof module must not stick into a taller box / prop
+            ok = True
+            for p in kit.roof_parts(bd, rr):
+                fp, _ = part_footprint(bd, p)
+                for j in btree.query(fp):
+                    poly, cls, bo = blockers[j]
+                    if bo is not None and (bo == b['osm'] or bo in replaced or rows_by_osm[bo]['h'] <= b['h']):
+                        continue
+                    if poly.intersects(fp) and poly.intersection(fp).area > 1e-6:
+                        ok = False
+            if ok:
+                keep.append(rr)
+            else:
+                stats[drop_stat] += 1
+        return keep
+
+    # VIS-7.2: buildings of the vismesh blocks get colour-only v2 fields unless v2.mesh_blocks_structural (their Part
+    # rows / roof rows feed VisMesh: a structural change there could ask for merged assets that are not uploaded)
+    mesh_block_osm = set()
+    if v2 and not v2.get('mesh_blocks_structural'):
+        import VisMesh as vismesh_mod
+        for blk in vismesh_mod.select_blocks(cfg['vismesh'], [{'b': b} for b in sel], g['edges']):
+            mesh_block_osm |= {B['b']['osm'] for B in blk['B']}
+
     # --- placements ----------------------------------------------------------------------------------------------------
     neon_left = cfg['neon']['max_total_strips']
     sign_pts = [(r[0], r[1]) for r in props['signs']]
@@ -472,7 +599,7 @@ def main(cfg_path):
             for fi in faces:
                 ins[fi['face'] - 1] = st['ins']
             bd = dict(b, ins=ins)
-            pls, roofs = [], []
+            pls = []
             for fi in faces:
                 f = fi['face']
                 a_, b_ = ADJ[f]
@@ -501,39 +628,9 @@ def main(cfg_path):
                     th = cfg['top_heights'][top]
                     tb = max(1, round(span / (st['mid_bay'] * bay_scale)))
                     pls.append([f, kit.mods.index(top) + 1, u0, u1, tb, b['h'] - th, th, 1, 0.0, flags])
-            # roof modules on the core top, placed along the local x axis
-            cw = b['w'] - ins[0] - ins[1]
-            cd = b['d'] - ins[2] - ins[3]
-            ccx = (ins[1] - ins[0]) / 2                        # core centre offset in local x (left inset - right inset)
-            ccz = (ins[3] - ins[2]) / 2
-            free_x = cw
-            slots = []
-            for rname in st['roof']:
-                need = cfg['roof_kit'][rname]['need']
-                if need[0] <= cw - 2 and need[1] <= cd - 2 and b['h'] >= 14 and sum(s[1] for s in slots) + need[0] <= free_x - 2:
-                    slots.append((rname, need[0]))
-            xpos = ccx - (sum(s[1] for s in slots) + 2 * (len(slots) - 1)) / 2
-            for rname, wneed in slots:
-                roofs.append([kit.roof_mods.index(rname) + 1, round(xpos + wneed / 2, 2), round(ccz, 2)])
-                xpos += wneed + 2
             # the builder gets these numbers rounded to 3 decimals: generate from exactly the same values
             pls = [[round(v, 3) if isinstance(v, float) else v for v in pl] for pl in pls]
-            keep = []
-            for rr in roofs:                                    # a roof module must not stick into a taller box / prop
-                ok = True
-                for p in kit.roof_parts(bd, rr):
-                    fp, _ = part_footprint(bd, p)
-                    for j in btree.query(fp):
-                        poly, cls, bo = blockers[j]
-                        if bo is not None and (bo == b['osm'] or bo in replaced or rows_by_osm[bo]['h'] <= b['h']):
-                            continue
-                        if poly.intersects(fp) and poly.intersection(fp).area > 1e-6:
-                            ok = False
-                if ok:
-                    keep.append(rr)
-                else:
-                    stats['roof module dropped (taller box / prop over the roof)'] += 1
-            roofs = keep
+            roofs = place_roofs(b, bd, ins, st['roof'], 'roof module dropped (taller box / prop over the roof)')
             parts = []
             for pl in pls:
                 parts += kit.face_parts(bd, pl, st)
@@ -548,6 +645,31 @@ def main(cfg_path):
                 bay_scale *= 1.5
         if n_parts > st['cap']:
             stats['over style cap after coarsening'] += 1
+        v2f = {}
+        if v2:                                                 # VIS-7.2 variety v2 (the facade layout above stays)
+            colour_f, struct_f, extra_roof = v2_fields(v2, style_name, osm)
+            v2f = dict(colour_f)
+            if osm in mesh_block_osm:
+                stats['v2: mesh-block buildings (colour only)'] += 1
+                bd = dict(bd, **v2f)
+            else:
+                n_base = n_parts
+                # all v2 changes, then without the extra roof modules, then colour only: the first within the cap
+                for extra, fields in ((extra_roof, struct_f), ([], struct_f), ([], {})):
+                    bd2 = dict(bd, **v2f, **fields)
+                    roofs2 = place_roofs(b, bd2, ins, st['roof'] + extra, 'v2: roof module dropped (taller box / prop)') \
+                        if extra else roofs
+                    parts2 = []
+                    for pl in pls:
+                        parts2 += kit.face_parts(bd2, pl, st)
+                    for rr in roofs2:
+                        parts2 += kit.roof_parts(bd2, rr)
+                    if len(parts2) + 2 <= max(st['cap'], n_base) or not fields:
+                        break
+                    stats['v2: over the style cap, fewer v2 changes'] += 1
+                v2f.update(fields)
+                stats['v2: buildings with structural variety'] += bool(fields)
+                bd, roofs, parts, n_parts = bd2, roofs2, parts2, len(parts2) + 2
         neon_strips = sum(1 for p in parts if p.get('neon'))
         if neon_strips:
             neon_left -= neon_strips
@@ -562,7 +684,7 @@ def main(cfg_path):
                       'top': top, 'bands': bands,
                       'n': n_parts, 'faces': [fi['face'] for fi in faces], 'G': G, 'fl': fl, 'neon': neon_on,
                       'acc': osm % len(cfg['accents']) + 1, 'sc': (osm // 11) % len(cfg['sign_combos']) + 1, 'txt': txt,
-                      'bd': bd})
+                      'bd': bd, 'v2': {k: v for k, v in v2f.items() if k not in ('acp', 'sgp')}})
     stats['skip: every face a party wall / too narrow'] = skipped_party
 
     # --- checks --------------------------------------------------------------------------------------------------------
@@ -710,7 +832,7 @@ def main(cfg_path):
             blds.append({'osm': b['osm'], 'x': b['x'], 'z': b['z'], 'w': b['w'], 'd': b['d'], 'h': b['h'], 'yaw': b['yaw'],
                          'style': style_names.index(B['style']) + 1, 'cat': b['cat'], 'ins': B['ins'], 'acc': B['acc'],
                          'sc': B['sc'], 'txt': B['txt'], 'neon': B['neon'], 'parts': B['n'], 'pal': B['pal'],
-                         'acp': b['acp'], 'sgp': b['sgp'],
+                         'acp': B['bd']['acp'], 'sgp': B['bd']['sgp'], **B['v2'],
                          'p': [v for pl in B['pls'] for v in pl],
                          'r': [v for rr in B['roofs'] for v in rr]})
             if b['osm'] in mesh_out:
@@ -737,6 +859,9 @@ def main(cfg_path):
         'texts': text_list, 'materials': cfg['materials'], 'styles': style_out, 'modules': mods_out, 'roofModules': roof_out,
         'palettes': [cfg['palettes'][s] for s in style_names], 'paletteWallMix': cfg['variety']['palette_wall_mix'],
     }
+    if v2:                                                     # VIS-7.2: colour tables for the v2 building fields
+        manifest['variety2'] = {'stainColors': v2['weathering']['colors'], 'shutterColors': v2['shutter_colors']['colors'],
+                                'accentDarkMix': v2['shopfront_accent']['dark_mix']}
     chunk_of = {B['b']['osm']: c['id'] for c in chunks for B in c['items']}
     block_out = []
     for bi, blk in enumerate(blocks):
@@ -793,6 +918,10 @@ def main(cfg_path):
         'checks': dict(checks), 'check_examples': {k: v[:5] for k, v in examples.items()},
         'stats': {k: v for k, v in stats.items()}, 'over_part_cap_chunks': over,
     }
+    if v2:
+        report['variety_v2'] = {k: dict(Counter(B['v2'].get(k) for B in built if k in B['v2']).most_common())
+                                for k in ('wxc', 'shc', 'gfa', 'awm', 'rhp', 'rhs', 'brs')}
+        report['variety_v2']['part_kinds'] = dict(Counter(f"{p['mod']}.{p['k']}" for B in built for p in B['parts']).most_common())
     json.dump(report, open(os.path.join(out_dir, 'vis_slice.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
     check_image(os.path.join(out_dir, 'vis_slice_check.png'), g, area, core_area, rows, built)
     tot_b = sum(r['before']['parts'] for r in mesh_rep)
@@ -864,4 +993,4 @@ def check_image(path, g, area, core_area, rows, built):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    main(sys.argv[1], force_v2='--v2' in sys.argv[2:])
