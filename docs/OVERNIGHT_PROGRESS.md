@@ -53,6 +53,8 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 16:30 | Junction aprons built citywide: 47 batches, 9,154 apron + 14,633 corner parts; Probe aprons above road 0, corner fills above sidewalk 0; corner fill over a road surface 0 of 42,734 top samples (the builder's own 1,602 count is bounding-box based); 4 poles stand inside fills (harmless) | DONE / TESTED | `PattayaApronBuilder.Remove()` rolls back |
 | 16:40 | Regression: Beach Road → Bira 217 s at 150, 425/426 on road, 0 tilts < 0.9 (up min 0.93); Central Loop lap 52 s, 102/103, up min 0.99 | TESTED | TK handles full / loop2 |
 
+| 16:50 | team9/traffic-vehicles started (owner item 9: box traffic → Blender sedan / pickup / songthaew / tuk-tuk / scooter / minivan, same collision boxes, box fallback kept; owns PattayaTraffic.client + new TrafficVehicles module) | RUNNING | branch team9/traffic-vehicles in D:\ROBLOXRACE-qa |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
