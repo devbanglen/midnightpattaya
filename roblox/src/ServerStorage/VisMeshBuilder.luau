@@ -200,9 +200,47 @@ local function loadData(V: any, opts: any): (any, any, Instance)
 	return man, I.load(vmMod), data
 end
 
-local function wantedSet(vm: any, only: {any}?): ({[number]: boolean}, {[string]: boolean}?)
+-- mesh blocks (vm.blocks, mesh-opt): opts.block = 2, {1, 2} or "all" -> the OSM ids of those blocks + their expected
+-- counts. nil when opts.block is not given (then the VIS-7.1 behaviour: vm.sample = block 1, or opts.only).
+local function blockSel(vm: any, block: any): ({[number]: boolean}?, any, string)
+	if block == nil then
+		return nil, nil, ""
+	end
+	local list: {number} = {}
+	if block == "all" then
+		for i = 1, #(vm.blocks or {}) do
+			table.insert(list, i)
+		end
+	elseif type(block) == "table" then
+		list = block
+	else
+		list = {block :: number}
+	end
+	local osm: {[number]: boolean} = {}
+	local exp = {parts = 0, meshParts = 0, meshPartsBase = 0, n = 0}
+	local names = {}
+	for _, i in list do
+		local blk = vm.blocks and vm.blocks[i]
+		assert(blk, ("VisMesh: no block %s (vm.blocks has %d)"):format(tostring(i), #(vm.blocks or {})))
+		for _, id in blk.osm do
+			osm[id] = true
+			exp.n += 1
+		end
+		exp.parts += blk.expected.parts
+		exp.meshParts += blk.expected.meshParts
+		exp.meshPartsBase += blk.expected.meshPartsBase
+		table.insert(names, ("%d %s"):format(i, blk.name))
+	end
+	return osm, exp, " [block " .. table.concat(names, ", ") .. "]"
+end
+
+local function wantedSet(vm: any, only: {any}?, block: any?): ({[number]: boolean}, {[string]: boolean}?)
 	local osm: {[number]: boolean} = {}
 	local chunks: {[string]: boolean}? = nil
+	local bsel = blockSel(vm, block)
+	if bsel then
+		return bsel, nil
+	end
 	if only == nil then
 		for _, id in vm.sample do
 			osm[id] = true
@@ -266,7 +304,11 @@ local function buildMeshBuilding(V: any, ctx: any, vm: any, A: Assets, b: any, o
 	for r = 0, #Q // 6 - 1 do
 		local g = Q[r * 6 + 6]
 		hasRows[g] = true
-		tier[g] = if A.tpl[vm.assets[Q[r * 6 + 1]].name] then "q" else nil
+		if A.tpl[vm.assets[Q[r * 6 + 1]].name] then
+			tier[g] = "q"
+		else
+			tier[g] = nil
+		end
 	end
 	-- corner stacks (group 0): the merged set when all of it loads, else the 1-bay set (unusable rows skipped)
 	local cornerTier = if cornerM or oneTier then "m" else (if cornerB then "b" else "m")
@@ -606,9 +648,12 @@ function M.BuildMesh(V: any, opts: any): string
 	local root = world:FindFirstChild(I.ROOT_NAME)
 	local ctx = I.context(man, opts)
 	ctx.useMerged = opts.merged ~= false
-	local wantOsm, wantChunk = wantedSet(vm, opts.only)
+	local wantOsm, wantChunk = wantedSet(vm, opts.only, opts.block)
+	local _, bExp, bLabel = blockSel(vm, opts.block)
+	local expect = bExp or {parts = vm.expected.parts, meshParts = vm.expected.meshParts,
+		meshPartsBase = vm.expected.meshPartsBase or vm.expected.meshParts, n = #vm.sample}
 	local doBuildings = opts.buildings ~= false
-	local doPalms = opts.palms ~= false and opts.only == nil or opts.palms == true
+	local doPalms = opts.palms ~= false and opts.only == nil and opts.block == nil or opts.palms == true
 
 	-- which chunks / buildings, and which assets they need
 	local todo = {}
@@ -713,15 +758,22 @@ function M.BuildMesh(V: any, opts: any): string
 		table.insert(failedList, n)
 	end
 	table.sort(failedList)
-	return ("vismesh: assets %d loaded now, %d from ServerStorage.%s, %d unusable [%s] (loaded vs manifest: max centre offset %.3f studs, max rotation %.1f deg); buildings %d built (%d Parts + %d MeshParts, %d Part rows fell back, %d signboards, %d lit panes; Part rows on merged tiles %d, on the 1-bay kit %d), %d already mesh, %d chunks missing; expected when every asset loads: %d Parts + %d MeshParts (1-bay kit: %d, BuildMesh({merged = false})) for the %d sample buildings; %s")
+	return ("vismesh: assets %d loaded now, %d from ServerStorage.%s, %d unusable [%s] (loaded vs manifest: max centre offset %.3f studs, max rotation %.1f deg); buildings %d built (%d Parts + %d MeshParts, %d Part rows fell back, %d signboards, %d lit panes; Part rows on merged tiles %d, on the 1-bay kit %d), %d already mesh, %d chunks missing; expected when every asset loads: %d Parts + %d MeshParts (1-bay kit: %d, BuildMesh({merged = false})) for the %d buildings%s; %s")
 		:format(A.loadedNow, A.cached, CACHE, #failedList, table.concat(failedList, ", "), A.offsetMax, A.rotMax, nB, parts, meshParts,
-			fallback, signs, lit, mergedRows, baseRows, nSkip, nMissing, vm.expected.parts, vm.expected.meshParts,
-			vm.expected.meshPartsBase or vm.expected.meshParts, #vm.sample, palmMsg)
+			fallback, signs, lit, mergedRows, baseRows, nSkip, nMissing, expect.parts, expect.meshParts,
+			expect.meshPartsBase, expect.n, bLabel, palmMsg)
 end
 
 function M.RemoveMesh(V: any, opts: any): string
 	local I = V._internal
 	local world = workspace:FindFirstChild("PattayaWorld")
+	-- opts.block / opts.only (OSM ids): remove only those mesh buildings (palms stay unless palms = true)
+	local filter: {[number]: boolean}? = nil
+	if opts.block ~= nil or opts.only ~= nil then
+		local data = I.dataFolder(opts.folder)
+		local vm = I.load(data:WaitForChild("vismesh"))
+		filter = wantedSet(vm, opts.only, opts.block)
+	end
 	local removed = ServerStorage:FindFirstChild(REMOVED)
 	local nB, nRestored, nP, nPalmModels = 0, 0, 0, 0
 	local root = world and world:FindFirstChild(I.ROOT_NAME)
@@ -729,7 +781,7 @@ function M.RemoveMesh(V: any, opts: any): string
 	if root then
 		for _, chunk in root:GetChildren() do
 			for _, m in chunk:GetChildren() do
-				if m:GetAttribute("VisMesh") == true then
+				if m:GetAttribute("VisMesh") == true and (filter == nil or (filter :: any)[m:GetAttribute("OsmBuilding")]) then
 					local name = m.Name
 					m:Destroy()
 					nB += 1
@@ -744,15 +796,16 @@ function M.RemoveMesh(V: any, opts: any): string
 			end
 		end
 	end
-	if rb then
+	if rb and filter == nil then
 		rb:Destroy() -- what is left belongs to chunks that no longer exist
 	end
-	local palms = world and world:FindFirstChild(PALMS)
+	local doPalms = filter == nil or opts.palms == true
+	local palms = doPalms and world and world:FindFirstChild(PALMS)
 	if palms then
 		nPalmModels = #palms:GetChildren()
 		palms:Destroy()
 	end
-	local rp = removed and removed:FindFirstChild("Palms")
+	local rp = doPalms and removed and removed:FindFirstChild("Palms")
 	local lost = 0
 	if rp and world then
 		for _, c in rp:GetChildren() do
@@ -792,6 +845,8 @@ function M.ProbeMesh(V: any, opts: any): string
 		end
 		spec[a.name] = t
 	end
+	local filter, bExp, bLabel = blockSel(vm, opts.block)
+	local expect = bExp or {parts = vm.expected.parts, meshParts = vm.expected.meshParts, n = #vm.sample}
 	local exp: {[number]: any} = {}
 	for _, id in vm.sampleChunks do
 		for _, b in I.load(data:WaitForChild("chunk_" .. id)).buildings do
@@ -814,6 +869,7 @@ function M.ProbeMesh(V: any, opts: any): string
 	for _, chunk in (if root then root:GetChildren() else {}) do
 		for _, m in chunk:GetChildren() do
 			if m:GetAttribute("VisMesh") ~= true then continue end
+			if filter and not filter[m:GetAttribute("OsmBuilding") :: number] then continue end
 			nB += 1
 			local hull = m:FindFirstChild("VisHull") :: BasePart?
 			local np, nm = 0, 0
@@ -908,8 +964,8 @@ function M.ProbeMesh(V: any, opts: any): string
 			end
 		end
 	end
-	return ("vismesh probe: %d mesh buildings (sample %d): %d Parts + %d MeshParts (export expects %d + %d with every asset); MeshParts outside their box %d; touching road/sidewalk/disc %d; size != manifest x scale %d; buildings whose counts differ from the builder %d, from the export %d (%d on mixed merged / 1-bay tiers, not compared); Part rows on fallback %d | palms %d (of %d), %d MeshParts, %d impostor parts, %d colliders (separate or impostor trunk), Part palms still at a mesh palm %d")
-		:format(nB, #vm.sample, nParts, nMesh, vm.expected.parts, vm.expected.meshParts, outside, onRoad, sizeBad, countBad,
+	return ("vismesh probe%s: %d mesh buildings (expected %d): %d Parts + %d MeshParts (export expects %d + %d with every asset); MeshParts outside their box %d; touching road/sidewalk/disc %d; size != manifest x scale %d; buildings whose counts differ from the builder %d, from the export %d (%d on mixed merged / 1-bay tiers, not compared); Part rows on fallback %d | palms %d (of %d), %d MeshParts, %d impostor parts, %d colliders (separate or impostor trunk), Part palms still at a mesh palm %d")
+		:format(bLabel, nB, expect.n, nParts, nMesh, expect.parts, expect.meshParts, outside, onRoad, sizeBad, countBad,
 			vsExport, mixed, fallback, nPalm, #vm.palms, nPalmMesh, nImp, nCol, partLeft)
 end
 

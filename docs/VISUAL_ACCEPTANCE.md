@@ -281,6 +281,27 @@ Check: tiles line up with each other and with 1-bay columns (no seams / overlaps
 is compensated on merged parts as on the kit (fronts face the street); at night lit panes vary inside a tile (about
 half of a tile's windows light together); a car still stops at a palm trunk.
 
+### 4.9 Pilot block 2: Second Road, Soi 5 → Soi 10 (prepared, not installed; written, not built in Studio)
+`vismesh.blocks`: block 1 `beach_soi7_8` (the sample block, unchanged), block 2 `second_road_soi5_10` (60 buildings,
+docs/VISUAL_PERFORMANCE.md §5.1). Export: block 2 2,577 Parts → **137 Parts + 2,177 MeshParts** (1-bay kit 137 + 6,724).
+Builder options: `V.BuildMesh({block = 2})` (palms only with `palms = true`), `{block = {1, 2}}`, `{block = "all"}`;
+`V.ProbeMesh({block = 2})`; `V.RemoveMesh({block = 2})` (only those buildings back to Parts; palms stay unless
+`palms = true`). `V.BuildMesh()` / `V.RemoveMesh()` without options behave as before (block 1 / everything).
+
+Leader steps (edit mode, save first; only when the owner says install):
+1. Upload the 48 files listed in `build/vis_assets/merged/upload_patch.json` `assets` (the 36 in `already_uploaded`
+   are byte-identical to the uploaded ones: `changed_since_upload` is empty); add their ids to
+   `ServerStorage.VisAssetsManifest`.
+2. Copy `build/vis_slice/roblox/*` into `PattayaDataVisSlice` and `VisMeshBuilder.luau` into `ServerStorage.VisMeshBuilder`.
+3. `print(V.BuildMesh({block = 2}))`. Expected: `0 unusable` (85 assets: 70 merged + 15 kit, fewer loaded now if
+   cached), `buildings 60 built (137 Parts + 2177 MeshParts, 0 Part rows fell back, 43 signboards, 363 lit panes; …)`,
+   `expected when every asset loads: 137 Parts + 2177 MeshParts (1-bay kit: 6724 …) for the 60 buildings [block 2
+   second_road_soi5_10]; palms not requested`.
+4. `print(V.ProbeMesh({block = 2}))`: 60 mesh buildings (expected 60), 137 + 2177, outside box 0, touching road 0,
+   size ≠ manifest 0, count mismatches 0 / 0.
+5. Street camera: `workspace.CurrentCamera.CFrame = CFrame.lookAt(Vector3.new(21760.7, 40.0, 8.7), Vector3.new(21699.4, 45.0, -9.3))`
+   (on Second Road at Pattaya Klang, not inside a box). Undo: `V.RemoveMesh({block = 2})`.
+
 ## 5. VIS-7.1 Studio results (leader, 2026-10-19 — read with docs/NIGHT_LIGHTING.md and docs/VISUAL_PERFORMANCE.md §4)
 
 Installed on main (`team6/vis-lighting2` + `team6/vis-mesh` merged) and built in the place. All captures are from the

@@ -172,3 +172,23 @@ Same street camera as §4 (`CFrame.lookAt((20979.8, 40, 8), (21119.9, 45, 75))`)
 Result: the merged-tile build costs nothing measurable against the Part build at this camera (both vsync-bound at 60, p99 18 ms, parts in view within 1 %).
 Note: the §4 rows were taken on the 830 × 439 emulator viewport, so "parts in view" is not directly comparable
 (this desktop viewport is wider). The A/B rows below use the same desktop viewport.
+
+### 5.1 Pilot block 2: Second Road (prepared, not installed; exporter numbers, not built in Studio)
+`vismesh.blocks` replaces the single block (block 1 = `sample_block`, unchanged: 634 → 40 + 508). Block 2
+`second_road_soi5_10`: buildings whose centre is within 140 studs of Pattaya Sai Song Road and projects between the
+Soi Pattaya 5 crossing (map-local 2101, −1299) and the Soi Pattaya 10 crossing (1091, 979). The slice road data has no
+Soi 13, and x 1700–1950 holds only 23 upgraded buildings within 140 studs, so the span runs Soi 5 → Soi 10 to reach 60.
+60 buildings: 38 shophouse, 11 hotel, 4 commercial, 4 industrial, 2 house, 1 public (ids in `mesh_sample.json`
+`blocks[2].osm`).
+
+| Block 2 | Parts | MeshParts | total |
+|---|---|---|---|
+| Part slice (before) | 2,577 | 0 | 2,577 |
+| 1-bay kit (`merged = false`) | 137 | 6,724 | 6,861 |
+| **merged 1–4 × 1–4** | 137 | **2,177** | **2,314** |
+
+Triangles 202,526; biggest: hotel 1210196040 (21 fl) 154 → 2 + 92, hotel 322203172 (17 fl) 137 → 2 + 74, hotel
+153538042 (11 fl) 136 → 2 + 81. 6 Part rows stay Parts (garage doors, house fronts: no kit asset). Merged assets
+used: 70 (22 of the 36 uploaded + 48 new: 2.05 MB glb, 27,840 tris, max 1,800); kit assets 15. Shophouse rows with
+mixed per-column modules merge less (runs of 1–2), so this block saves 10 % against the Part build where block 1
+saved 14 %. Citywide estimate unchanged (§5 table: 21,896 instances, 111 merged assets; 84 now exist).

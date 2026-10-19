@@ -25,6 +25,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import struct
 import sys
@@ -205,7 +206,14 @@ def build(req, kit_dir, kit_man, out_dir, split_glass):
     return rec
 
 
-def run(kit_dir, req_path, out_dir):
+def uploaded_names(path):
+    """names that already have a Model asset id in ServerStorage.VisAssetsManifest (roblox/src copy)"""
+    if not path or not os.path.isfile(path):
+        return {}
+    return {m.group(1): int(m.group(2)) for m in re.finditer(r'\["(\w+)"\]\s*=\s*(\d+)', open(path, encoding='utf-8').read())}
+
+
+def run(kit_dir, req_path, out_dir, uploaded=None, prev=None):
     req = json.load(open(req_path, encoding='utf-8'))
     kit_man = {a['name']: a for a in json.load(open(os.path.join(kit_dir, 'manifest.json'), encoding='utf-8'))['assets']}
     os.makedirs(out_dir, exist_ok=True)
@@ -226,11 +234,20 @@ def run(kit_dir, req_path, out_dir):
                'units': 'studs (1 glTF unit = 1 stud), Y up, front -Z'}
     json.dump({'summary': summary, 'assets': recs}, open(os.path.join(out_dir, 'manifest.json'), 'w', encoding='utf-8',
                                                           newline='\n'), indent=1)
+    uploaded = uploaded or {}
+    prev = prev or {}
+    changed = [r['name'] for r in recs if r['name'] in uploaded and r['name'] in prev and prev[r['name']] != r['sha1']]
     patch = {'comment': 'mesh-opt merged kit assets to upload (Open Cloud, assetType Model, model/gltf-binary, one per '
-                        'file); then add name = Model asset id to ServerStorage.VisAssetsManifest. Sizes in studs.',
+                        'file); then add name = Model asset id to ServerStorage.VisAssetsManifest. Sizes in studs. '
+                        '`assets` = only the files with no id in VisAssetsManifest yet; `already_uploaded` = reused as is.',
+             'already_uploaded': sorted(r['name'] for r in recs if r['name'] in uploaded),
+             'changed_since_upload': changed,
              'assets': [{'name': r['name'], 'file': 'build/vis_assets/' + r['file'], 'bytes': r['bytes'], 'sha1': r['sha1'],
                          'size_studs': r['size_studs'], 'tris': r['tris'],
-                         'meshparts': {p['name']: p['size'] for p in r['parts']}} for r in recs]}
+                         'meshparts': {p['name']: p['size'] for p in r['parts']}} for r in recs if r['name'] not in uploaded]}
+    summary['new_to_upload'] = len(patch['assets'])
+    summary['already_uploaded'] = len(patch['already_uploaded'])
+    summary['changed_since_upload'] = changed
     json.dump(patch, open(os.path.join(out_dir, 'upload_patch.json'), 'w', encoding='utf-8', newline='\n'), indent=1)
     return recs, summary
 
@@ -244,12 +261,15 @@ def main():
     kit = arg('--kit', os.path.join(root, 'build', 'vis_assets'))
     req = arg('--request', os.path.join(kit, 'merged', 'request.json'))
     out = arg('--out', os.path.join(kit, 'merged'))
-    recs, summary = run(kit, req, out)
-    rc = 0 if summary['ok'] == summary['assets'] else 1
+    up = uploaded_names(arg('--uploaded', os.path.join(root, 'roblox', 'src', 'ServerStorage', 'VisAssetsManifest.luau')))
+    mp = os.path.join(out, 'manifest.json')
+    prev = {a['name']: a['sha1'] for a in json.load(open(mp, encoding='utf-8'))['assets']} if os.path.isfile(mp) else {}
+    recs, summary = run(kit, req, out, up, prev)
+    rc = 0 if summary['ok'] == summary['assets'] and not summary['changed_since_upload'] else 1
     if '--twice' in argv:
         tmp = tempfile.mkdtemp(prefix='gen_merged_')
         try:
-            recs2, _ = run(kit, req, tmp)
+            recs2, _ = run(kit, req, tmp, up, prev)
             diff = [a['name'] for a, b in zip(recs, recs2) if a['sha1'] != b['sha1']]
             diff += [f for f in ('manifest.json', 'upload_patch.json')
                      if open(os.path.join(out, f), 'rb').read() != open(os.path.join(tmp, f), 'rb').read()]

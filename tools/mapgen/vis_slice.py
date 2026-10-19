@@ -626,17 +626,34 @@ def main(cfg_path):
            'lit_cfg': cfg['lit'], 'check': check_inst, 'area_bounds': area.bounds, 'props': props}
     mesh = VisMesh.Mesh(cfg, env)
     sb = vm_cfg['sample_block']
-    sample = sorted([B for B in built if math.hypot(B['b']['x'] - sb['centre'][0], B['b']['z'] - sb['centre'][1]) <= sb['radius']],
-                    key=lambda B: B['b']['osm'])
-    mesh_out, mesh_rep = {}, []
-    for B in sample:
-        o, r = mesh.building(B)
-        mesh_out[B['b']['osm']] = o
-        mesh_rep.append(r)
+    blocks = VisMesh.select_blocks(vm_cfg, built, g['edges'])        # block 1 = the VIS-7.1 sample block
+    sample = blocks[0]['B']
+    mesh_out, mesh_rep, rep_by_osm = {}, [], {}
+    for blk in blocks:                                                 # block 1 first: its asset indices stay as before
+        for B in blk['B']:
+            o, r = mesh.building(B)
+            mesh_out[B['b']['osm']] = o
+            rep_by_osm[B['b']['osm']] = r
+            if blk is blocks[0]:
+                mesh_rep.append(r)
     palm_rows, palm_rep = VisMesh.palms(cfg, env, mesh)
     merged_rep = mesh.write_requests()
     city_est = VisMesh.citywide(cfg, env, built) if vm_cfg.get('citywide_estimate') else None
     # before/after camera: from the sea side of Beach Road, looking at the block centre
+    def block_camera(Bs, road_name, back=None):
+        cx = sum(B['b']['x'] for B in Bs) / len(Bs)
+        cz = sum(B['b']['z'] for B in Bs) / len(Bs)
+        beach = unary_union([LineString(e['pts']) for e in g['edges'] if e.get('name_en') == road_name])
+        pr = beach.interpolate(beach.project(Point(cx, cz)))
+        dx, dz = pr.x - cx, pr.y - cz
+        dl = math.hypot(dx, dz) or 1.0
+        back = sb['camera_back_studs'] if back is None else back
+        cam = (pr.x + dx / dl * back + 20000, sb['camera_height_studs'], pr.y + dz / dl * back)
+        look = (cx + 20000, sb['look_height_studs'], cz)
+        cam_pt = Point(cam[0] - 20000, cam[2])
+        return {'position': [round(v, 1) for v in cam], 'look_at': [round(v, 1) for v in look],
+                'cframe_lua': 'CFrame.lookAt(Vector3.new(%.1f, %.1f, %.1f), Vector3.new(%.1f, %.1f, %.1f))' % (cam + look),
+                'street_camera_inside_a_box': any(hulls[j].contains(cam_pt) for j in htree.query(cam_pt))}
     cx = sum(B['b']['x'] for B in sample) / len(sample)
     cz = sum(B['b']['z'] for B in sample) / len(sample)
     beach = unary_union([LineString(e['pts']) for e in g['edges'] if e.get('name_en') == sb['camera_road']])
@@ -720,16 +737,28 @@ def main(cfg_path):
         'texts': text_list, 'materials': cfg['materials'], 'styles': style_out, 'modules': mods_out, 'roofModules': roof_out,
         'palettes': [cfg['palettes'][s] for s in style_names], 'paletteWallMix': cfg['variety']['palette_wall_mix'],
     }
+    chunk_of = {B['b']['osm']: c['id'] for c in chunks for B in c['items']}
+    block_out = []
+    for bi, blk in enumerate(blocks):
+        ids = [B['b']['osm'] for B in blk['B']]
+        os_ = [mesh_out[i] for i in ids]
+        block_out.append({'name': blk['name'], 'osm': ids, 'chunks': sorted({chunk_of[i] for i in ids}),
+                          'expected': {'parts': sum(o['parts'] for o in os_), 'meshParts': sum(o['meshParts'] for o in os_),
+                                       'meshPartsBase': sum(o['meshPartsBase'] for o in os_)},
+                          'camera': camera if bi == 0 else (block_camera(blk['B'], blk['spec']['camera_road'],
+                                                                         blk['spec'].get('camera_back_studs'))
+                                                            if blk['B'] and blk['spec'].get('camera_road') else None)})
     vm_data = {'assets': mesh.assets_out(), 'sample': [B['b']['osm'] for B in sample],
+               'blocks': block_out,
                'sampleChunks': sorted({c['id'] for c in chunks for B in c['items'] if B['b']['osm'] in mesh_out}),
                'moduleW': VisMesh.MW, 'camera': camera, 'palmAssets': vm_cfg['palms']['assets'],
                'palmFullRange': vm_cfg['palms']['full_range'], 'palmCollider': vm_cfg['palms']['collider'],
                'palmImpostorCollides': bool(vm_cfg['palms'].get('impostor_collides')),
                'palms': [[r['x'], r['z'], r['v'], r['yaw'], r['h']] for r in palm_rows],
                'palmSrc': [r['src'] for r in palm_rows], 'castShadowMinHeight': vm_cfg['cast_shadow_min_height'],
-               'expected': {'parts': sum(o['parts'] for o in mesh_out.values()),
-                            'meshParts': sum(o['meshParts'] for o in mesh_out.values()),
-                            'meshPartsBase': sum(o['meshPartsBase'] for o in mesh_out.values()),
+               'expected': {'parts': block_out[0]['expected']['parts'],             # block 1 (V.BuildMesh() default)
+                            'meshParts': block_out[0]['expected']['meshParts'],
+                            'meshPartsBase': block_out[0]['expected']['meshPartsBase'],
                             'palmParts': palm_rep['after']['impostor_parts'] + palm_rep['after']['collider_parts']}}
     open(os.path.join(rb_dir, 'vismesh.luau'), 'w', encoding='utf-8', newline='\n').write(
         head + '-- ServerStorage.PattayaDataVisSlice.vismesh: VIS-7.1 kit assets (manifest sizes / centres, MP material -> colour '
@@ -784,6 +813,7 @@ def main(cfg_path):
                          'asset_instances': dict(sum((Counter(r['asset_instances']) for r in mesh_rep), Counter()).most_common()),
                          'kept_parts_reasons': dict(sum((Counter(r['kept_parts_reasons']) for r in mesh_rep), Counter()).most_common())},
               'block_instances': block, 'merged_assets': merged_rep, 'citywide_estimate': city_est,
+              'blocks': VisMesh.block_reports(blocks, rep_by_osm, block_out, mesh.assets),
               'alternatives': VisMesh.alternatives(mesh_rep, mesh.assets),
               'buildings': mesh_rep, 'palms': palm_rep,
               'assets_used': [a['name'] for a in vm_data['assets']]}

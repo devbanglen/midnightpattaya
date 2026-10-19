@@ -877,6 +877,12 @@
       "top": "BLD_CN_Top",
       "top_for": ["parapet_a"]
     },
+    "blocks": [
+      {"name": "beach_soi7_8", "sample_block": true, "comment": "block 1 = the VIS-7.1 sample block (sample_block circle), unchanged"},
+      {"name": "second_road_soi5_10", "road": "Pattaya Sai Song Road", "from": [2101, -1299], "to": [1091, 979], "buffer": 140,
+       "camera_road": "Pattaya Sai Song Road", "camera_back_studs": 0,
+       "comment": "pilot block 2: Second Road from the Soi Pattaya 5 crossing to the Soi Pattaya 10 crossing (slice road data; the slice has no Soi 13), buildings whose centre is within 140 studs of the road: 60 buildings"}
+    ],
     "merged": {
       "comment": "mesh-opt: runs of equal 1-bay kit modules become wide (W bays) x floor-band (H floors) merged assets (tools/blender/gen_merged.py from the kit .glb files: the same per-material MeshParts, glass split into Glass + GlassAlt so lit panes still vary). Builder falls back merged -> 1-bay kit -> Part kit per Part row.",
       "enabled": true,

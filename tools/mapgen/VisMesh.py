@@ -676,3 +676,67 @@ def citywide(cfg, env, built):
         if not m.merged_on:
             out['variants'][vname]['alternatives'] = alternatives(reps, m.assets)
     return out
+
+
+def select_blocks(vc, built, edges):
+    """vismesh.blocks -> [{'name', 'spec', 'B': [building dicts]}]. Block kinds:
+      {"sample_block": true}                         the vismesh.sample_block circle (centre + radius), as before
+      {"centre": [x, z], "radius": r}                a circle (map-local studs)
+      {"road": name_en, "from": [x, z], "to": [x, z], "buffer": d}
+                                                     buildings whose centre is within d of that road and projects
+                                                     between from and to (a corridor along the road)
+    A building belongs to the first block that takes it. Without vismesh.blocks: one block = sample_block."""
+    from shapely.geometry import LineString, Point
+    from shapely.ops import unary_union
+    specs = vc.get('blocks') or [{'name': 'sample', 'sample_block': True}]
+    taken, out = set(), []
+    for i, sp in enumerate(specs):
+        if sp.get('sample_block'):
+            sp2 = dict(vc['sample_block'], **{k: v for k, v in sp.items() if k != 'sample_block'})
+        else:
+            sp2 = sp
+        if 'road' in sp2:
+            road = unary_union([LineString(e['pts']) for e in edges if e.get('name_en') == sp2['road']])
+            (ax, az), (bx, bz) = sp2['from'], sp2['to']
+            L2 = (bx - ax) ** 2 + (bz - az) ** 2
+
+            def inside(b):
+                t = ((b['x'] - ax) * (bx - ax) + (b['z'] - az) * (bz - az)) / L2
+                return 0 <= t <= 1 and road.distance(Point(b['x'], b['z'])) <= sp2['buffer']
+        else:
+            cx, cz, R = sp2['centre'][0], sp2['centre'][1], sp2['radius']
+
+            def inside(b):
+                return math.hypot(b['x'] - cx, b['z'] - cz) <= R
+        Bs = sorted([B for B in built if B['b']['osm'] not in taken and inside(B['b'])], key=lambda B: B['b']['osm'])
+        taken |= {B['b']['osm'] for B in Bs}
+        out.append({'name': sp.get('name', f'block{i + 1}'), 'spec': sp2, 'B': Bs})
+    return out
+
+
+def block_reports(blocks, rep_by_osm, block_out, assets):
+    """per block: buildings (OSM id, category, levels), Parts before -> Parts + MeshParts after (merged and 1-bay kit),
+    triangles, assets used (merged ones listed), chunks, camera"""
+    out = []
+    for blk, bo in zip(blocks, block_out):
+        reps = [rep_by_osm[B['b']['osm']] for B in blk['B']]
+        inst = Counter()
+        for r in reps:
+            inst.update(r['asset_instances'])
+        tris = sum(n * assets[a]['tris'] for a, n in inst.items())
+        bp = sum(r['before']['parts'] for r in reps)
+        ap = sum(r['after']['parts'] for r in reps)
+        am = sum(r['after']['meshparts'] for r in reps)
+        ab = sum(r['after_base_kit']['meshparts'] for r in reps)
+        out.append({'name': blk['name'], 'spec': blk['spec'], 'buildings': len(reps),
+                    'categories': dict(Counter(r['cat'] for r in reps).most_common()),
+                    'osm': [[r['osm'], r['cat'], r['levels'], r['centre_world_xz'], r['before']['parts'], r['after']['parts'],
+                             r['after']['meshparts']] for r in reps],
+                    'before': {'parts': bp}, 'after': {'parts': ap, 'meshparts': am, 'total': ap + am},
+                    'after_base_kit': {'parts': ap, 'meshparts': ab, 'total': ap + ab}, 'triangles': tris,
+                    'lit_glass_meshparts': sum(r['lit_glass_meshparts'] for r in reps),
+                    'signboards': sum(r['signboard_meshparts_with_text'] for r in reps),
+                    'kept_parts_reasons': dict(sum((Counter(r['kept_parts_reasons']) for r in reps), Counter())),
+                    'assets_used': sorted(inst), 'merged_assets_used': sorted(a for a in inst if assets[a].get('w')),
+                    'chunks': bo['chunks'], 'camera': bo['camera']})
+    return out
