@@ -78,9 +78,16 @@ def lane_polyline(edges, steps, rng, field=None, unmerged=None):
         nrm[:-1] += seg; nrm[1:] += seg
         nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
         left = np.stack([nrm[:, 1], -nrm[:, 0]], axis=1)
-        lane = e['width'] / 4 if (not e['oneway'] or e['width'] < 30) else e['width'] / 4 + rng.choice([0, e['width'] / 4])
-        q0 = p + left * lane
-        q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else q0
+        # same rule as tools/mapgen/traffic.py (2026-10-20): outer lane of a wide one-way road at 3W/8, not W/2 (the
+        # road edge); the plan polyline (car counts, de-dup) keeps the old lane and the same random draw.
+        if not e['oneway'] or e['width'] < 30:
+            lane_plan = lane = e['width'] / 4
+        else:
+            outer = rng.choice([0, 1])
+            lane_plan = e['width'] / 4 + outer * e['width'] / 4
+            lane = e['width'] / 4 + outer * e['width'] / 8
+        q0 = p + left * lane_plan
+        q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else p + left * lane
         for k, (pt, pt0) in enumerate(zip(q.tolist(), q0.tolist())):
             if pts0 and k == 0 and np.linalg.norm(np.array(pts0[-1]) - pt0) < 1:
                 continue

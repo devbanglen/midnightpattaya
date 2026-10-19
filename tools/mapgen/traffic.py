@@ -127,9 +127,18 @@ def main(cfg_path):
             nrm[:-1] += seg; nrm[1:] += seg
             nrm /= (np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-9)
             left = np.stack([nrm[:, 1], -nrm[:, 0]], axis=1)
-            lane = e['width'] / 4 if (not e['oneway'] or e['width'] < 30) else e['width'] / 4 + rng.choice([0, e['width'] / 4])
-            q0 = p + left * lane
-            q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else q0
+            # one-way roads >= 30 wide: inner lane at W/4 or outer lane at 3W/8 from the centre. It was W/4 + W/4 = W/2,
+            # i.e. the car centre ON the road edge (half the car over the sidewalk, found in Play 2026-10-20).
+            # The plan (q0: car counts, point de-dup) keeps the old W/2 lane and the same random draw, so every loop,
+            # car count, kind and phase is unchanged; only where the outer-lane cars drive moves.
+            if not e['oneway'] or e['width'] < 30:
+                lane_plan = lane = e['width'] / 4
+            else:
+                outer = rng.choice([0, 1])
+                lane_plan = e['width'] / 4 + outer * e['width'] / 4
+                lane = e['width'] / 4 + outer * e['width'] / 8
+            q0 = p + left * lane_plan
+            q = p + left * field.adjust(e, p, left, lane)[:, None] if field is not None else p + left * lane
             for k, (pt, pt0) in enumerate(zip(q.tolist(), q0.tolist())):
                 if pts0 and k == 0 and np.linalg.norm(np.array(pts0[-1]) - pt0) < 1:
                     continue
