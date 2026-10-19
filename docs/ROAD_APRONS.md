@@ -141,3 +141,11 @@ a junction fix.
   (the slab-overlap probe already skips that); corner fills carry `CornerFill = true`.
 
 Map data © OpenStreetMap contributors, ODbL 1.0.
+
+
+## Studio result (leader, 2026-10-20 16:30)
+Built citywide after the owner's backup: 375 chunks, 23,787 parts (9,154 apron + 14,633 corner). Probe: aprons above road
+top 0, corner fills above sidewalk top 0, sidewalk overlaps 0, obstacle hits 4 (2 signal poles + 2 utility poles standing
+inside a corner fill — harmless). The probe's "corner parts on a road surface 1,602" is a bounding-box test; an exact
+raycast check of 42,734 points on corner-fill tops found 0 places where a fill sits above a road surface. Pilot area
+road-edge drops 771 → 131; drives: Beach Road → Bira 425/426 with no tilt below 0.9, Central Loop 102/103 up min 0.99.

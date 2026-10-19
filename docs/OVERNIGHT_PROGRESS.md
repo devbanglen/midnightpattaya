@@ -49,6 +49,10 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 12:45 | team8/junction-aprons merged (data-driven junction aprons + sidewalk corner fills, 23,791 parts in 375 chunks, offline checks 0). **Pilot batch a1 only** (8 chunks, 1,676 parts) built in Studio around Beach Road: Probe obstacle hits 0, aprons above road 0, corner fills over a road surface 0 (160,801-ray grid); road-edge drops to terrain 771 → 131 in the 600-stud area; drive Beach Road → Soi 8 junction at 150: up min **0.94** (was 0.77 / −0.92 flip), 0 tilts < 0.9. Rest of the batches NOT built (needs the owner's fresh .rbxl) | DONE / TESTED (pilot) | commit 7d21d4c; rollback `PattayaApronBuilder.Remove()` |
 | 12:50 | Second Road pilot export prepared by mesh-opt (60 buildings: 2,577 Parts → 137 + 2,177 = 2,314; 48 new tiles NOT uploaded) — waits for the mobile baseline + .rbxl per owner rule | WAITING_FOR_OWNER | commit 97c5d32, docs/VISUAL_ACCEPTANCE §4.9 |
 
+| 16:20 | Owner saved a fresh backup (Documents\zzzzzz.rbxl, 16:15) + git at d567071. Slice rebuilt with the owner palette (23,786 parts, Probe all 0) + mesh block + palms (FullRange 550, ProbeMesh 0) | DONE / TESTED | — |
+| 16:30 | Junction aprons built citywide: 47 batches, 9,154 apron + 14,633 corner parts; Probe aprons above road 0, corner fills above sidewalk 0; corner fill over a road surface 0 of 42,734 top samples (the builder's own 1,602 count is bounding-box based); 4 poles stand inside fills (harmless) | DONE / TESTED | `PattayaApronBuilder.Remove()` rolls back |
+| 16:40 | Regression: Beach Road → Bira 217 s at 150, 425/426 on road, 0 tilts < 0.9 (up min 0.93); Central Loop lap 52 s, 102/103, up min 0.99 | TESTED | TK handles full / loop2 |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
