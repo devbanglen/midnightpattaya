@@ -25,49 +25,49 @@ TrafficVehicles.SIZE_TOL = 0.1 -- studs, MeshPart.Size vs manifest part size
 -- BEGIN GENERATED (tools/blender/traffic/make_traffic_luau.py from build/vis_assets/traffic/manifest.json;
 -- assetId values are kept when the block is regenerated)
 TrafficVehicles.ASSETS = {
-	TRF_Car_Hatch = {assetId = 0, kind = 0, tris = 624, roofTop = 5.7, roofZ = 2.95, taxiSign = false,
+	TRF_Car_Hatch = {assetId = 92240396160508, kind = 0, tris = 624, roofTop = 5.7, roofZ = 2.95, taxiSign = false,
 		size = {6.6, 5.7, 13.64}, parts = {
 			Dark = {size = {6.6, 5.5, 13.64}, centre = {0, 2.75, 0}},
 			Head = {size = {5.3, 0.45, 0.62}, centre = {0, 2.275, -6.41}},
 			Paint = {size = {6.4, 4.85, 13.4}, centre = {0, 3.275, 0}},
 			Tail = {size = {5.6, 0.55, 0.58}, centre = {0, 2.975, 6.44}},
 		}},
-	TRF_Car_Sedan = {assetId = 0, kind = 0, tris = 644, roofTop = 5.42, roofZ = 0.8, taxiSign = true,
+	TRF_Car_Sedan = {assetId = 139507700611048, kind = 0, tris = 644, roofTop = 5.42, roofZ = 0.8, taxiSign = true,
 		size = {6.6, 5.42, 14.24}, parts = {
 			Dark = {size = {6.6, 5.2, 14.24}, centre = {0, 2.6, 0}},
 			Head = {size = {5.3, 0.45, 0.62}, centre = {0, 2.275, -6.71}},
 			Paint = {size = {6.4, 4.57, 14}, centre = {0, 3.135, 0}},
 			Tail = {size = {5.6, 0.5, 0.58}, centre = {0, 2.7, 6.74}},
 		}},
-	TRF_Scooter_Pair = {assetId = 0, kind = 0, tris = 1008, roofTop = 6.6, roofZ = 0, taxiSign = false,
+	TRF_Scooter_Pair = {assetId = 128270650999228, kind = 0, tris = 1008, roofTop = 6.6, roofZ = 0, taxiSign = false,
 		size = {5.229, 6.85, 12.77}, parts = {
 			Dark = {size = {5.229, 6.6, 12.7}, centre = {0, 3.3, -0.05}},
 			Head = {size = {3.7, 0.35, 7.1}, centre = {0, 3.475, -2.37}},
 			Paint = {size = {4.6, 5.85, 12.4}, centre = {0, 3.925, 0.1}},
 			Tail = {size = {3.66, 0.3, 7.07}, centre = {0, 2.5, 2.835}},
 		}},
-	TRF_TukTuk_Std = {assetId = 0, kind = 0, tris = 792, roofTop = 7.1, roofZ = 1.4, taxiSign = false,
+	TRF_TukTuk_Std = {assetId = 114506807189597, kind = 0, tris = 792, roofTop = 7.1, roofZ = 1.4, taxiSign = false,
 		size = {5.9, 7.076, 12.45}, parts = {
 			Dark = {size = {5.9, 6.635, 12.05}, centre = {0, 3.317, 0.175}},
 			Head = {size = {0.9, 0.856, 0.25}, centre = {0, 3.026, -6.125}},
 			Paint = {size = {5.9, 6.15, 12.3}, centre = {0, 4.001, 0.05}},
 			Tail = {size = {5.2, 0.45, 0.23}, centre = {0, 2.501, 5.965}},
 		}},
-	TRF_Pickup_Std = {assetId = 0, kind = 1, tris = 700, roofTop = 6.6, roofZ = -0.3, taxiSign = false,
+	TRF_Pickup_Std = {assetId = 98789655231087, kind = 1, tris = 700, roofTop = 6.6, roofZ = -0.3, taxiSign = false,
 		size = {7.24, 6.6, 16.2}, parts = {
 			Dark = {size = {7.24, 6.35, 16.2}, centre = {0, 3.175, 0}},
 			Head = {size = {6.1, 0.55, 0.38}, centre = {0, 3.025, -7.79}},
 			Paint = {size = {6.8, 5.6, 15.95}, centre = {0, 3.8, 0.025}},
 			Tail = {size = {6.84, 1.05, 0.25}, centre = {0, 3.375, 7.875}},
 		}},
-	TRF_Songthaew_Std = {assetId = 0, kind = 1, tris = 1016, roofTop = 8.2, roofZ = 3.8, taxiSign = false,
+	TRF_Songthaew_Std = {assetId = 99280617184154, kind = 1, tris = 1016, roofTop = 8.2, roofZ = 3.8, taxiSign = false,
 		size = {7.24, 8.29, 16.2}, parts = {
 			Dark = {size = {7.24, 8.29, 16.2}, centre = {0, 4.145, 0}},
 			Head = {size = {6.1, 0.55, 0.38}, centre = {0, 3.025, -7.79}},
 			Paint = {size = {7, 6.8, 16.05}, centre = {0, 4.4, 0.075}},
 			Tail = {size = {6.84, 1.05, 0.25}, centre = {0, 3.375, 7.875}},
 		}},
-	TRF_Van_Std = {assetId = 0, kind = 2, tris = 664, roofTop = 7.75, roofZ = 1.9, taxiSign = false,
+	TRF_Van_Std = {assetId = 104628002834419, kind = 2, tris = 664, roofTop = 7.75, roofZ = 1.9, taxiSign = false,
 		size = {7.44, 7.75, 16.3}, parts = {
 			Dark = {size = {7.44, 7.3, 16.3}, centre = {0, 3.65, 0}},
 			Head = {size = {6.2, 0.6, 0.32}, centre = {0, 2.9, -7.86}},
