@@ -64,6 +64,20 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 
 | 18:30 | Texture A/B inconclusive in Studio (cache keeps 244.7 MB after removing all PBR); only 3 distinct facade images in the world; Studio's own textures/CoreGui inflate the figures → real-phone measurement needed for the 18 MiB budget | PENDING_OWNER_TEST | docs/VISUAL_PERFORMANCE.md §7 |
 
+### 2026-10-20 "CONTINUE DEVELOPMENT" (publish / mobile playtest paused by the owner)
+| Time | Item | Status | Evidence |
+|---|---|---|---|
+| day | Stream-in hitch cause measured: 19–27k instances arrive in 6–8 frames after a teleport; with the four world client scripts disabled the cost per instance was the same (0.072 vs 0.058 ms) → engine cost dominates | TESTED (Studio, throttled) | docs/STREAMING_PERFORMANCE.md |
+| day | team10/streaming merged: shared frame-budget WorkQueue, budgeted LOD/NightLights/RoadLook/palm LOD, PattayaPreload (content preload on, stream-ahead opt-in after A/B: it made teleports worse and did not help driving) | DONE / TESTED (A/B table) | docs/STREAMING_PERFORMANCE.md "Leader measurements" |
+| day | Log spam fixed: TouchControls called GetButton on unbound actions every 0.5 s (~7 warnings/s) → 0 | DONE / TESTED (Play) | team12 commit 4fe3701 |
+| day | team12/quality merged: GPS arrow from nearest segment, destination-switch detection, request spacing; minimap other-player dot fix; road_seams.py + ui_layout_audit.py | DONE / GPS route TESTED, arrow/switch UNVERIFIED in game | docs/QUALITY_AUDIT_2026-10-20.md |
+| day | Sukhumvit tilt: centre line clean for 26.6 km at 150 (up min 1.00); outer lane flips where the road narrows / at the edge (3-stud drop to terrain, no shoulder) | TESTED / fix WAITING_FOR_OWNER (world change) | QUALITY_AUDIT "Leader in-game verification" |
+| day | team11/qa merged: 86 offline tests pass; Studio QA runner 45 PASS + the EventRing check fixed (false FAIL when idle) | DONE / TESTED | docs/AUTOMATED_QA.md |
+| day | Bira Circuit Race grid compiled to the world origin and pit width 20 instead of 32.14 → CircuitRegistry reads keyed slots and pitLaneWidth | DONE / TESTED (offline compile + Studio runner: 0/16 slots off track, width 32.14) | commit 45ab688 |
+| day | Regression: Central → Bira by GPS 393/393 on road, up min 0.94; Central Loop 2 laps 189/189, up 1.00 | TESTED (traffic ghosted) | TK handles |
+| day | team13/vis-variety merged (off by default, export byte-identical when off; +2.05 % parts when on) | DONE / install WAITING_FOR_OWNER (fresh .rbxl needed) | docs/VIS_VARIETY_2026-10-20.md |
+| day | Owner perf overlay moved into the top bar centre (covered the job strip) | DONE / TESTED (capture) | commit 64f313b |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
