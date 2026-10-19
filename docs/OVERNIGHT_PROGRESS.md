@@ -29,6 +29,9 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | 07:50 | World map: compact HUD opens on CITY (verified in the emulator: "VIEW: CITY" after M); the VIEW button tap via the MCP mouse tool did not register (button sits in the top-inset band at y -16 inset-space) — real-finger tap untested | DONE (default) / PENDING_OWNER_TEST (tap) | commit 6182364 |
 | 08:00 | **SAFE PAUSE: usage limit reached.** Teams mesh-opt and textures still running on their branches; everything validated is committed and pushed on main | WAITING_FOR_MANUAL_RESUME | docs/state/OVERNIGHT_PAUSE.md |
 
+| 09:10 | Resumed after the usage-limit pause. team7/mesh-opt merged (wide / floor-band merged tiles 1–4 bays × 1–4 floors, 3 tiers in VisMeshBuilder, palm impostor trunk = collider); 36 merged tiles uploaded (79 ids in VisAssetsManifest); Studio: 14 buildings **40 Parts + 508 MeshParts** (was 40 + 1,612), block r160 total **1,002** (was 2,074; original Parts 1,018), ProbeMesh all 0, 157 palms, 0 unusable; A/B still available with BuildMesh({merged = false}) | DONE / TESTED (probes) — look PENDING_OWNER_TEST | commits 26ae99f, 0ef38b5 |
+| 09:20 | team7/textures merged (13 procedural PBR sets, 42 maps, validate_pbr.py all pass, Blender sheet docs/images/materials/vis71c_material_sheet.jpg; MaterialLibrary reads an optional MaterialLibraryMaps module, no look change until ids exist) | DONE / TESTED (offline) | commit 399abeb |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
