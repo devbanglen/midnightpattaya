@@ -167,6 +167,8 @@ Same street camera as §4 (`CFrame.lookAt((20979.8, 40, 8), (21119.9, 45, 75))`)
 | Build in the block | Render fps | p50 / p99 / worst (ms) | 1 % low ≈ | parts in view | InstanceCount | memory total / textures (MB) |
 |---|---|---|---|---|---|---|
 | merged tiles (40 + 508 MeshParts) + PBR maps | 59.9 | 16.7 / 18.1 / 39.6 | 55 fps | 5,203 | 83,533 | 6,164 / 232 |
+| original Part build (V.RemoveMesh, 0 MeshParts) + PBR maps | 60.0 | 16.7 / 18.0 / 18.8 | 56 fps | 5,248 | 83,240 | 6,325 / 232 |
 
+Result: the merged-tile build costs nothing measurable against the Part build at this camera (both vsync-bound at 60, p99 18 ms, parts in view within 1 %).
 Note: the §4 rows were taken on the 830 × 439 emulator viewport, so "parts in view" is not directly comparable
 (this desktop viewport is wider). The A/B rows below use the same desktop viewport.

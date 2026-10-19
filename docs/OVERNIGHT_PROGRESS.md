@@ -39,6 +39,8 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 
 | 10:40 | Studio came to the front: captures of the merged block (day street / aerial / shophouse close-up / night street / hero drive with HUD) taken; palms visible in play (one-off LTM artefact at session start, 0 hidden in 48 samples while driving); clean-start drive up min 1.00; tail PointLight 1.5/10 painted crossings pink on PBR roads → 0.5/6 | DONE / TESTED | docs/VISUAL_ACCEPTANCE.md §5.3, commit f0c4a73 |
 
+| 10:55 | **Focused render FPS measured** (desktop 2684 × 1148, Studio in front): merged tiles + PBR 59.9 fps, p50 16.7 / p99 18.1 / worst 39.6 ms, parts in view 5,203, memory 6,164 MB; A/B original Part build 60.0 fps, p99 18.0, parts in view 5,248 → no measurable cost; world map inset fix verified on desktop (no regression) | TESTED | docs/VISUAL_PERFORMANCE.md §6, commits 3ea1eaa, 2ccdaf6 |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
