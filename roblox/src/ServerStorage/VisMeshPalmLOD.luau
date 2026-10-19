@@ -54,6 +54,20 @@ function M.Start()
 		end
 		byModel[m] = r
 		table.insert(list, r)
+		-- StreamingEnabled: a model's parts can arrive after the model; late parts join the record and take its state
+		-- (before, a late impostor stayed Transparency 1 while the mesh faded out: a palm showed nothing at range)
+		m.ChildAdded:Connect(function(p)
+			if not p:IsA("BasePart") or byModel[m] ~= r then
+				return
+			end
+			if p:IsA("MeshPart") then
+				table.insert(r.mesh, p)
+				p.Transparency = if r.far then 1 else 0
+			elseif p:GetAttribute("VisMeshImpostor") then
+				table.insert(r.imp, p)
+				p.Transparency = if r.far then 0 else 1
+			end
+		end)
 	end
 	local function remove(m: Instance)
 		local r = byModel[m]
