@@ -83,6 +83,12 @@ local function isBound(name: string): boolean
 end
 
 local function buttonOf(name: string): GuiButton?
+	-- GetButton on an UNBOUND action prints "ContextActionService could not find the function passed in, doing
+	-- nothing." on every call (measured in Studio: refreshNow runs every 0.5 s for CarNitro/CarDrift/CarReset while not
+	-- in a car, ~7 lines/s); GetBoundActionInfo is silent, so ask that first
+	if not isBound(name) then
+		return nil
+	end
 	local ok, b = pcall(function()
 		return ContextActionService:GetButton(name)
 	end)
@@ -238,7 +244,7 @@ local function unstyle(name: string, reg: Reg?)
 		if st.title and st.titleSnap then
 			restoreProps(st.title, st.titleSnap)
 		end
-		if reg and reg.position then
+		if reg and reg.position and isBound(name) then -- SetPosition on an unbound action prints too
 			ContextActionService:SetPosition(name, reg.position)
 		end
 	end
