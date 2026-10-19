@@ -110,6 +110,7 @@ end
 
 local destinations = {} -- {{id, label}, ...} from the server
 local current: string? = nil
+local routeId: string? = nil -- destination id of the route being drawn (current is set optimistically on G)
 local route: {Vector3}? = nil
 local label = ""
 local folder: Folder? = nil
@@ -176,8 +177,10 @@ GPSUpdate.OnClientEvent:Connect(function(kind, payload, extra)
 	if kind == "list" then
 		destinations = payload
 	elseif kind == "route" then
-		local changed = payload.id ~= current or route == nil -- the server re-sends the route every few seconds
-		current, route, label = payload.id, payload.route, payload.label
+		-- the server re-sends the route every few seconds; compare with the DRAWN route's id, not `current` (gpsCycle
+		-- sets current before the reply, so a switch to a new destination never counted as changed)
+		local changed = payload.id ~= routeId or route == nil
+		current, routeId, route, label = payload.id, payload.id, payload.route, payload.label
 		draw(payload.route)
 		refreshPanel()
 		if changed then
@@ -187,14 +190,14 @@ GPSUpdate.OnClientEvent:Connect(function(kind, payload, extra)
 			end
 		end
 	elseif kind == "arrived" then
-		current, route = nil, nil
+		current, routeId, route = nil, nil, nil
 		clearDrawing()
 		refreshPanel()
 		publish(nil, nil)
 		notify(("You have arrived: %s"):format(tostring(payload)), "reward")
 	elseif kind == "clear" then
 		local had = route ~= nil
-		current, route = nil, nil
+		current, routeId, route = nil, nil, nil
 		clearDrawing()
 		refreshPanel()
 		publish(nil, nil)
@@ -205,13 +208,40 @@ GPSUpdate.OnClientEvent:Connect(function(kind, payload, extra)
 		end
 	end
 end)
-GPSRequest:FireServer("list")
+-- PattayaGPSServer DROPS a GPSRequest that comes within 0.5 s of the previous one (REQUEST_GAP). A quick second G
+-- (next destination, or off) was lost: the client showed the new state, the server kept the old one (still routing
+-- after "GPS off", or no route for the optimistic `current`). Requests from this script are spaced instead; inside the
+-- gap the latest one waits and is sent when the gap is over.
+local REQUEST_SPACING = 0.6
+local lastSent = -math.huge
+local queued: {id: string?}? = nil
+local function request(id: string?)
+	local wait = lastSent + REQUEST_SPACING - os.clock()
+	if wait <= 0 and not queued then
+		lastSent = os.clock()
+		GPSRequest:FireServer(id)
+		return
+	end
+	local first = queued == nil
+	queued = {id = id}
+	if first then
+		task.delay(math.max(wait, 0), function()
+			local q = queued
+			queued = nil
+			if q then
+				lastSent = os.clock()
+				GPSRequest:FireServer(q.id)
+			end
+		end)
+	end
+end
+request("list")
 
 -- other HUD scripts (quick menu, missions) pick a destination through the Bus; the map tags its own fires "map"
 if Bus then
 	Bus.on("gps.set", function(id, source)
 		if source ~= "map" then
-			GPSRequest:FireServer(id)
+			request(id)
 		end
 	end)
 end
@@ -231,7 +261,7 @@ local function gpsCycle(_, state)
 		return Enum.ContextActionResult.Pass
 	end
 	if #destinations == 0 then
-		GPSRequest:FireServer("list")
+		request("list")
 		notify("GPS: no destinations on the map yet", "warn")
 		return Enum.ContextActionResult.Pass
 	end
@@ -242,12 +272,13 @@ local function gpsCycle(_, state)
 		end
 	end
 	if nextIndex > #destinations then
-		GPSRequest:FireServer(nil)
+		current = nil -- the next G starts at the first destination again even before the server's "clear" arrives
+		request(nil)
 		showToast("GPS off") -- new HUD: the server's "clear" reply sends the Bus toast
 	else
 		local d = destinations[nextIndex]
 		current = d.id
-		GPSRequest:FireServer(d.id)
+		request(d.id)
 		showToast(("GPS: %s"):format(d.label)) -- new HUD: the server's "route" reply sends the Bus toast
 	end
 	return Enum.ContextActionResult.Pass
@@ -280,13 +311,8 @@ end
 -- distance left along the route, not as the crow flies: project the car onto the nearest route segment (XZ) and
 -- add the gap to it, the rest of that segment and every segment after it (the old version counted from the first
 -- point more than 25 studs away, which is the route start once the car has left it, so the number never fell)
-local function remainingStuds(pos: Vector3, pts: {Vector3}): number
+local function nearestSegment(pos: Vector3, pts: {Vector3}): (number, number, number)
 	local n = #pts
-	if n == 0 then
-		return 0
-	elseif n == 1 then
-		return Vector3.new(pts[1].X - pos.X, 0, pts[1].Z - pos.Z).Magnitude
-	end
 	local bestD, bestI, bestT = math.huge, 1, 0
 	for i = 1, n - 1 do
 		local a, b = pts[i], pts[i + 1]
@@ -299,6 +325,17 @@ local function remainingStuds(pos: Vector3, pts: {Vector3}): number
 			bestD, bestI, bestT = d, i, t
 		end
 	end
+	return bestD, bestI, bestT
+end
+
+local function remainingStuds(pos: Vector3, pts: {Vector3}): number
+	local n = #pts
+	if n == 0 then
+		return 0
+	elseif n == 1 then
+		return Vector3.new(pts[1].X - pos.X, 0, pts[1].Z - pos.Z).Magnitude
+	end
+	local bestD, bestI, bestT = nearestSegment(pos, pts)
 	local remaining = math.sqrt(bestD) + (pts[bestI + 1] - pts[bestI]).Magnitude * (1 - bestT)
 	for i = bestI + 1, n - 1 do
 		remaining += (pts[i + 1] - pts[i]).Magnitude
@@ -325,10 +362,13 @@ RunService.RenderStepped:Connect(function()
 	if not (route and chassis and arrow) then
 		return
 	end
-	-- aim the arrow at the first route point still ahead of the car
+	-- aim the arrow at the first route point still ahead of the car: search from the nearest route segment on (the
+	-- route starts where the car was at the server's last refresh, up to 4 s ago; scanning from route[1] aimed the
+	-- arrow back at that stale start once the car had moved more than 25 studs past it)
 	local pos = chassis.Position
 	local target
-	for i = 1, #route do
+	local _, from0 = nearestSegment(pos, route)
+	for i = from0 + 1, #route do
 		local q = route[i]
 		if Vector3.new(q.X - pos.X, 0, q.Z - pos.Z).Magnitude > 25 then
 			target = q
