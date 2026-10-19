@@ -11,14 +11,19 @@
 -- Within FullRange studs of the camera (attribute FullRange on the VisMeshPalms folder, default 400): mesh shown,
 -- impostor hidden. Beyond FullRange + HYSTERESIS: mesh Transparency 1, impostor Transparency 0. Local writes only
 -- (Transparency on the client never replicates). PattayaLOD's LocalTransparencyModifier beyond LOD_PropRange still
--- applies on top, so far palms disappear as before. Budget: BUDGET palms per Heartbeat, round robin.
+-- applies on top, so far palms disappear as before. Budget: BUDGET palms per Heartbeat, round robin, and at most
+-- SWEEP_MS of Lua time per frame (team10/streaming 2026-10-20: after a teleport many palms flip at once and each flip
+-- creates tweens; the rest is done on the next frames). Streamed-out palms are dropped in O(1) and their ChildAdded
+-- connection is disconnected (before: table.find over the whole list and one leaked connection per streamed model).
 local RunService = game:GetService("RunService")
 
 local M = {}
 local HYSTERESIS = 30
 local BUDGET = 60
+local SWEEP_MS = 1.0
 
-type Rec = {model: Model, pos: Vector3, mesh: {BasePart}, imp: {BasePart}, far: boolean}
+type Rec = {model: Model, pos: Vector3, mesh: {BasePart}, imp: {BasePart}, far: boolean, index: number,
+	conn: RBXScriptConnection?}
 
 function M.Start()
 	assert(RunService:IsClient(), "VisMeshPalmLOD runs on the client")
@@ -44,7 +49,7 @@ function M.Start()
 		if not m:IsA("Model") or byModel[m] then
 			return
 		end
-		local r: Rec = {model = m, pos = m:GetPivot().Position, mesh = {}, imp = {}, far = false}
+		local r: Rec = {model = m, pos = m:GetPivot().Position, mesh = {}, imp = {}, far = false, index = 0, conn = nil}
 		for _, p in m:GetChildren() do
 			if p:IsA("MeshPart") then
 				table.insert(r.mesh, p)
@@ -54,9 +59,10 @@ function M.Start()
 		end
 		byModel[m] = r
 		table.insert(list, r)
+		r.index = #list
 		-- StreamingEnabled: a model's parts can arrive after the model; late parts join the record and take its state
 		-- (before, a late impostor stayed Transparency 1 while the mesh faded out: a palm showed nothing at range)
-		m.ChildAdded:Connect(function(p)
+		r.conn = m.ChildAdded:Connect(function(p)
 			if not p:IsA("BasePart") or byModel[m] ~= r then
 				return
 			end
@@ -75,9 +81,15 @@ function M.Start()
 			return
 		end
 		byModel[m] = nil
-		local i = table.find(list, r)
-		if i then
-			list[i] = list[#list]
+		if r.conn then
+			r.conn:Disconnect()
+			r.conn = nil
+		end
+		local i = r.index
+		if list[i] == r then
+			local last = list[#list]
+			list[i] = last
+			last.index = i
 			list[#list] = nil
 		end
 	end
@@ -114,7 +126,11 @@ function M.Start()
 		end
 		local range = (folder and folder:GetAttribute("FullRange") :: number?) or 400
 		local at = cam.CFrame.Position
+		local deadline = os.clock() + SWEEP_MS / 1000
 		for _ = 1, math.min(BUDGET, n) do
+			if os.clock() > deadline then
+				break
+			end
 			if cursor > n then
 				cursor = 1
 			end

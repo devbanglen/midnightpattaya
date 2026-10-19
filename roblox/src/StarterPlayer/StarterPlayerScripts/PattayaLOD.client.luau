@@ -15,11 +15,15 @@
 --   LOD_FacadeRange (700)    studs
 --   LOD_PropRange (900)      studs
 --   LOD_Budget (300)         parts checked per Heartbeat
+--   LOD_SweepMs (1.0)        the sweep also stops after this many ms in a frame (a teleport flips many parts at once)
+-- Streaming (team10, 2026-10-20): streamed-in Textures / props are registered through ReplicatedStorage.PattayaWorkQueue
+-- (shared per-frame time budget, WorkQueue_BudgetMs, default 1.5 ms; WorkQueue_Enabled = false = old all-at-once).
+-- Without that module they are registered one frame later as before (task.defer).
 -- ReplicatedStorage.PattayaPerfProbe (if installed) can be run by setting workspace attribute PerfProbe = <seconds>.
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local DEFAULTS = {LOD_FacadeRange = 700, LOD_PropRange = 900, LOD_Budget = 300}
+local DEFAULTS = {LOD_FacadeRange = 700, LOD_PropRange = 900, LOD_Budget = 300, LOD_SweepMs = 1.0}
 local HYSTERESIS = 40 -- studs: hide beyond range + this, show again inside range
 local PROP_NAMES = {PalmTrunk = true, PalmFrond = true, NeonSign = true, SignFrame = true,
 	-- street furniture layer (PattayaFurnitureBuilder, 2026-10-19): small parts hidden beyond LOD_PropRange too
@@ -93,9 +97,30 @@ local function addTexture(t: Texture)
 	end
 end
 
--- streamed instances wait in a queue and are registered at the start of the next Heartbeat (attributes and
--- children of a streamed part can arrive a frame later)
-local queue: {Instance} = {}
+-- streamed instances wait in a queue and are registered on a later Heartbeat inside the shared frame budget
+-- (attributes and children of a streamed part can arrive a frame later; the queue dedupes)
+local function register(d: Instance)
+	if d.Parent and d:IsDescendantOf(workspace) then
+		if d:IsA("Texture") then
+			addTexture(d)
+		else
+			add(d :: BasePart, "prop")
+		end
+	end
+end
+local queue: any
+do
+	local m = ReplicatedStorage:WaitForChild("PattayaWorkQueue", 10)
+	local ok, WQ = false, nil
+	if m and m:IsA("ModuleScript") then
+		ok, WQ = pcall(require, m)
+	end
+	if ok and type(WQ) == "table" and WQ.new then
+		queue = WQ.new("PattayaLOD", register)
+	else
+		queue = {push = function(_, d) task.defer(register, d) end, cancel = function() end, size = function() return 0 end}
+	end
+end
 local function consider(d: Instance)
 	-- kit mesh palms (workspace.PattayaWorld.VisMeshPalms.<model>.<part>) have their own LOD (VisMeshPalmLOD): leaving
 	-- them to this sweep hid the impostor with up to ~1 s latency while driving (owner review ecbbf89 item 7)
@@ -104,10 +129,11 @@ local function consider(d: Instance)
 		return
 	end
 	if d:IsA("Texture") or (d:IsA("BasePart") and PROP_NAMES[d.Name]) then
-		table.insert(queue, d)
+		queue:push(d)
 	end
 end
 local function forget(d: Instance)
+	queue:cancel(d)
 	if d:IsA("BasePart") then
 		remove(d)
 	elseif d:IsA("Texture") then
@@ -117,23 +143,6 @@ local function forget(d: Instance)
 		end
 	end
 end
-local function drainQueue()
-	if #queue == 0 then
-		return
-	end
-	local q = queue
-	queue = {}
-	for _, d in q do
-		if d.Parent and d:IsDescendantOf(workspace) then
-			if d:IsA("Texture") then
-				addTexture(d)
-			else
-				add(d :: BasePart, "prop")
-			end
-		end
-	end
-end
-
 local watched: {[Instance]: boolean} = {}
 local function watch(root: Instance)
 	if watched[root] then
@@ -165,7 +174,6 @@ end
 -- the sweep ------------------------------------------------------------------------------------------------------
 local wasEnabled = true
 RunService.Heartbeat:Connect(function()
-	drainQueue()
 	if not enabled() then
 		if wasEnabled then
 			wasEnabled = false
@@ -187,7 +195,11 @@ RunService.Heartbeat:Connect(function()
 	local focus = cam.CFrame.Position
 	local facadeR, propR = knob("LOD_FacadeRange"), knob("LOD_PropRange")
 	local budget = math.min(knob("LOD_Budget"), n)
+	local deadline = os.clock() + knob("LOD_SweepMs") / 1000
 	for _ = 1, budget do
+		if os.clock() > deadline then
+			break -- the rest of this frame's share is checked next frame (cursor keeps its place)
+		end
 		if cursor > #list then
 			cursor = 1
 		end
