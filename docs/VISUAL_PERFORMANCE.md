@@ -111,7 +111,7 @@ Mobile (≥ 30 FPS with profile `mobile`) is not measured in this phase.
   jump shows streaming hitches (p99 67 ms, worst 113 ms at the sample block) — measure after the block has streamed in.
 - Wet vs dry: no measurable difference (Reflectance is a material parameter; the RoadLook Heartbeat only exists while
   its queue drains).
-- The focused "after mesh" row is pending (needs the owner to click into the viewport ~15 s).
+- The focused "after mesh" row: see §6 (measured 2026-10-20).
 
 ## 5. Mesh instance optimisation (team7/mesh-opt, 2026-10-19 — exporter numbers, NOT built in Studio)
 Problem (§4 / VISUAL_ACCEPTANCE §5.2): the VIS-7.1 kit swap made the 14-building sample block 634 Parts → 40 Parts +

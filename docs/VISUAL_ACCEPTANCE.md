@@ -325,16 +325,16 @@ Device Emulator viewport the owner left on (685 × 313), so they are small; the 
   client with `ReplicatedStorage.VisMeshPalmLOD` + `StarterPlayerScripts.VisMeshPalmLOD`, leader).
 - Captures (same camera, Edit mode, day): street `vis71_mesh_before_street_day.jpg` → `vis71_mesh_after_street_day.jpg`;
   aerial `vis71_mesh_before_aerial_day.jpg` → `vis71_mesh_after_aerial_day.jpg`. Night (Play, 21:00):
-  `vis71_mesh_before_street_night.jpg`; the night "after", the hero shot from a car on the lane and the Thai-sign
-  close-up still need Studio focused (captures come back white otherwise) — pending.
+  `vis71_mesh_before_street_night.jpg`; the night "after", the hero shot and the close-ups were taken later the same
+  morning (§5.3).
 - **Part count did NOT go down** (the owner asked for the reduction): in the 160-stud block 1,018 vis parts → 2,074
   (634 Parts → 40 Parts + 1,612 MeshParts; palms 942 Parts → 314 MeshParts + 314 impostors + 157 colliders).
   InstanceCount 81,750 → 83,451. Kit modules are 7.14 studs wide where the Part bays were 10–14 and each module is
   1–4 MeshParts, so the instance count is ~2.5× — the meshes are shared (20 assets) so they batch, but a citywide
   swap this way would be ~60k instances. Decision for the owner: keep the sample as a look test only, or ask vis-mesh
   for merged per-face assets before any wider use.
-- Thai signboards: 272 labels in the slice carry Thai text, all GothamBold (Gotham SSm); the close-up capture and the
-  BuilderSans comparison are pending Studio focus (docs/NIGHT_LIGHTING.md has the font recommendation).
+- Thai signboards: 272 labels in the slice carry Thai text, all GothamBold (Gotham SSm); close-ups `vis71_thai_gotham.jpg`
+  / `vis71_thai_buildersans.jpg` render the Thai glyphs identically (engine fallback font), so no font change.
 - Rollback: `V.RemoveMesh()` (mesh → Part rows, palms back), `V.Remove()` (whole slice → procedural boxes),
   `RestoreReplaced`; `LightingPreset = Legacy`; `RoadLook = off`.
 
@@ -349,5 +349,7 @@ Device Emulator viewport the owner left on (685 × 313), so they are small; the 
 | Hero drive, 21:00, chase camera + HUD (Play) | `vis71c_hero_drive_night.jpg` (`_ghosttraffic` = test-kit ghost traffic, ignore the translucent van) | the game as played |
 | Tail glow A/B | `vis71c_tailglow_on.jpg` / `_off.jpg` | the rear PointLight painted crossings pink → now 0.5 / 6 |
 
-Still PENDING_OWNER_TEST: focused render FPS with the merged build (render stayed at the 15 fps unfocused throttle in every
-attempt), and the owner's own look at the sample block in Studio.
+Focused render FPS with the merged build: measured 2026-10-20 10:50 (desktop 2684 × 1148, Studio in front): 59.9 fps,
+p50 16.7 / p99 18.1 / worst 39.6 ms, parts in view 5,203, memory 6,164 MB; A/B original Part build 60.0 fps, p99 18.0,
+parts in view 5,248 — no measurable cost (docs/VISUAL_PERFORMANCE.md §6). Owner review ecbbf89: VIS-7.1c accepted as the
+TECHNICAL BASELINE (Blender mesh, merged tiles, PBR, lighting, LOD), not yet the final visual quality of the mockup.
