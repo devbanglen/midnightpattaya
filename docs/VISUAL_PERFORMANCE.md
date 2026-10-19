@@ -198,3 +198,25 @@ saved 14 %. Citywide estimate unchanged (§5 table: 21,896 instances, 111 merged
 The 2026-10-20 18:00 row is the same desktop camera after the junction aprons (+23.8k parts citywide, streamed) and the mesh
 traffic: still vsync-bound at 60 with p99 18.3 ms; memory +592 MB vs the 10:50 row (aprons + traffic templates).
 Mobile (Device Emulator) baseline: still to be measured.
+
+
+## 7. Mobile baseline — Device Emulator (leader, 2026-10-20 18:20)
+Device Emulator, landscape, viewport 830 × 439, touch on, compact HUD on, quality Automatic, MidnightClear 21:00, everything
+installed (merged block, palette, citywide aprons, mesh traffic). **The emulator renders on the PC GPU: these numbers are the
+client's frame pacing and memory on this machine, not a phone's GPU.** A real-phone run (Roblox app, same place) is still
+needed for true mobile FPS.
+
+| Scene | Render fps | p50 / p99 / worst (ms) | 1 % low ≈ | parts in view | memory total / textures / GUI (MB) |
+|---|---|---|---|---|---|
+| Static street cam, HUD on, 1st 10 s after arriving | 55.4 | 16.6 / 53.8 / 101 | 19 fps (streaming hitches) | 4,949 | 6,874 / 231 / 262 |
+| Static street cam, 2nd 10 s | 59.9 | 16.7 / 18.8 / 43.7 | 53 fps | 4,952 | 6,856 / 231 |
+| Driving 150 studs/s through the slice, first 20 s (fresh streaming) | 50.0 | 16.9 / 71.9 / 203 | 14 fps | 1,254 | 5,831 / 238 |
+| Driving, next 20 s | 59.7 | 16.6 / 28.2 / 68.3 | 35 fps | 823 | 5,854 / 242 |
+
+- GraphicsTexture 230–242 MB on this client — far above the owner's 18 MiB mobile texture budget. Most of it is not the
+  new PBR maps (18 MiB estimated): it includes Roblox's own UI/terrain/material textures and the facade decals. Next
+  step: measure GraphicsTexture with the PBR module removed (A/B) and on a real phone, then cut (512² for Concrete /
+  DarkGlassGrid, facade decal LOD) until the PBR share fits 18 MiB.
+- Streaming hitches dominate the 1 % low in the first seconds after a teleport / fast entry (worst frames 100–200 ms).
+  During one such hitch the test car tipped (up −0.33) on the first run; the repeat run of the same route had no tilt
+  (up min 0.97).
