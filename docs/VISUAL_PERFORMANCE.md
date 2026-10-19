@@ -192,3 +192,9 @@ Triangles 202,526; biggest: hotel 1210196040 (21 fl) 154 → 2 + 92, hotel 32220
 used: 70 (22 of the 36 uploaded + 48 new: 2.05 MB glb, 27,840 tris, max 1,800); kit assets 15. Shophouse rows with
 mixed per-column modules merge less (runs of 1–2), so this block saves 10 % against the Part build where block 1
 saved 14 %. Citywide estimate unchanged (§5 table: 21,896 instances, 111 merged assets; 84 now exist).
+
+| everything installed (merged block + palette + citywide aprons + mesh traffic), 2026-10-20 18:00 | 60.0 | 16.7 / 18.3 / 22.0 | 55 fps | 5,366 | 86,053 | 6,756 / 230 |
+
+The 2026-10-20 18:00 row is the same desktop camera after the junction aprons (+23.8k parts citywide, streamed) and the mesh
+traffic: still vsync-bound at 60 with p99 18.3 ms; memory +592 MB vs the 10:50 row (aprons + traffic templates).
+Mobile (Device Emulator) baseline: still to be measured.
