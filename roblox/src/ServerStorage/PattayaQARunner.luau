@@ -40,7 +40,7 @@ QA.SERVER_SCRIPTS = {"CircuitServer", "PattayaChallengeServer", "PattayaEventsSe
 QA.CLIENT_SCRIPTS = {"CarController", "CircuitRaceClient", "MidnightActivity", "MidnightCamera", "MidnightHUD",
 	"MidnightSpeedo", "PattayaChallengeClient", "PattayaEventsClient", "PattayaGarageClient", "PattayaGPSClient",
 	"PattayaJobsClient", "PattayaLOD", "PattayaMinimapClient", "PattayaNightLights", "PattayaPerfTelemetry",
-	"PattayaRaceClient", "PattayaRoadLook", "PattayaSprintClient", "PattayaTraffic", "VisMeshPalmLOD"}
+	"PattayaPreload", "PattayaRaceClient", "PattayaRoadLook", "PattayaSprintClient", "PattayaTraffic", "VisMeshPalmLOD"}
 
 -- Budgets (sources in brackets) -------------------------------------------------------------------------------------
 -- Parts per Atomic chunk model, by PattayaWorld folder [tools/mapgen/config/*.json, VISUAL_PERFORMANCE.md,

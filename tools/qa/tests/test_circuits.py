@@ -79,22 +79,23 @@ class BiraData(unittest.TestCase):
         missing = sorted(k for k in keys if k not in self.d)
         self.assertEqual(missing, [])
 
-    @unittest.expectedFailure
     def test_registry_keys_present(self):
-        """KNOWN PROBLEM: CircuitRegistry reads def.pitWidth (default 20), the Bira data names it pitLaneWidth
-        (32.14), so the judge's pit-lane width for Bira is 20 instead of 32.14 studs."""
+        """Every def.<key> CircuitRegistry reads exists in the data. Fixed 2026-10-20: the registry reads
+        def.pitWidth or def.pitLaneWidth (Bira names it pitLaneWidth, 32.14), so pitWidth is optional."""
         reg = _qa.strip_comments(_qa.src('ServerStorage/CircuitRegistry.luau'))
         keys = set(re.findall(r'\bdef\.([A-Za-z_]\w*)', reg))
-        optional = {'width', 'trackWidth'}  # one of the two (docs)
+        optional = {'width', 'trackWidth', 'pitWidth'}  # width/trackWidth: one of the two (docs); pitWidth|pitLaneWidth
         missing = sorted(k for k in keys - optional if k not in self.d)
         self.assertEqual(missing, [])
 
-    @unittest.expectedFailure
     def test_grid_slot_format_matches_registry(self):
-        """KNOWN PROBLEM: CircuitRegistry.compile reads grid slots positionally (s[1]..s[5], the documented
-        {x,y,z,dx,dz} array); bira.luau writes keyed tables {x=, y=, z=, dx=, dz=} (CircuitBuilder reads those)."""
-        bad = [s for s in self.d['grid'] if not isinstance(s, list) or len(s) < 5]
-        self.assertEqual(len(bad), 0, f'{len(bad)} of {len(self.d["grid"])} grid slots are keyed tables')
+        """Grid slots are keyed {x=, y=, z=, dx=, dz=} (bira.luau) or positional {x,y,z,dx,dz}; the registry reads
+        both since 2026-10-20 (before, keyed slots compiled to the world origin)."""
+        reg = _qa.strip_comments(_qa.src('ServerStorage/CircuitRegistry.luau'))
+        self.assertIn('s.x or s[1]', reg)
+        bad = [s for s in self.d['grid'] if not (isinstance(s, list) and len(s) >= 5)
+               and not (isinstance(s, dict) and {'x', 'y', 'z'} <= set(s))]
+        self.assertEqual(len(bad), 0, f'{len(bad)} of {len(self.d["grid"])} grid slots have neither format')
 
 
 class CompiledCircuits(unittest.TestCase):
@@ -156,9 +157,8 @@ class CompiledCircuits(unittest.TestCase):
                 bypass = [g for g in self.r['G'][cid] if g['bypass']]
                 self.assertGreater(len(bypass), 0, 'pit lane must bypass some track gates')
 
-    @unittest.expectedFailure
     def test_bira_pit_width_from_data(self):
-        """KNOWN PROBLEM (see BiraData.test_registry_keys_present): compiled pit width 20, data says 32.14."""
+        """Compiled pit width equals the data's pitLaneWidth (was 20 before the 2026-10-20 fix)."""
         self.assertAlmostEqual(self.r['PIT']['bira']['width'], bira()['pitLaneWidth'], delta=0.01)
 
     def _grid_on_track(self, cid):
@@ -181,10 +181,8 @@ class CompiledCircuits(unittest.TestCase):
     def test_test_oval_grid_on_track(self):
         self._grid_on_track('test_oval')
 
-    @unittest.expectedFailure
     def test_bira_grid_on_track(self):
-        """KNOWN PROBLEM: the keyed Bira grid slots compile to 16 slots at (0, 0, 0) facing -Z, so a Circuit Race on
-        Bira would put every car at the world origin (open sessions start in the pit lane, so practice is fine)."""
+        """The 16 Bira grid slots compile onto the track (they compiled to the world origin before 2026-10-20)."""
         self._grid_on_track('bira')
 
     def test_entrance_near_track(self):

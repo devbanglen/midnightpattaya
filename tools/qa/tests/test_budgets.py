@@ -153,6 +153,8 @@ class PerfProfiles(unittest.TestCase):
         d = dict(re.findall(r'(LOD_\w+) = (\d+)', re.search(r'local DEFAULTS = \{(.*?)\}', lod).group(1)))
         d.update(re.findall(r'(LOD_\w+) = (\d+)', re.search(r'local SPOT_DEFAULTS = \{(.*?)\}', lights).group(1)))
         for k, v in d.items():
+            if k not in pc:  # client-only knobs (e.g. LOD_SweepMs) are not part of the profiles
+                continue
             self.assertEqual(pc[k], v, f'{k}: client default {v} vs pc profile {pc[k]}')
 
     def test_mobile_is_lighter_than_pc(self):

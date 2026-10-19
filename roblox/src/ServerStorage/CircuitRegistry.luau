@@ -188,8 +188,8 @@ function Registry.compile(def)
 	-- grid slots: {x, y, z, dx, dz}, y = surface height
 	c.grid = {}
 	for _, s in def.grid or {} do
-		local at = Vector3.new(s[1], s[2], s[3])
-		local dir = flatUnit(Vector3.new(s[4] or 0, 0, s[5] or -1))
+		local at = Vector3.new(s.x or s[1], s.y or s[2], s.z or s[3]) -- named (bira.luau) or positional slots
+		local dir = flatUnit(Vector3.new(s.dx or s[4] or 0, 0, s.dz or s[5] or -1))
 		table.insert(c.grid, CFrame.lookAt(at, at + dir))
 	end
 	if #c.grid == 0 then -- fallback: two columns behind the line
@@ -213,7 +213,7 @@ function Registry.compile(def)
 	-- pit lane
 	local pitPts = if def.pitLane then readPoints(def.pitLane) else {}
 	if #pitPts >= 2 then
-		local pit = {pts = pitPts, cum = {0}, width = def.pitWidth or DEFAULT_PIT_WIDTH,
+		local pit = {pts = pitPts, cum = {0}, width = def.pitWidth or def.pitLaneWidth or DEFAULT_PIT_WIDTH,
 			limit = def.pitSpeedLimit or 60}
 		for i = 2, #pitPts do
 			pit.cum[i] = pit.cum[i - 1] + (pitPts[i] - pitPts[i - 1]).Magnitude

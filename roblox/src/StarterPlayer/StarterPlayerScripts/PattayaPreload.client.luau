@@ -23,7 +23,8 @@
 --
 -- Switches (workspace attributes, live):
 --   Preload_Enabled (default true; false = both parts off, nothing is requested)
---   Preload_StreamAhead (default true; false = only part 2)
+--   Preload_StreamAhead (default OFF since 2026-10-20: leader A/B showed it worsens teleport hitches and gives no gain
+--     while driving at 150 studs/s; set true to try it again)
 --   Preload_MinSpeed (80) studs/s   Preload_LeadSeconds (4)   Preload_AheadMin (600) / Preload_AheadMax (900) studs
 --   Preload_Interval (1.5) s        Preload_MinMove (250) studs   Preload_Timeout (2) s per request
 -- Debug (client command bar): _G.PattayaPreload.stats()
@@ -93,7 +94,7 @@ local function request(target: Vector3)
 end
 
 local function tickStreamAhead()
-	if not workspace.StreamingEnabled or workspace:GetAttribute("Preload_StreamAhead") == false then
+	if not workspace.StreamingEnabled or workspace:GetAttribute("Preload_StreamAhead") ~= true then
 		return
 	end
 	if inFlight or os.clock() - lastAt < knob("Preload_Interval") then
