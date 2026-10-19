@@ -158,3 +158,15 @@ and draw-call batching of the merged tiles are **not measured** — run §3 at t
 LOD: no new far variant; Roblox's own MeshPart LOD (RenderFidelity Automatic) applies per merged mesh, and the palm
 impostor switch (client VisMeshPalmLOD) is unchanged. Beyond that, `Model.LevelOfDetail = StreamingMesh` would only
 help with StreamingEnabled (not used now).
+
+
+## 6. Focused measurement after mesh-opt + PBR (leader, 2026-10-20 ~10:50, desktop viewport 2684 × 1148, vsync 60)
+Same street camera as §4 (`CFrame.lookAt((20979.8, 40, 8), (21119.9, 45, 75))`), 21:00 MidnightClear, HUD hidden, car parked,
+`PattayaPerfProbe.run(10)` after the block streamed in, render-rate check ≥ 50 before and during the probe.
+
+| Build in the block | Render fps | p50 / p99 / worst (ms) | 1 % low ≈ | parts in view | InstanceCount | memory total / textures (MB) |
+|---|---|---|---|---|---|---|
+| merged tiles (40 + 508 MeshParts) + PBR maps | 59.9 | 16.7 / 18.1 / 39.6 | 55 fps | 5,203 | 83,533 | 6,164 / 232 |
+
+Note: the §4 rows were taken on the 830 × 439 emulator viewport, so "parts in view" is not directly comparable
+(this desktop viewport is wider). The A/B rows below use the same desktop viewport.
