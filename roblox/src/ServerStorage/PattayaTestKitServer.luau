@@ -8,6 +8,11 @@
 --   S.player(nameOrNil) -> Player                     first player when no name
 --   S.seat(plr, carName?, at?) -> ok, msg             seat in workspace[carName] ("personal" = the garage car,
 --                                                     nil = nearest free race car), then optionally S.teleport
+--   S.spawnCar(plr, carId, opts?) -> ok, msg         build a test car of any ServerStorage.CarBodies id (also ids
+--                                                     not in CarSpecs / the garage, e.g. "red_sports") 14 studs in
+--                                                     front of the player through ServerStorage.BuildCar, named
+--                                                     TestCar_<id>_<userId> (replaces the previous one), and seat
+--                                                     the player (opts.seat = false: just build; opts.color)
 --   S.teleport(plr, target, opts?) -> ok, msg         move the player's car to a Vector3/CFrame in hops of
 --                                                     opts.hop (300, never under 61) studs, anchored, so loop and
 --                                                     circuit gates ignore every hop (they skip jumps > 60); ground
@@ -156,6 +161,58 @@ function S.seat(plr: Player, carName: string?, at)
 		return ok, ("seated in %s; %s"):format(car.Name, msg)
 	end
 	return true, "seated in " .. car.Name
+end
+
+-- spawnCar (dev test of a car body that is not in the garage) ---------------------------------------------------------
+function S.spawnCar(plr: Player, carId: string, opts)
+	plr = S.player(plr) :: Player
+	opts = type(opts) == "table" and opts or {}
+	if type(carId) ~= "string" then
+		return false, "carId must be a string"
+	end
+	local root = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then
+		return false, "no character"
+	end
+	local factory = ServerStorage:FindFirstChild("BuildCar") :: BindableFunction?
+	if not factory then
+		return false, "ServerStorage.BuildCar missing (RaceCarServer not running)"
+	end
+	local name = ("TestCar_%s_%d"):format(carId, plr.UserId)
+	local old = workspace:FindFirstChild(name)
+	if old then
+		local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+		if hum and hum.SeatPart and hum.SeatPart:IsDescendantOf(old) then
+			hum.Sit = false
+			task.wait(0.2)
+		end
+		old:Destroy()
+	end
+	local look = flat(root.CFrame.LookVector)
+	look = if look.Magnitude > 0.1 then look.Unit else Vector3.new(0, 0, -1)
+	local p = root.Position + look * 14
+	local hit = groundAt(p, characters())
+	if hit then
+		p = Vector3.new(p.X, hit.Position.Y + CHASSIS_UP, p.Z)
+	end
+	local color = if typeof(opts.color) == "Color3" then opts.color else Color3.fromRGB(200, 20, 25)
+	local ok, car = pcall(function()
+		return factory:Invoke(CFrame.lookAt(p, p + look), color, carId, {name = name})
+	end)
+	if not (ok and car) then
+		return false, "BuildCar failed: " .. tostring(car)
+	end
+	local hasBody = car:FindFirstChild("Body") ~= nil and car.PrimaryPart and car.PrimaryPart.Transparency == 1
+	local wheelMeshes = 0
+	for _, d in car:GetDescendants() do
+		if d.Name == "WheelMesh" then wheelMeshes += 1 end
+	end
+	local info = ("%s built (body mesh %s, wheel meshes %d)"):format(name, hasBody and "yes" or "NO", wheelMeshes)
+	if opts.seat == false then
+		return true, info
+	end
+	local sok, msg = S.seat(plr, name)
+	return sok, info .. "; " .. tostring(msg)
 end
 
 -- teleport in hops -----------------------------------------------------------------------------------------------
@@ -495,6 +552,7 @@ end
 
 local ACTIONS = {
 	seat = function(plr, carName, at) return S.seat(plr, carName, at) end,
+	spawnCar = function(plr, carId, opts) return S.spawnCar(plr, carId, opts) end,
 	teleport = function(plr, target, opts) return S.teleport(plr, target, opts) end,
 	publishPath = function(_, name, pts, closed) return S.publishPath(name, pts, closed) end,
 	publishCircuit = function(_, id) return S.publishCircuit(id) end,
