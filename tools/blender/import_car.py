@@ -360,6 +360,7 @@ def finish_body(body, img, opts, info):
     if img is not None:
         if max(img.size) > opts['tex']:
             img.scale(opts['tex'], opts['tex'])
+        img.file_format = 'PNG'          # embedded as PNG, like the other car GLBs
         img.pack()
         info['body_texture'] = list(img.size)
     lo, hi = bounds_np(body)
