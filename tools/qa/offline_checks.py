@@ -74,13 +74,24 @@ def check_manifest():
         names |= manifest_names(json.load(open(mm, encoding='utf-8')))
     ids = json.load(open(up, encoding='utf-8'))
     luau_ids = dict(re.findall(r'\["([A-Za-z0-9_]+)"\]\s*=\s*(\d+)', open(lu, encoding='utf-8').read()))
+    # traffic vehicles (team9) share upload_ids.json, but their ids live in ReplicatedStorage/TrafficVehicles.luau
+    # (client-side models), not in the VisAssets manifests or VisAssetsManifest.luau
+    tv = os.path.join(ROOT, 'roblox', 'src', 'ReplicatedStorage', 'TrafficVehicles.luau')
+    tv_ids = dict(re.findall(r'\b(TRF_\w+)\s*=\s*\{assetId\s*=\s*(\d+)', open(tv, encoding='utf-8').read())) \
+        if os.path.exists(tv) else {}
     problems = []
+    for k in sorted(k for k in ids if k.startswith('TRF_')):
+        if k not in tv_ids:
+            problems.append(f'{k}: traffic vehicle id not in TrafficVehicles.luau')
+        elif str(ids[k]) != tv_ids[k]:
+            problems.append(f'{k}: id differs json {ids[k]} vs TrafficVehicles.luau {tv_ids[k]}')
+    vis_ids = {k: v for k, v in ids.items() if k not in tv_ids}
     not_uploaded = sorted(names - set(ids))
-    orphan_ids = sorted(set(ids) - names)
+    orphan_ids = sorted(set(vis_ids) - names)
     if orphan_ids:
         problems.append(f'upload_ids has names missing from the manifests: {orphan_ids[:6]}')
-    if set(ids) != set(luau_ids):
-        problems.append(f'upload_ids vs VisAssetsManifest.luau names differ: {sorted(set(ids) ^ set(luau_ids))[:6]}')
+    if set(vis_ids) != set(luau_ids):
+        problems.append(f'upload_ids vs VisAssetsManifest.luau names differ: {sorted(set(vis_ids) ^ set(luau_ids))[:6]}')
     for k, v in ids.items():
         if not str(v).isdigit():
             problems.append(f'{k}: id not numeric ({v})')
@@ -90,7 +101,8 @@ def check_manifest():
         problems.append('duplicate asset ids')
     for pr in problems:
         fails.append('asset manifest: ' + pr)
-    print(f'asset manifest: {len(names)} assets, {len(ids)} ids, {len(luau_ids)} in Luau, {len(not_uploaded)} prepared but not uploaded, {len(problems)} problems')
+    print(f'asset manifest: {len(names)} assets, {len(ids)} ids ({len(tv_ids)} traffic vehicles), {len(luau_ids)} in Luau, '
+          f'{len(not_uploaded)} prepared but not uploaded, {len(problems)} problems')
 
 
 def hash_dir(d):
@@ -158,12 +170,28 @@ def check_rollback():
     print(f'rollback entry points: {ok} present')
 
 
+def check_texture_budget():
+    """Run the offline PBR texture-budget audit as a gate (owner decision point 8)."""
+    script = os.path.join(ROOT, 'tools', 'materials', 'texture_budget.py')
+    if not os.path.exists(script):
+        print('texture budget: tools/materials/texture_budget.py NOT FOUND (skipped)')
+        return
+    r = subprocess.run([sys.executable, script], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
+    last = [ln for ln in (r.stdout or '').splitlines()
+            if 'budget' in ln.lower() and ('PASS' in ln or 'OVER' in ln)]
+    print('texture budget: ' + (last[-1].strip() if last else 'ran') + f' (exit {r.returncode})')
+    if r.returncode != 0:
+        fails.append('texture budget over the mobile cap (tools/materials/texture_budget.py exit %d)' % r.returncode)
+
+
 if __name__ == '__main__':
     check_luau()
     check_manifest()
     if '--no-export' not in sys.argv:
         check_export()
     check_rollback()
+    check_texture_budget()
     if fails:
         print('\nFAILED:')
         for f in fails:
