@@ -42,6 +42,12 @@
 -- TK.fire(remote, ...) / TK.invoke(remote, ...)  FireServer / InvokeServer on PattayaRemotes (logged)
 -- TK.readPath(source, inst?) -> {Vector3}, TK.reverse(pts), TK.concat(...), TK.slice(pts, i, j), TK.jumpTo(pos)
 -- TK.ghostTraffic(on), TK.car() -> chassis?, model?, TK.report() -> compact string, TK.stopAll()
+-- Recovery Kit (docs/RECOVERY_AND_COLLISION.md):
+-- TK.flipCar(rollDeg?, lift?)               tip the car over in place (180 = on its roof; 90 = on its side)
+-- TK.flipTest(rollDeg?, timeout?) -> result  flip, then wait until it is wheels-down again:
+--   {ok, seconds (flip -> up.Y > 0.9), minUp, uprights (CarController count)}; result.text is one line
+-- TK.holdThrottle(value, seconds) -> stopper  keeps the seat's ThrottleFloat at value (stuck test; holding W works too)
+-- TK.recovery() -> string                    the Recovery / CollisionModel switches and the car's recovery attributes
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1007,6 +1013,75 @@ function TK.ghostTraffic(on: boolean): number
 	return apply(true)
 end
 
+-- recovery -----------------------------------------------------------------------------------------------------------
+function TK.flipCar(rollDeg: number?, lift: number?): number
+	local chassis = TK.car()
+	assert(chassis, "flipCar: get in a car first")
+	local look = flat(chassis.CFrame.LookVector)
+	look = if look.Magnitude > 0.1 then look.Unit else Vector3.new(0, 0, -1)
+	local pos = chassis.Position + Vector3.new(0, lift or 4, 0)
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	chassis.AssemblyAngularVelocity = Vector3.zero
+	chassis.CFrame = CFrame.lookAt(pos, pos + look) * CFrame.Angles(0, 0, math.rad(rollDeg or 180))
+	return os.clock()
+end
+
+function TK.flipTest(rollDeg: number?, timeout: number?)
+	local chassis = TK.car()
+	assert(chassis, "flipTest: get in a car first")
+	local before = player:GetAttribute("Recovery_Uprights") or 0
+	local t0 = TK.flipCar(rollDeg)
+	local minUp, upAt = 1, nil
+	local deadline = t0 + (timeout or 8)
+	while os.clock() < deadline do
+		RunService.Heartbeat:Wait()
+		if not chassis.Parent then break end
+		local up = chassis.CFrame.UpVector.Y
+		minUp = math.min(minUp, up)
+		if minUp < 0.5 and up > 0.9 then
+			upAt = upAt or os.clock()
+			if os.clock() - upAt > 0.25 then break end
+		else
+			upAt = nil
+		end
+	end
+	local res = {ok = upAt ~= nil, seconds = if upAt then upAt - t0 else nil, minUp = minUp,
+		uprights = (player:GetAttribute("Recovery_Uprights") or 0) - before}
+	res.text = ("flipTest roll %s: %s in %s s (minUp %.2f, auto-uprights %d)"):format(tostring(rollDeg or 180),
+		if res.ok then "upright" else "NOT upright", if res.seconds then string.format("%.2f", res.seconds) else "-",
+		minUp, res.uprights)
+	return res
+end
+
+function TK.holdThrottle(value: number, seconds: number)
+	local _, model = TK.car()
+	assert(model, "holdThrottle: get in a car first")
+	local seat = model:FindFirstChild("DriveSeat") :: VehicleSeat
+	local t0 = os.clock()
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if os.clock() - t0 > seconds or not seat.Parent then
+			conn:Disconnect()
+			return
+		end
+		seat.ThrottleFloat = value
+	end)
+	return {stop = function() conn:Disconnect() end}
+end
+
+function TK.recovery(): string
+	local parts = {}
+	for _, k in {"Recovery_Enabled", "Recovery_AutoUpright", "Recovery_AntiStuck", "Recovery_RescueAuto", "CollisionModel"} do
+		table.insert(parts, k .. "=" .. tostring(workspace:GetAttribute(k)))
+	end
+	for _, k in {"Recovery_Uprights", "RescueActive", "RescueAt", "RescueEndAt", "Recovery_HitCount", "Recovery_LastHit",
+		"TrafficHits", "TrafficGhostUntil"} do
+		local v = player:GetAttribute(k)
+		if v ~= nil then table.insert(parts, k .. "=" .. brief(v, 1)) end
+	end
+	return table.concat(parts, " ")
+end
+
 function TK.stopAll()
 	for _, h in TK.handles do
 		if type(h) == "table" and h.stop then h:stop("stopAll") end
@@ -1029,7 +1104,8 @@ end)
 
 local REPORT_ATTRS = {"RaceState", "RaceLap", "RaceNext", "RaceLastTime", "SprintActive", "JobActive", "CircuitActive",
 	"CircuitMode", "CircuitState", "CircuitLap", "CircuitLastLap", "CircuitLapValid", "CircuitPenalty", "EventJoined",
-	"EventActive", "Equalised", "SpeedCap", "RoadFight", "NearMissCombo"}
+	"EventActive", "Equalised", "SpeedCap", "RoadFight", "NearMissCombo", "Recovery_Uprights", "RescueActive",
+	"Recovery_HitCount", "TrafficHits"}
 
 function TK.report(): string
 	local lines = {}
