@@ -16,6 +16,14 @@
 -- Player attributes: RescueActive (bool), RescueAt (server time a rescue started), RescueEndAt.
 -- Remotes (ReplicatedStorage.PattayaRemotes): RequestRescue (client -> server, reason string),
 -- RescueUpdate (server -> client: "start" {eta, hold} / "done" {ghost} / "denied" text).
+--
+-- Arcade traffic hits (Phase 2, CollisionModel = "arcade"): CarController reports heavy / head-on hits with
+-- TrafficHit (tier, vc, speedBefore). Checked here: arcade on, 1 report per Arcade_HitReportGap s, the server saw
+-- the car at Arcade_HitMinSpeed or more in the last 0.6 s, vc plausible, and a traffic car (same deterministic
+-- formula as the clients, ReplicatedStorage.PattayaTraffic) within Arcade_HitTrafficRadius at that server time.
+-- A valid hit sets the player attributes TrafficHitAt / TrafficHitTier / TrafficHits and fires the server-only
+-- BindableEvent ServerStorage.PattayaTrafficHit (plr, tier, vc): PattayaJobsServer counts it as a bump with the
+-- proposed diff in docs/RECOVERY_AND_COLLISION.md.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,6 +42,10 @@ local function remote(name: string): RemoteEvent
 end
 local RequestRescue = remote("RequestRescue")
 local RescueUpdate = remote("RescueUpdate")
+local TrafficHit = remote("TrafficHit")
+local hitSignal = ServerStorage:FindFirstChild("PattayaTrafficHit") or Instance.new("BindableEvent")
+hitSignal.Name = "PattayaTrafficHit"
+hitSignal.Parent = ServerStorage
 
 -- road graph (optional: the old RaceMap test place has none). Only PattayaRoute's public nearestEdge / toLocal are
 -- used; the edge polylines and widths come from the read-only graph data.
@@ -397,7 +409,79 @@ RequestRescue.OnServerEvent:Connect(function(plr: Player, reason)
 	rescue(plr, if type(reason) == "string" then reason:sub(1, 16) else "stuck")
 end)
 
+-- arcade TrafficHit reports --------------------------------------------------------------------------------------
+local TRAFFIC_ORIGIN_X, TRAFFIC_ORIGIN_Z = 20000, 0 -- PattayaBuilder.ORIGIN (as in PattayaTraffic.client.luau)
+local trafficRoutes = nil :: any
+local function routesOnce()
+	if trafficRoutes == nil then
+		trafficRoutes = false
+		local m = ReplicatedStorage:FindFirstChild("PattayaTraffic")
+		if m and m:IsA("ModuleScript") then
+			local ok, data = pcall(require, m)
+			if ok and type(data) == "table" then
+				trafficRoutes = Recovery.buildTrafficRoutes(data, TRAFFIC_ORIGIN_X, TRAFFIC_ORIGIN_Z)
+			end
+		end
+	end
+	return trafficRoutes or nil
+end
+
+-- nearest traffic car to the car now or up to 0.3 s ago (the report arrives a little after the touch); nil = no data
+local function trafficDistance(pos: Vector3, t: number): number?
+	local routes = routesOnce()
+	if not routes then
+		return nil
+	end
+	local best = math.huge
+	for _, back in {0, 0.15, 0.3} do
+		local list = Recovery.trafficNear(routes, t - back, pos.X, pos.Z, 120)
+		if list[1] then
+			best = math.min(best, list[1].dist)
+		end
+	end
+	return best
+end
+
+local lastHitAt = {} -- [player] = server time of the last accepted report
+local lastHitTry = {} -- [player] = server time of the last report of any kind
+TrafficHit.OnServerEvent:Connect(function(plr: Player, tier, vc, speedBefore)
+	if not Recovery.arcade() then
+		return
+	end
+	local chassis = carOf(plr)
+	local tr = trails[plr]
+	if not (chassis and tr) or type(tier) ~= "string" or type(vc) ~= "number" then
+		return
+	end
+	local t = now()
+	local cfg = Recovery.config()
+	if t - (lastHitAt[plr] or -math.huge) < cfg.Arcade_HitReportGap or t - (lastHitTry[plr] or -math.huge) < 0.25 then
+		return -- flood: dropped before the traffic lookup
+	end
+	lastHitTry[plr] = t
+	local v = chassis.AssemblyLinearVelocity
+	local peak = Vector3.new(v.X, 0, v.Z).Magnitude
+	for i = #tr.crumbs, 1, -1 do
+		local c = tr.crumbs[i]
+		if t - c.t > 0.6 then break end
+		peak = math.max(peak, c.speed)
+	end
+	local ok = Recovery.validateHitReport({now = t, lastAt = lastHitAt[plr], tier = tier, vc = vc,
+		speedBefore = if type(speedBefore) == "number" then speedBefore else nil, serverPeak = peak,
+		trafficDist = trafficDistance(chassis.Position, t)}, cfg)
+	if not ok then
+		return
+	end
+	lastHitAt[plr] = t
+	plr:SetAttribute("TrafficHitAt", t)
+	plr:SetAttribute("TrafficHitTier", tier)
+	plr:SetAttribute("TrafficHits", (plr:GetAttribute("TrafficHits") or 0) + 1)
+	hitSignal:Fire(plr, tier, vc)
+end)
+
 Players.PlayerRemoving:Connect(function(plr)
+	lastHitAt[plr] = nil
+	lastHitTry[plr] = nil
 	trails[plr] = nil
 	busy[plr] = nil
 	lastRescueEnd[plr] = nil

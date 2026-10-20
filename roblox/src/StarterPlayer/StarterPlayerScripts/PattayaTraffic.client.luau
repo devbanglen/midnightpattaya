@@ -5,6 +5,13 @@
 -- Traffic is solid for your own car (client physics): hitting it is a real knock. A traffic car about to run into
 -- your car from behind turns into a ghost for a moment instead of shoving it. Passing close without touching is a
 -- near miss: the server pays nitro (and a tip during a job) for it.
+-- Collision model (workspace attribute CollisionModel, live; docs/RECOVERY_AND_COLLISION.md):
+--   "physical" (default) = the solid boxes above, unchanged.
+--   "arcade" = the boxes never collide. A swept box test against my car finds the hit, CarController applies the
+--   scripted result (speed loss / spin / short loss of control from ReplicatedStorage.PattayaRecovery, never a
+--   roll) through the client BindableEvent PlayerScripts.CarImpact, and the traffic car ghosts for 1.5 s.
+-- Player attribute TrafficGhostUntil (server time, set after a rescue) ghosts every car near mine until then;
+-- TrafficGhostAll = true (TestKit) skips arcade hits.
 -- Looks (team9, 2026-10-19): real vehicle meshes (sedan / taxi, hatch, scooter pair, tuk-tuk, songthaew, pickup, van)
 -- from ReplicatedStorage.TrafficVehicles + TrafficVehicleTemplates, welded to the same single collision box as before
 -- (now invisible). No template for a kind (or no module) = the box car below, unchanged. docs/TRAFFIC_VEHICLES.md
@@ -29,6 +36,14 @@ if tvModule then
 end
 local NearMiss = remotes:WaitForChild("NearMiss", 30)
 local player = Players.LocalPlayer
+local recModule = ReplicatedStorage:FindFirstChild("PattayaRecovery")
+local recOk, Recovery = false, nil
+if recModule then
+	recOk, Recovery = pcall(require, recModule)
+	if not recOk then
+		Recovery = nil
+	end
+end
 
 local ORIGIN = Vector3.new(20000, 0, 0) -- PattayaBuilder.ORIGIN
 local ROAD_Y = 1
@@ -193,12 +208,14 @@ local function release(entry, kind: number)
 	table.insert(pool[kind], entry.model)
 end
 
+local arcade = false -- CollisionModel == "arcade" this frame: the boxes never collide
+
 local function setGhost(entry, on: boolean)
 	if entry.ghost == on then
 		return
 	end
 	entry.ghost = on
-	entry.root.CanCollide = not on
+	entry.root.CanCollide = not on and not arcade
 	for _, p in entry.model:GetChildren() do
 		if p:IsA("BasePart") then
 			p.LocalTransparencyModifier = if on then 0.6 else 0
@@ -215,6 +232,48 @@ local function myCar(): BasePart?
 	return nil
 end
 
+-- arcade hit: CarController (PlayerScripts.CarImpact) applies the result
+local function reportImpact(info)
+	local ps = player:FindFirstChild("PlayerScripts")
+	local ev = ps and ps:FindFirstChild("CarImpact")
+	if ev and ev:IsA("BindableEvent") then
+		ev:Fire(info)
+	end
+end
+
+-- my car against one traffic car (traffic frame cf, forward = -Z); returns true on a new hit
+local function arcadeHit(entry, cf: CFrame, rel: Vector3, car: BasePart, carVel: Vector3, speed: number, t: number): boolean
+	local prev = entry.lastRel
+	entry.lastRel = Vector2.new(rel.X, rel.Z)
+	if math.abs(rel.Y) > 6 or math.abs(rel.X) > entry.halfWid + 12 or math.abs(rel.Z) > entry.halfLen + 14 then
+		if not (prev and math.abs(prev.X) < entry.halfWid + 12 and math.abs(prev.Y) < entry.halfLen + 14) then
+			return false
+		end
+	end
+	local f = cf:VectorToObjectSpace(car.CFrame.LookVector)
+	local fl = Vector2.new(f.X, f.Z)
+	fl = if fl.Magnitude > 0.1 then fl.Unit else Vector2.new(0, -1)
+	local hit, depth, nx, nz = Recovery.sweptOverlap(prev and prev.X, prev and prev.Y, rel.X, rel.Z, fl.X, fl.Y,
+		Recovery.CAR_HALF_WID, Recovery.CAR_HALF_LEN, 0, 0, 0, -1, entry.halfWid, entry.halfLen)
+	if not hit then
+		return false
+	end
+	-- world: normal from the traffic car to me, the traffic car's velocity, closing speed and approach angle
+	local n = cf:VectorToWorldSpace(Vector3.new(nx, 0, nz))
+	n = Vector3.new(n.X, 0, n.Z)
+	n = if n.Magnitude > 1e-3 then n.Unit else -car.CFrame.LookVector
+	local tl = cf.LookVector
+	local tv = Vector3.new(tl.X, 0, tl.Z) * speed
+	local vc, approach = Recovery.closingSpeed(carVel.X, carVel.Z, tv.X, tv.Z, n.X, n.Z)
+	local myLook = Vector3.new(car.CFrame.LookVector.X, 0, car.CFrame.LookVector.Z)
+	myLook = if myLook.Magnitude > 0.1 then myLook.Unit else Vector3.new(0, 0, -1)
+	local other = car.CFrame:PointToObjectSpace(cf.Position) -- the traffic car in my frame (front = -Z)
+	reportImpact({vc = vc, approachDeg = approach, facingDot = myLook:Dot(Vector3.new(tl.X, 0, tl.Z).Unit),
+		side = if other.X >= 0 then 1 else -1, front = other.Z < 0, nx = n.X, nz = n.Z, depth = depth,
+		trafficSpeed = speed, at = t})
+	return true
+end
+
 -- update --------------------------------------------------------------------------------------------------------------
 local lastNearAt = 0
 local roots, cframes = {}, {}
@@ -223,6 +282,17 @@ RunService.Heartbeat:Connect(function()
 	local car = myCar()
 	local focus = if car then car.Position else (cam and cam.Focus.Position or Vector3.zero)
 	local t = workspace:GetServerTimeNow()
+	local nowArcade = Recovery ~= nil and workspace:GetAttribute("CollisionModel") == "arcade"
+	if nowArcade ~= arcade then
+		arcade = nowArcade
+		for _, entry in active do
+			entry.root.CanCollide = not entry.ghost and not arcade
+			entry.lastRel = nil
+		end
+	end
+	local ghostUntil = player:GetAttribute("TrafficGhostUntil")
+	local ghostAround = type(ghostUntil) == "number" and ghostUntil > t
+	local noHits = player:GetAttribute("TrafficGhostAll") == true
 	local seen = {}
 	table.clear(roots)
 	table.clear(cframes)
@@ -249,6 +319,7 @@ RunService.Heartbeat:Connect(function()
 				end
 				entry = {model = m, root = m.PrimaryPart, kind = r.kinds[k], ghost = false, ghostUntil = 0,
 					lift = m:GetAttribute("Lift"), halfLen = m:GetAttribute("HalfLen"), halfWid = m:GetAttribute("HalfWid")}
+				entry.root.CanCollide = not arcade
 				active[key] = entry
 			end
 			seen[key] = true
@@ -270,6 +341,17 @@ RunService.Heartbeat:Connect(function()
 					and along > -10 and along < r.speed - 5 then
 					entry.ghostUntil = t + 1.5
 				end
+				-- just rescued: everything close to me stays a ghost until TrafficGhostUntil
+				if ghostAround and math.abs(rel.X) < entry.halfWid + 20 and math.abs(rel.Z) < entry.halfLen + 30 then
+					entry.ghostUntil = math.max(entry.ghostUntil, ghostUntil)
+				end
+				-- arcade: a touch is a scripted hit (no physics), then the car ghosts so it cannot hit twice
+				if arcade and not noHits and t >= entry.ghostUntil
+					and arcadeHit(entry, cf, rel, car, carVel :: Vector3, r.speed, t) then
+					entry.ghostUntil = t + Recovery.get("Arcade_HitGhost")
+					entry.near = false -- touched: not a near miss
+				end
+				entry.lastRel = Vector2.new(rel.X, rel.Z)
 				setGhost(entry, t < entry.ghostUntil)
 				-- near miss: my car goes from one end of it to the other within NEAR_GAP of its side, without a knock
 				local side = if rel.Z < -entry.halfLen then -1 elseif rel.Z > entry.halfLen then 1 else 0

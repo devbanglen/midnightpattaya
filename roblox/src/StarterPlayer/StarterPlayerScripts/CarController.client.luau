@@ -87,6 +87,13 @@ local rec = {
 	uprights = 0,
 }
 
+-- arcade traffic hit in progress (CollisionModel = "arcade"; PattayaTraffic finds the touch, applyImpact below):
+-- {start, untilT, steer, slide, spinT, w0} -- steering scale, drift grip and the scripted yaw kick while it lasts.
+-- Pitch and roll are held at zero for the whole window, so a traffic hit can never roll the car.
+local impact = nil :: any
+local hitCount = 0
+local lastHitReport = -math.huge
+
 local params = RaycastParams.new()
 params.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -349,6 +356,14 @@ local function step(dt)
 	local ls = v:Dot(right)
 	local steer = seat.SteerFloat
 	local throttle = seat.ThrottleFloat
+	local hitNow = os.clock()
+	local hitWin = impact
+	if hitWin and hitNow >= hitWin.untilT then
+		impact, hitWin = nil, nil
+	end
+	if hitWin then
+		steer *= hitWin.steer
+	end
 	state.spin += fs * dt / radius
 
 	local grounded = 0
@@ -412,8 +427,8 @@ local function step(dt)
 		end
 		impulse += fwd * accel * mass * dt
 
-		-- grip: kill sideways sliding (much less while the handbrake is on = drift)
-		local grip = state.drift and tune.driftGrip or tune.grip
+		-- grip: kill sideways sliding (much less while the handbrake is on = drift; a heavy traffic hit slides too)
+		local grip = (state.drift or (hitWin and hitWin.slide)) and tune.driftGrip or tune.grip
 		impulse -= right * ls * mass * math.min(1, grip * dt)
 		chassis:ApplyImpulse(impulse)
 
@@ -424,12 +439,22 @@ local function step(dt)
 		local av = chassis.AssemblyAngularVelocity
 		local yaw = av:Dot(up)
 		local newYaw = yaw + (target - yaw) * math.min(1, 8 * dt)
+		if hitWin and hitNow - hitWin.start < hitWin.spinT then
+			-- scripted spin of a traffic hit: yaw rate w0 * (1 - t / T) adds up to the kick angle
+			newYaw = hitWin.w0 * (1 - (hitNow - hitWin.start) / hitWin.spinT)
+		end
 		chassis.AssemblyAngularVelocity = av + up * (newYaw - yaw)
 	else
 		-- airborne: damp pitch/roll so jumps land wheels-down
 		local av = chassis.AssemblyAngularVelocity
 		local yawPart = up * av:Dot(up)
 		chassis.AssemblyAngularVelocity = yawPart + (av - yawPart) * (1 - math.min(1, CONFIG.airUpright * dt))
+	end
+
+	if hitWin then
+		-- traffic hits never roll the car: only the yaw part of the spin is kept
+		local av = chassis.AssemblyAngularVelocity
+		chassis.AssemblyAngularVelocity = up * av:Dot(up)
 	end
 
 	-- nitro gauge
@@ -573,6 +598,70 @@ local function recoveryTick(dt: number)
 	end
 end
 
+-- Arcade traffic hits (Phase 2) ---------------------------------------------------------------------------------
+-- PattayaTraffic fires PlayerScripts.CarImpact with {vc, approachDeg, facingDot, side, front, nx, nz, depth}. The
+-- result comes from PattayaRecovery.classifyHit (owner numbers: light -20 %; heavy -45..-70 % with a 45-120 degree
+-- spin and 0.6-1.2 s of weak steering; head-on -85 % and a small bounce). Heavy and head-on hits are reported to
+-- the server (TrafficHit) for the jobs bump penalty.
+local function reportHit(tier: string, vc: number, speedBefore: number)
+	local clock = os.clock()
+	if clock - lastHitReport < 1 then
+		return
+	end
+	lastHitReport = clock
+	local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("PattayaRemotes")
+	local TrafficHit = remotes and remotes:FindFirstChild("TrafficHit")
+	if TrafficHit then
+		TrafficHit:FireServer(tier, vc, speedBefore)
+	end
+end
+
+local function applyImpact(info)
+	if not (current and Recovery and Recovery.arcade()) or type(info) ~= "table" or type(info.vc) ~= "number" then
+		return
+	end
+	local chassis = current.chassis
+	if chassis.Anchored or rec.anim then
+		return
+	end
+	local cfg = Recovery.config()
+	local res = Recovery.classifyHit(info, cfg)
+	local v = chassis.AssemblyLinearVelocity
+	local before = Vector3.new(v.X, 0, v.Z).Magnitude
+	local nx, nz = info.nx or 0, info.nz or 0
+	local wx, wz = Recovery.impactVelocity(v.X, v.Z, nx, nz, res)
+	chassis.AssemblyLinearVelocity = Vector3.new(wx, v.Y, wz)
+	-- out of the traffic box along the contact normal (it ghosts now, so this is only so the cars don't overlap)
+	local push = math.min((info.depth or 0) + 0.5, cfg.Arcade_MaxPush)
+	if push > 0 then
+		chassis.CFrame += Vector3.new(nx, 0, nz) * push
+	end
+	local now = os.clock()
+	if res.control > 0 or math.abs(res.yaw) > 0 then
+		local spinT, w0 = Recovery.spinProfile(res.yaw, math.max(res.control, 0.25))
+		impact = {start = now, untilT = now + math.max(res.control, spinT), steer = res.steer, slide = res.slide,
+			spinT = spinT, w0 = w0}
+	end
+	hitCount += 1
+	player:SetAttribute("Recovery_HitCount", hitCount)
+	player:SetAttribute("Recovery_LastHit", ("%s vc=%d %d->%d yaw=%d ctl=%.2f"):format(res.tier, math.floor(info.vc),
+		math.floor(before), math.floor(math.sqrt(wx * wx + wz * wz)), math.floor(res.yaw), res.control))
+	if res.tier == "heavy" or res.tier == "headon" then
+		reportHit(res.tier, info.vc, before)
+		showToast(if res.tier == "headon" then "HEAD-ON!" else "CRASH!", 0.8)
+	end
+end
+
+do
+	local ps = player:WaitForChild("PlayerScripts", 10)
+	if ps then
+		local ev = ps:FindFirstChild("CarImpact") or Instance.new("BindableEvent")
+		ev.Name = "CarImpact"
+		ev.Parent = ps
+		;(ev :: BindableEvent).Event:Connect(applyImpact)
+	end
+end
+
 -- Enter / exit ------------------------------------------------------------------
 local function pickTune()
 	if not current then
@@ -626,6 +715,7 @@ local function enter(seat)
 	current = {seat = seat, chassis = chassis, mounts = mounts, welds = welds, radius = model:GetAttribute("WheelRadius") or CONFIG.wheelRadius}
 	rec.enteredAt = os.clock()
 	resetRecovery()
+	impact = nil
 	pickTune()
 	bindActions()
 	gui.Enabled = true

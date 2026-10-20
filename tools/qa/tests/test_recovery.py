@@ -368,9 +368,10 @@ class RecoveryWiring(unittest.TestCase):
         self.assertIn('recoveryOn()', self.car)
 
     def test_server_remotes(self):
-        for name in ('RequestRescue', 'RescueUpdate'):
+        for name in ('RequestRescue', 'RescueUpdate', 'TrafficHit'):
             self.assertRegex(self.server, rf'local {name} = remote\("{name}"\)')
         self.assertIn('RequestRescue.OnServerEvent', self.server)
+        self.assertIn('TrafficHit.OnServerEvent', self.server)
         self.assertIn('RescueUpdate:FireClient', self.server)
         self.assertIn('CircuitActive', self.server, 'circuits keep their T reset')
 
@@ -380,11 +381,30 @@ class RecoveryWiring(unittest.TestCase):
         self.assertIn('cpAllows', self.server)
         self.assertRegex(self.server, r'elseif not racing and Route and graph then')
 
+    def test_traffic_switch(self):
+        self.assertIn('CollisionModel', self.traffic)
+        self.assertIn('CarImpact', self.traffic)
+        self.assertIn('CarImpact', self.car)
+        self.assertIn('NearMiss:FireServer', self.traffic, 'near misses still reported')
+        # physical stays the default: the boxes only stop colliding when the attribute says "arcade"
+        self.assertIn('workspace:GetAttribute("CollisionModel") == "arcade"', self.traffic)
+        self.assertIn('entry.root.CanCollide = not on and not arcade', self.traffic)
+        self.assertRegex(self.traffic, r'local arcade = false')
+        # the impact is ignored unless arcade is on (a stale event after switching back does nothing)
+        self.assertIn('Recovery.arcade()', self.car)
+        # a traffic hit never rolls the car: pitch / roll are zeroed during the hit window
+        self.assertIn('chassis.AssemblyAngularVelocity = up * av:Dot(up)', self.car)
+
     def test_no_new_client_scripts(self):
         """Client logic lives in CarController / PattayaTraffic: the QA runner's CLIENT_SCRIPTS list stays valid."""
         folder = os.path.join(_qa.SRC, 'StarterPlayer', 'StarterPlayerScripts')
         names = [f for f in os.listdir(folder) if 'Recovery' in f or 'Collision' in f]
         self.assertEqual(names, [])
+
+    def test_doc_exists(self):
+        doc = _qa.read(os.path.join(_qa.DOCS, 'RECOVERY_AND_COLLISION.md'))
+        for word in ('Recovery_Enabled', 'CollisionModel', 'Rollback', 'flipTest', 'TrafficHit'):
+            self.assertIn(word, doc)
 
 
 if __name__ == '__main__':

@@ -48,6 +48,13 @@
 --   {ok, seconds (flip -> up.Y > 0.9), minUp, uprights (CarController count)}; result.text is one line
 -- TK.holdThrottle(value, seconds) -> stopper  keeps the seat's ThrottleFloat at value (stuck test; holding W works too)
 -- TK.recovery() -> string                    the Recovery / CollisionModel switches and the car's recovery attributes
+-- TK.trafficNear(radius?, at?) -> {{pos, look, speed, halfLen, halfWid, kind, dist}}  traffic cars around the car
+--   (or `at`), nearest first, from the same deterministic formula the traffic uses (server clock)
+-- TK.hitTest(mode, speed, opts?) -> result   staged traffic hit: "rear" (rear-end), "head" (head-on), "side"
+--   (opts.angle, default 20 degrees). Puts the car opts.lead (120) studs from the nearest traffic car (opts.target =
+--   an entry of trafficNear), drives it at `speed` into that car (opts.offset studs sideways, e.g. 2 for an
+--   offset hit) until the touch, then lets go and measures: {tier, before, after (speed 0.1 s later), lossPct,
+--   yawDeg (heading change over 1.5 s), minUp (2 s), flipped, uprights, lastHit}; result.text is one line
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1006,9 +1013,15 @@ function TK.ghostTraffic(on: boolean): number
 		end
 		return n
 	end
+	-- arcade collision model: PattayaTraffic skips scripted hits while this is set
+	player:SetAttribute("TrafficGhostAll", if on then true else nil)
 	if on then
 		TK.trafficConn = RunService.Heartbeat:Connect(function() apply(false) end)
 		return apply(false)
+	end
+	-- arcade boxes never collide: leave them as PattayaTraffic set them
+	if workspace:GetAttribute("CollisionModel") == "arcade" then
+		return 0
 	end
 	return apply(true)
 end
@@ -1080,6 +1093,104 @@ function TK.recovery(): string
 		if v ~= nil then table.insert(parts, k .. "=" .. brief(v, 1)) end
 	end
 	return table.concat(parts, " ")
+end
+
+local recModule = ReplicatedStorage:FindFirstChild("PattayaRecovery")
+local Rec = recModule and require(recModule) :: any
+local trafficRoutes = nil
+function TK.trafficNear(radius: number?, at: Vector3?)
+	assert(Rec, "trafficNear: ReplicatedStorage.PattayaRecovery missing")
+	if not trafficRoutes then
+		local data = ReplicatedStorage:FindFirstChild("PattayaTraffic")
+		assert(data, "trafficNear: ReplicatedStorage.PattayaTraffic missing")
+		trafficRoutes = Rec.buildTrafficRoutes(require(data :: ModuleScript), 20000, 0)
+	end
+	local chassis = TK.car()
+	local c = at or (chassis and chassis.Position)
+	assert(c, "trafficNear: get in a car or pass a position")
+	local out = {}
+	for _, e in Rec.trafficNear(trafficRoutes, workspace:GetServerTimeNow(), c.X, c.Z, radius or 300) do
+		local sh = Rec.TRAFFIC_SHAPES[e.kind] or Rec.TRAFFIC_SHAPES[0]
+		table.insert(out, {pos = Vector3.new(e.x, 1, e.z), look = Vector3.new(e.lx, 0, e.lz), speed = e.speed,
+			halfLen = sh.len / 2, halfWid = sh.wid / 2, kind = e.kind, dist = e.dist})
+	end
+	return out
+end
+
+function TK.hitTest(mode: string, speed: number, opts)
+	opts = opts or {}
+	local chassis = TK.car()
+	assert(chassis, "hitTest: get in a car first")
+	local target = opts.target or TK.trafficNear(opts.radius or 400)[1]
+	assert(target, "hitTest: no traffic car nearby")
+	local lead = opts.lead or 120
+	local look, right = target.look, target.look:Cross(Vector3.yAxis)
+	local offset = opts.offset or 0
+	local y = 1 + 2.8 -- road + chassis ride height (traffic roads are at Y = 1)
+	local start, heading
+	if mode == "head" then
+		start, heading = target.pos + look * lead + right * offset, -look
+	elseif mode == "side" then
+		local a = math.rad(opts.angle or 20)
+		heading = (look * math.cos(a) + right * math.sin(a)).Unit
+		start = target.pos - heading * lead - right * (target.halfWid + 4)
+	else
+		start, heading = target.pos - look * lead + right * offset, look
+	end
+	TK.jumpTo(Vector3.new(start.X, y, start.Z), heading)
+	local hitsBefore = player:GetAttribute("Recovery_HitCount") or 0
+	local uprightsBefore = player:GetAttribute("Recovery_Uprights") or 0
+	-- follow the target: the nearest traffic car to where it should be now
+	local tpos, tlook, t0 = target.pos, target.look, os.clock()
+	local touched, done = false, false
+	local before = speed
+	local conn = onPreSim(function(dt)
+		if done then return end
+		local guess = tpos + tlook * target.speed * dt
+		local list = TK.trafficNear(30, guess)
+		if list[1] then tpos, tlook = list[1].pos, list[1].look end
+		local tright = tlook:Cross(Vector3.yAxis)
+		local aim = if mode == "side" then tpos + tright * (target.halfWid * 0.5) else tpos + tright * offset
+		local p = chassis.Position
+		local dir = flat(aim - p)
+		local dist = dir.Magnitude
+		local hit = (player:GetAttribute("Recovery_HitCount") or 0) ~= hitsBefore
+		-- physical mode has no hit counter: the touch is when the boxes meet
+		if hit or dist < target.halfLen + 7.5 + 1 or os.clock() - t0 > (opts.timeout or 6) then
+			touched = hit or dist < target.halfLen + 9
+			done = true
+			return
+		end
+		dir = if mode == "side" then heading else dir.Unit
+		local v = chassis.AssemblyLinearVelocity
+		chassis.AssemblyLinearVelocity = Vector3.new(dir.X * speed, v.Y, dir.Z * speed)
+		chassis.AssemblyAngularVelocity = Vector3.zero
+		chassis.CFrame = CFrame.lookAt(p, p + dir)
+		before = speed
+	end)
+	while not done do RunService.Heartbeat:Wait() end
+	conn:Disconnect()
+	local look0 = flat(chassis.CFrame.LookVector).Unit
+	task.wait(0.1)
+	local after = flat(chassis.AssemblyLinearVelocity).Magnitude
+	local minUp = 1
+	local t1 = os.clock()
+	while os.clock() - t1 < 1.9 do
+		RunService.Heartbeat:Wait()
+		minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
+	end
+	local look1 = flat(chassis.CFrame.LookVector).Unit
+	local yaw = math.deg(math.atan2(look0:Cross(look1).Y, look0:Dot(look1)))
+	local lastHit = player:GetAttribute("Recovery_LastHit")
+	local res = {mode = mode, speed = speed, touched = touched, before = before, after = after,
+		lossPct = (1 - after / math.max(before, 1)) * 100, yawDeg = yaw, minUp = minUp, flipped = minUp < 0.5,
+		uprights = (player:GetAttribute("Recovery_Uprights") or 0) - uprightsBefore,
+		tier = if (player:GetAttribute("Recovery_HitCount") or 0) ~= hitsBefore and type(lastHit) == "string"
+			then lastHit:match("^(%a+)") else nil, lastHit = lastHit, model = workspace:GetAttribute("CollisionModel")}
+	res.text = ("hitTest %s @%d [%s]: %s tier=%s %d->%d (-%d%%) yaw=%d minUp=%.2f%s"):format(mode, speed,
+		tostring(res.model or "physical"), if touched then "hit" else "MISSED", tostring(res.tier), math.floor(before),
+		math.floor(after), math.floor(res.lossPct + 0.5), math.floor(yaw), minUp, if res.flipped then " FLIPPED" else "")
+	return res
 end
 
 function TK.stopAll()
