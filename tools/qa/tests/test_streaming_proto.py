@@ -54,10 +54,11 @@ class Analysis(unittest.TestCase):
         largest WideChunks model was 2,142 descendants there"""
         f = SA.folder_table(SA.chunk_table(items()))
         want = {'Chunks': 93, 'WideChunks': 522, 'ApronChunks': 375, 'FurnitureChunks': 282, 'VisSliceChunks': 59,
-                'CoastChunks': 48, 'LandmarkChunks': 12}
+                'CoastChunks': 48, 'LandmarkChunks': 12, 'ShoulderChunks': 8}
         self.assertEqual({k: f[k]['chunks'] for k in want}, want)
         self.assertLess(abs(f['WideChunks']['max'] - 2142), 2142 * 0.03)
         self.assertEqual(f['Junctions']['total'], 495)
+        self.assertEqual(f['ShoulderChunks']['road'], 2536)  # the Sukhumvit shoulder pilot: 8 chunks, 2,536 parts
         total = sum(v['total'] for v in f.values())
         self.assertLess(abs(total - 184000) / 184000, 0.05, total)  # PattayaWorld about 184k descendants
 
@@ -196,6 +197,122 @@ class PrototypeLuau(unittest.TestCase):
                 got[k] = (int(n), int(cnt), mode.lower().replace('atomiclod', 'atomic_lod'))
             want = {k: (c['n'], c['items'], c['mode']) for k, c in p['containers'].items()}
             self.assertEqual(got, want, v)
+
+
+def district_rows(p):
+    rows = []
+    for it in p['source']:
+        root = it.chunk.split('/')[0]
+        chunk = it.chunk if it.chunk in SA.LOOSE else it.chunk.replace('/', '_')
+        rows.append('{x=%r,z=%r,n=%d,cat="%s",root="%s",chunk="%s"}' % (it.x + SA.ORIGIN_X, it.z, it.n, it.cat, root, chunk))
+    return 'local items = {' + ',\n'.join(rows) + '}\n'
+
+
+# a minimal Instance tree for the luau CLI (Name / Parent / children / attributes)
+MOCK = r"""
+local Inst = {}
+Inst.__index = Inst
+local function new(name, parent)
+	local o = setmetatable({Name = name, children = {}, attrs = {}, Parent = nil}, Inst)
+	if parent then o.Parent = parent; table.insert(parent.children, o) end
+	return o
+end
+function Inst:FindFirstChild(n) for _, c in self.children do if c.Name == n then return c end end return nil end
+function Inst:GetDescendants()
+	local out = {}
+	local function rec(x) for _, c in x.children do table.insert(out, c); rec(c) end end
+	rec(self)
+	return out
+end
+function Inst:Destroy()
+	local p = self.Parent
+	if p then for i, c in p.children do if c == self then table.remove(p.children, i) break end end end
+	self.Parent = nil
+end
+function Inst:GetFullName()
+	local s, p = self.Name, self.Parent
+	while p and p.Name ~= "game" do s = p.Name .. "." .. s; p = p.Parent end
+	return s
+end
+function Inst:GetAttributes() return self.attrs end
+function Inst:SetAttribute(k, v) self.attrs[k] = v end
+local gameRoot = new("game")
+workspace = new("Workspace", gameRoot)
+local services = {Workspace = workspace, ReplicatedStorage = new("ReplicatedStorage", gameRoot),
+	ServerScriptService = new("ServerScriptService", gameRoot), StarterPlayer = new("StarterPlayer", gameRoot),
+	RunService = {IsRunning = function() return false end}, HttpService = {}, Players = {}}
+new("StarterPlayerScripts", services.StarterPlayer)
+game = {GetService = function(_, n) return services[n] end}
+script = new("StreamingPrototype")
+"""
+
+
+class PrototypeParityAndRemove(unittest.TestCase):
+    def test_parity_a_b(self):
+        par = SA.proto_parity(items(), *centre())
+        self.assertEqual(par['A'], par['B'])
+        self.assertIn('ShoulderChunks', par['A'])
+        self.assertGreater(par['A']['ShoulderChunks'][1], 500)  # the narrowing at about (24550, 900) is in the copy
+        for v in ('A', 'B'):
+            self.assertEqual(sum(n for _, n in par[v].values()), sum(c['n'] for c in plan(v)['containers'].values()))
+
+    def test_shoulders_are_road_layer(self):
+        p = plan('B')
+        sh = [(k, name) for k, name in p['assign'] if p['source'][k].chunk.startswith('ShoulderChunks/')]
+        self.assertTrue(sh)
+        for k, name in sh:
+            self.assertEqual(p['source'][k].cat, 'road')
+            self.assertEqual(p['containers'][name]['layer'], 'road')
+            self.assertTrue(name.startswith('Roads/'), name)
+
+    def test_luau_parity_and_leftovers(self):
+        """luau CLI: P.Parity / P.ParityText on the district (== Python), then a mock place with every prototype
+        instance: Leftovers() lists them, Remove() deletes them and nothing else, Leftovers() is empty after"""
+        if not _qa.find_luau('luau'):
+            self.skipTest('luau CLI not found')
+        src = _qa.read(PROTO)
+        main = (_qa.read(os.path.join(_qa.HERE, 'luau', 'prelude.luau')) + '\n' + MOCK +
+                'local P = (function()\n' + src + '\nend)()\n' + district_rows(plan('A')) + r"""
+local par = P.Parity(items)
+local roots = {}
+for r in par.A do table.insert(roots, r) end
+table.sort(roots)
+for _, r in roots do print("PAR\t" .. r .. "\t" .. par.A[r][2] .. "\t" .. par.B[r][2]) end
+local text = P.ParityText(items)
+print("PARTEXT\t" .. (string.find(text, "PARITY OK", 1, true) and "ok" or "failed"))
+-- a place with the prototype built (+ things that are not the prototype's)
+local RS = game:GetService("ReplicatedStorage")
+local world = new("PattayaWorld", workspace)
+new("Chunk_1_1", world)
+new("PattayaRemotes", RS)
+local root = new("StreamingProto", workspace)
+new("Ground", root); new("Roads", root)
+new("StreamingProtoClient", workspace)
+new("StreamingPrototype", RS); new("StreamingProtoRemote", RS); new("StreamingProtoDetail", RS)
+new("StreamingProtoBoot", game:GetService("ServerScriptService"))
+new("StreamingProtoBootClient", game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts"))
+workspace:SetAttribute("StreamProtoTest", 1)
+workspace:SetAttribute("LOD_Enabled", true)
+local before = P.Leftovers()
+local n = 0
+for _ in string.gmatch(before, "[^\n]+") do n += 1 end
+print("BEFORE\t" .. n)
+print("REMOVE\t" .. P.Remove())
+print("AFTER\t[" .. P.Leftovers() .. "]")
+print("KEPT\t" .. tostring(workspace:FindFirstChild("PattayaWorld") ~= nil and RS:FindFirstChild("PattayaRemotes") ~= nil
+    and workspace.attrs.LOD_Enabled == true))
+""")
+        code, out = _qa.run_luau(main)
+        self.assertEqual(code, 0, out[-2000:])
+        lines = [ln.split('\t') for ln in out.strip().splitlines()]
+        got = {ln[1]: (int(ln[2]), int(ln[3])) for ln in lines if ln[0] == 'PAR'}
+        want = SA.proto_parity(items(), *centre())
+        self.assertEqual(got, {k: (want['A'][k][1], want['B'][k][1]) for k in want['A']})
+        tags = {ln[0]: ln[1:] for ln in lines if ln[0] != 'PAR'}
+        self.assertEqual(tags['PARTEXT'], ['ok'])
+        self.assertEqual(tags['BEFORE'], ['8'])  # 7 instances + 1 attribute
+        self.assertEqual(tags['AFTER'], ['[]'])
+        self.assertEqual(tags['KEPT'], ['true'])
 
 
 if __name__ == '__main__':

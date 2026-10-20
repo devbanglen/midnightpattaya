@@ -3,32 +3,38 @@
 -- (workspace.StreamingProto, +60,000 studs in X, own flat ground, no terrain) re-chunked per a layout variant, and
 -- measures stream-in there in Play. The main world is only READ (parts are Clone()d, never moved or changed).
 --
--- !! Build() is a PLACE CHANGE (adds ~25-35k instances to the place). The leader runs it only after the owner has
--- !! confirmed a fresh .rbxl backup. Remove() takes everything out again.
+-- !! Build() is a PLACE CHANGE (adds ~23k instances + two small boot scripts). The leader runs it only after the owner
+-- !! has confirmed a fresh .rbxl backup. Remove() takes everything out again; Leftovers() lists anything that is left.
 --
 -- EDIT mode (command bar / execute_luau; Clone(): Studio caches the first require):
 --   local P = require(game.ServerStorage.StreamingPrototype:Clone())
 --   print(P.Plan("B"))            -- dry run: containers, instances per mode, largest Atomic unit; changes nothing
+--   print(P.ParityText())         -- A and B copy the same source parts (per source folder); P.Parity() = the table
 --   print(P.Build("B"))           -- builds variant B (an existing prototype is removed first); then save the place
+--   print(P.SetBoot("cold"))      -- what the boot scripts do in the next Play: "cold" | "teleport" | "off"
 --   print(P.Probe())              -- instances per folder / streaming mode / category
---   print(P.Remove())             -- undo: workspace.StreamingProto + the ReplicatedStorage helpers
--- Variants (each Build replaces the previous one; build, save, Play, measure, next):
---   A  control: the district as it is now (one Atomic Model per source chunk, junction discs loose)
---   B  roads + markings Atomic per 256-stud cell (cap 1500 instances, split into quadrants above it);
---      buildings and props Default (non-atomic: the engine streams each part on its own)
---   C  B, and the detail props (palms, lights, signs, furniture, coast props) are NOT streamed: templates in
---      ReplicatedStorage.StreamingProtoDetail, the client builds them within NearRadius (384) at a budget per frame
---   D  B, with buildings as Atomic Models per 256 cell with LevelOfDetail = StreamingMesh (imposters when streamed out)
+--   print(P.Remove())             -- undo: workspace.StreamingProto, ReplicatedStorage helpers, boot scripts
+--   print(P.Leftovers())          -- "" when nothing of the prototype is left in the place
+-- Variants (each Build replaces the previous one; build, save, Play, measure, next). Approved now: A and B.
+--   A  control: the district as it is now (one Atomic Model per source chunk, junction discs / palms loose)
+--   B  road layer (roads, sidewalks, discs, aprons, corner fills, SHOULDERS, markings) Atomic per 256-stud cell
+--      (cap 1500 instances, split into quadrants above it); buildings and props Default (non-atomic)
+--   C  (later) B, and detail props built by the client within NearRadius from ReplicatedStorage templates
+--   D  (later) B, buildings Atomic per 256 cell with LevelOfDetail = StreamingMesh
+-- Every variant copies the same source parts (P.Parity()); only grouping and streaming mode differ.
 --
--- PLAY mode. Server (command bar on Server):
---   require(game.ServerStorage.StreamingPrototype).Server.start()      -- remote for the client harness (Studio / DevTest)
--- Client (command bar on Client; Build() put a copy of this module in ReplicatedStorage):
---   local P = require(game.ReplicatedStorage.StreamingPrototype)
---   P.Client.run({mode = "teleport"})                       -- teleport into the proto centre, record 20 s
---   P.Client.run({mode = "drive", speed = 150})             -- teleport, settle 8 s, drive the proto path, record
---   P.Client.run({mode = "teleport_drive", speed = 200})    -- teleport and drive off at once (road-availability stress)
---   print(P.Client.last())                                  -- the summary again; _G.StreamProto.result = the table
--- Seat in a race car first (PattayaTestKit: TK.seatIn()). Drives use PattayaTestKit.drivePath (CFrame mode default).
+-- PLAY mode: Build() also installs ServerScriptService.StreamingProtoBoot and StarterPlayerScripts.
+-- StreamingProtoBootClient. They do nothing outside Studio or when workspace.StreamingProto.Boot is "off". With
+-- Boot = "cold" or "teleport" each fresh Play runs one automatic sequence for the first player:
+--   cold      the server seats the player in the nearest race car and moves it to the proto start right after join,
+--             without RequestStreamAroundAsync; the client records the first ColdSeconds (30) s after join, then
+--             drives the proto path at 100, 150 and 200 studs/s (each drive recorded)
+--   teleport  the server seats the player in the nearest race car where it spawned (city); after 15 s the car is
+--             teleported into the proto (PattayaTestKitServer.teleport, pre-stream like the game), 20 s recorded,
+--             then the same three drives
+-- Each recorded window prints one "[StreamProto]" line; _G.StreamProto.runs holds them, P.Client.report() joins them.
+-- By hand (Boot = "off"): server require(game.ServerStorage.StreamingPrototype).Server.start(); client
+--   require(game.ReplicatedStorage.StreamingPrototype).Client.run({mode = "teleport" | "drive", speed = 150})
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
@@ -54,17 +60,20 @@ local DETAIL = "StreamingProtoDetail"
 local CLIENT_FOLDER = "StreamingProtoClient"
 local REMOTE = "StreamingProtoRemote"
 local DEV_REMOTE_CLASS = "RemoteFunction"
+local BOOT_SERVER = "StreamingProtoBoot"
+local BOOT_CLIENT = "StreamingProtoBootClient"
 local SOURCES = {"Chunks", "WideChunks", "ApronChunks", "FurnitureChunks", "VisSliceChunks", "CoastChunks",
-	"LandmarkChunks", "Junctions", "WideJunctions", "VisMeshPalms", "Landmarks"}
+	"LandmarkChunks", "ShoulderChunks", "Junctions", "WideJunctions", "VisMeshPalms", "Landmarks"}
 local LOOSE = {Junctions = true, WideJunctions = true, VisMeshPalms = true, Landmarks = true} -- Default today
 -- categories (the same rules as tools/mapgen/streaming_analysis.py): road = what the car drives / collides on
 local ROAD_NAMES = {Road = true, Sidewalk = true, Junction = true, Joint = true}
 local MARK_NAMES = {Centre = true, Dash = true, ZebraStripe = true}
 local BUILDING_ROOTS = {VisSliceChunks = true, LandmarkChunks = true}
+local ROAD_ROOTS = {ShoulderChunks = true, ApronChunks = true} -- every part of these is road collision
 
 local function category(p: BasePart, rootName: string): string
 	local n = p.Name
-	if ROAD_NAMES[n] or p:GetAttribute("RoadFill") or p:GetAttribute("Apron") or p:GetAttribute("CornerFill") then
+	if ROAD_ROOTS[rootName] or ROAD_NAMES[n] or p:GetAttribute("Shoulder") or p:GetAttribute("RoadFill") or p:GetAttribute("Apron") or p:GetAttribute("CornerFill") then
 		return "road"
 	end
 	if MARK_NAMES[n] then
@@ -365,17 +374,151 @@ local function installClientCopy()
 	copy.Parent = ReplicatedStorage
 end
 
+-- everything the prototype ever puts into the place (Build, Server.start, the client near layer)
+local function ownInstances(): {Instance}
+	local out = {}
+	local function add(parent: Instance?, name: string)
+		local x = parent and parent:FindFirstChild(name)
+		if x then table.insert(out, x) end
+	end
+	local SSS = game:GetService("ServerScriptService")
+	local SP = game:GetService("StarterPlayer")
+	local SPS = SP and SP:FindFirstChild("StarterPlayerScripts")
+	add(workspace, ROOT)
+	add(workspace, CLIENT_FOLDER)
+	add(ReplicatedStorage, DETAIL)
+	add(ReplicatedStorage, "StreamingPrototype")
+	add(ReplicatedStorage, REMOTE)
+	add(SSS, BOOT_SERVER)
+	add(SPS, BOOT_CLIENT)
+	return out
+end
+
+local OWN_ATTR_PREFIX = "StreamProto" -- the prototype sets no attributes outside its own instances; checked anyway
+
+-- one line per prototype instance or attribute still in the place; "" = clean
+function P.Leftovers(): string
+	local rows = {}
+	for _, inst in ownInstances() do
+		table.insert(rows, inst:GetFullName())
+	end
+	for _, svc in {workspace, ReplicatedStorage} do
+		for k in svc:GetAttributes() do
+			if string.sub(k, 1, #OWN_ATTR_PREFIX) == OWN_ATTR_PREFIX then
+				table.insert(rows, svc.Name .. "@" .. k)
+			end
+		end
+	end
+	table.sort(rows)
+	return table.concat(rows, "\n")
+end
+
 function P.Remove(): string
 	assert(isEdit(), "StreamingPrototype.Remove: Edit mode only")
 	local n = 0
-	for _, inst in {workspace:FindFirstChild(ROOT), ReplicatedStorage:FindFirstChild(DETAIL),
-		ReplicatedStorage:FindFirstChild("StreamingPrototype"), ReplicatedStorage:FindFirstChild(REMOTE)} do
-		if inst then
-			n += 1 + #inst:GetDescendants()
-			inst:Destroy()
+	for _, inst in ownInstances() do
+		n += 1 + #inst:GetDescendants()
+		inst:Destroy()
+	end
+	for _, svc in {workspace, ReplicatedStorage} do
+		for k in svc:GetAttributes() do
+			if string.sub(k, 1, #OWN_ATTR_PREFIX) == OWN_ATTR_PREFIX then svc:SetAttribute(k, nil) end
 		end
 	end
-	return ("StreamingPrototype removed (%d instances); the main world was not touched"):format(n)
+	local left = P.Leftovers()
+	return ("StreamingPrototype removed (%d instances); the main world was not touched; leftovers: %s"):format(n,
+		if left == "" then "none" else left)
+end
+
+-- A and B must copy exactly the same source parts: per source folder {parts, instances} of each plan
+function P.Parity(items: {Src}?): {[string]: {[string]: {number}}}
+	local src = items or collect()
+	local out = {}
+	for _, v in {"A", "B"} do
+		local conts = P.MakePlan(v, src)
+		local t: {[string]: {number}} = {}
+		for _, c in conts do
+			for _, it in c.items do
+				local r = t[it.root] or {0, 0}
+				r[1] += 1
+				r[2] += it.n
+				t[it.root] = r
+			end
+		end
+		out[v] = t
+	end
+	return out
+end
+
+function P.ParityText(items: {Src}?): string
+	local par = P.Parity(items)
+	local roots = {}
+	for r in par.A do table.insert(roots, r) end
+	for r in par.B do
+		if not par.A[r] then table.insert(roots, r) end
+	end
+	table.sort(roots)
+	local lines = {("%-16s %8s %9s %8s %9s  %s"):format("source", "A parts", "A inst", "B parts", "B inst", "same")}
+	local ok = true
+	local ta, tb = {0, 0}, {0, 0}
+	for _, r in roots do
+		local a, b = par.A[r] or {0, 0}, par.B[r] or {0, 0}
+		local same = a[1] == b[1] and a[2] == b[2]
+		ok = ok and same
+		ta[1] += a[1]
+		ta[2] += a[2]
+		tb[1] += b[1]
+		tb[2] += b[2]
+		table.insert(lines, ("%-16s %8d %9d %8d %9d  %s"):format(r, a[1], a[2], b[1], b[2], if same then "yes" else "NO"))
+	end
+	table.insert(lines, ("%-16s %8d %9d %8d %9d  %s"):format("total", ta[1], ta[2], tb[1], tb[2],
+		if ok and ta[2] == tb[2] then "PARITY OK" else "PARITY FAILED"))
+	return table.concat(lines, "\n")
+end
+
+-- what the boot scripts do in the next Play (Edit mode): "cold", "teleport" or "off"
+function P.SetBoot(kind: string, coldSeconds: number?): string
+	assert(isEdit(), "SetBoot: Edit mode")
+	assert(kind == "cold" or kind == "teleport" or kind == "off", "SetBoot: cold | teleport | off")
+	local root = workspace:FindFirstChild(ROOT)
+	assert(root, "SetBoot: Build() first")
+	root:SetAttribute("Boot", kind)
+	root:SetAttribute("ColdSeconds", coldSeconds or 30)
+	return "StreamingProto.Boot = " .. kind .. " (save, then a fresh Play)"
+end
+
+local BOOT_SERVER_SRC = [[
+-- StreamingPrototype boot (dev only; removed by StreamingPrototype.Remove). Does nothing outside Studio or when
+-- workspace.StreamingProto.Boot is "off".
+local root = workspace:FindFirstChild("StreamingProto")
+if not (game:GetService("RunService"):IsStudio() and root and root:GetAttribute("Boot") ~= "off") then return end
+local P = require(game:GetService("ServerStorage"):WaitForChild("StreamingPrototype"))
+P.Server.start()
+P.Server.boot(root:GetAttribute("Boot"))
+]]
+
+local BOOT_CLIENT_SRC = [[
+-- StreamingPrototype boot, client (dev only; removed by StreamingPrototype.Remove)
+local root = workspace:WaitForChild("StreamingProto", 30)
+if not (game:GetService("RunService"):IsStudio() and root and root:GetAttribute("Boot") ~= "off") then return end
+local P = require(game:GetService("ReplicatedStorage"):WaitForChild("StreamingPrototype", 30))
+P.Client.sequence(root:GetAttribute("Boot"))
+]]
+
+local function installBoot()
+	local SSS = game:GetService("ServerScriptService")
+	local SPS = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+	for _, spec in {{SSS, BOOT_SERVER, "Script", BOOT_SERVER_SRC}, {SPS, BOOT_CLIENT, "LocalScript", BOOT_CLIENT_SRC}} do
+		local parent = spec[1]
+		if parent then
+			local old = parent:FindFirstChild(spec[2])
+			if old then old:Destroy() end
+			local sc: any = Instance.new(spec[3])
+			sc.Name = spec[2]
+			sc.Source = spec[4]
+			sc.Parent = parent
+		end
+	end
 end
 
 function P.Build(variant: string?): string
@@ -384,7 +527,7 @@ function P.Build(variant: string?): string
 	local t0 = os.clock()
 	local conts, src = P.MakePlan(v)
 	assert(#src > 0, "StreamingPrototype.Build: the district is empty (is PattayaWorld built?)")
-	if workspace:FindFirstChild(ROOT) or ReplicatedStorage:FindFirstChild(DETAIL) then
+	if #ownInstances() > 0 then
 		P.Remove()
 	end
 	local cfg = P.CONFIG
@@ -464,9 +607,12 @@ function P.Build(variant: string?): string
 	end
 	root:SetAttribute("ProtoPath", packPath(path))
 	root:SetAttribute("ProtoPathDropped", #raw - #path)
+	root:SetAttribute("Boot", "off")
+	root:SetAttribute("ColdSeconds", 30)
 	installClientCopy()
+	installBoot()
 	return planText(v, conts, src) .. ("\nbuilt %d parts (%d not clonable) in %.1f s; drive path %d points (%d dropped: no road under them);"
-		.. " workspace.%s%s; SAVE the place, then Play"):format(cloned, failed, os.clock() - t0, #path, #raw - #path, ROOT,
+		.. " workspace.%s%s; boot scripts installed (Boot = off, see P.SetBoot); SAVE the place, then Play"):format(cloned, failed, os.clock() - t0, #path, #raw - #path, ROOT,
 		if v == "C" then " + ReplicatedStorage." .. DETAIL else "")
 end
 
@@ -513,6 +659,48 @@ end
 -- ---- server (Play) -----------------------------------------------------------------------------------------------
 P.Server = {}
 
+local function unpackPath(s: string?): {Vector3}
+	local out = {}
+	for item in string.gmatch(s or "", "[^;]+") do
+		local x, y, z = string.match(item, "([-%d%.]+),([-%d%.]+),([-%d%.]+)")
+		if x then table.insert(out, Vector3.new(tonumber(x) :: number, tonumber(y) :: number, tonumber(z) :: number)) end
+	end
+	return out
+end
+
+local function serverKit(): any
+	local ok, kit = pcall(function()
+		return require(game:GetService("ServerStorage"):WaitForChild("PattayaTestKitServer", 5) :: any)
+	end)
+	return if ok then kit else nil
+end
+
+-- moves the player's car to `goal` without RequestStreamAroundAsync (anchored 0.3 s, like the kit)
+local function moveDirect(plr: Player, goal: Vector3, look: Vector3?): (boolean, string)
+	local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+	local seat = hum and hum.SeatPart
+	local car = seat and seat.Parent
+	if not (car and car:IsA("Model") and car.PrimaryPart) then return false, "not in a car" end
+	local chassis = car.PrimaryPart :: BasePart
+	local offset = chassis.CFrame:ToObjectSpace(car:GetPivot())
+	local at = goal + Vector3.new(0, 2.8, 0)
+	local dir = if look and look.Magnitude > 0.1 then Vector3.new(look.X, 0, look.Z).Unit else Vector3.xAxis
+	chassis.Anchored = true
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	car:PivotTo(CFrame.lookAt(at, at + dir) * offset)
+	task.wait(0.3)
+	chassis.Anchored = false
+	pcall(function() chassis:SetNetworkOwner(plr) end)
+	return true, "moved (no pre-stream)"
+end
+
+local function protoStart(): (Vector3?, Vector3?)
+	local root = workspace:FindFirstChild(ROOT)
+	local path = unpackPath(root and root:GetAttribute("ProtoPath"))
+	if #path < 2 then return nil, nil end
+	return path[1], path[2] - path[1]
+end
+
 function P.Server.start(): string
 	assert(RunService:IsServer() and RunService:IsRunning(), "Server.start: Play mode, server side")
 	assert(devAllowed(), "StreamingPrototype is dev only (Studio or workspace DevTest = true)")
@@ -527,29 +715,54 @@ function P.Server.start(): string
 		end
 		if action == "teleport" then
 			-- a = Vector3 goal, b = prestream (true: PattayaTestKitServer.teleport, which streams around the goal)
-			local ok, kit = pcall(function()
-				return require(game:GetService("ServerStorage"):WaitForChild("PattayaTestKitServer", 2) :: any)
-			end)
-			if b ~= false and ok and kit and kit.teleport then
+			local kit = serverKit()
+			if b ~= false and kit and kit.teleport then
 				return kit.teleport(plr, a, {hop = 1e6, force = true})
 			end
-			-- no pre-stream: move the car directly (anchored for 0.3 s like the kit)
-			local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
-			local seat = hum and hum.SeatPart
-			local car = seat and seat.Parent
-			if not (car and car:IsA("Model") and car.PrimaryPart) then return false, "not in a car" end
-			local chassis = car.PrimaryPart :: BasePart
-			local offset = chassis.CFrame:ToObjectSpace(car:GetPivot())
-			chassis.Anchored = true
-			car:PivotTo(CFrame.lookAt(a + Vector3.new(0, 2.8, 0), a + Vector3.new(0, 2.8, 0) + Vector3.xAxis) * offset)
-			task.wait(0.3)
-			chassis.Anchored = false
-			pcall(function() chassis:SetNetworkOwner(plr) end)
-			return true, "moved (no pre-stream)"
+			return moveDirect(plr, a)
+		elseif action == "seat" then
+			local kit = serverKit()
+			if not kit then return false, "no PattayaTestKitServer" end
+			return kit.seat(plr)
 		end
 		return false, "unknown action"
 	end
 	return "StreamingPrototype server remote ready"
+end
+
+-- boot sequence (the boot Script): seat the first player in the nearest race car; "cold": move it into the proto at
+-- once, without pre-stream. The client half (Client.sequence) records.
+function P.Server.boot(kind: string)
+	local function go(plr: Player)
+		local char = plr.Character or plr.CharacterAdded:Wait()
+		char:WaitForChild("Humanoid", 10)
+		task.wait(1)
+		local kit = serverKit()
+		if not kit then
+			warn("[StreamProto] boot: no PattayaTestKitServer")
+			return
+		end
+		local ok, msg = kit.seat(plr)
+		plr:SetAttribute("StreamProtoSeated", os.clock()) -- player attribute: gone with the Play session
+		if ok and kind == "cold" then
+			local start, look = protoStart()
+			if start then
+				ok, msg = moveDirect(plr, start, look)
+				plr:SetAttribute("StreamProtoArrived", ok)
+			end
+		end
+		print("[StreamProto] boot", kind, plr.Name, ok, msg)
+	end
+	local first = Players:GetPlayers()[1]
+	if first then
+		task.spawn(go, first)
+	else
+		local conn
+		conn = Players.PlayerAdded:Connect(function(plr)
+			conn:Disconnect()
+			go(plr)
+		end)
+	end
 end
 
 -- ---- client (Play) -----------------------------------------------------------------------------------------------
@@ -575,16 +788,6 @@ local function percentile(sorted: {number}, p: number): number
 	return sorted[math.clamp(math.ceil(p / 100 * #sorted), 1, #sorted)]
 end
 
-local function unpackPath(s: string?): {Vector3}
-	local out = {}
-	for item in string.gmatch(s or "", "[^;]+") do
-		local x, y, z = string.match(item, "([-%d%.]+),([-%d%.]+),([-%d%.]+)")
-		if x then table.insert(out, Vector3.new(tonumber(x) :: number, tonumber(y) :: number, tonumber(z) :: number)) end
-	end
-	return out
-end
-
--- arc-length helpers for the path-ahead road checks
 local function cumulative(pts: {Vector3}): {number}
 	local cum = {0}
 	for i = 2, #pts do
@@ -640,24 +843,20 @@ local function startNearLayer(focus: () -> Vector3?): (() -> number, () -> ())
 			end
 		end
 	end
-	local made = 0
 	local frameMade = 0
 	local conn = RunService.Heartbeat:Connect(function()
 		frameMade = 0
 		local f = focus()
 		if not f then return end
-		local fx, fz = f.X, f.Z
 		local spent = 0
-		-- nearest first would need a sort per frame; the list is scanned with a cursor instead (budget-bound)
 		for _, t in all do
 			if spent >= budget then break end
-			local d = math.sqrt((t.pos.X - fx) ^ 2 + (t.pos.Z - fz) ^ 2)
+			local d = math.sqrt((t.pos.X - f.X) ^ 2 + (t.pos.Z - f.Z) ^ 2)
 			if not t.live and d <= R then
 				local c = t.tpl:Clone()
 				c.Parent = folder
 				t.live = c
 				spent += t.n
-				made += t.n
 			elseif t.live and d > R + 64 then
 				(t.live :: Instance):Destroy()
 				t.live = nil
@@ -672,25 +871,63 @@ local function startNearLayer(focus: () -> Vector3?): (() -> number, () -> ())
 	end
 end
 
-function P.Client.run(opts: any?): string
-	assert(RunService:IsClient(), "Client.run: Play mode, client side")
-	local o = opts or {}
+local function getTK(): any
+	local ok, TK = pcall(function() return require(ReplicatedStorage:WaitForChild("PattayaTestKit", 10) :: any) end)
+	assert(ok and TK, "needs ReplicatedStorage.PattayaTestKit")
+	return TK
+end
+
+-- per-window statistics: avg FPS, p99 / worst frame, 1% low FPS, instances added per frame (max, p99)
+function P.stats(frameMs: {number}, added: {number}): {[string]: number}
+	local sorted = table.clone(frameMs)
+	table.sort(sorted)
+	local sum = 0
+	for _, ms in frameMs do sum += ms end
+	local k = math.max(1, math.ceil(#sorted * 0.01))
+	local worstSum = 0
+	for i = #sorted - k + 1, #sorted do worstSum += sorted[i] end
+	local a = table.clone(added)
+	table.sort(a)
+	local over50, over100 = 0, 0
+	for _, ms in frameMs do
+		if ms > 50 then over50 += 1 end
+		if ms > 100 then over100 += 1 end
+	end
+	local total = 0
+	for _, n in added do total += n end
+	return {
+		frames = #frameMs, avgFps = if sum > 0 then #frameMs / (sum / 1000) else 0,
+		p99Ms = percentile(sorted, 99), worstMs = sorted[#sorted] or 0, medianMs = percentile(sorted, 50),
+		low1Fps = if worstSum > 0 then 1000 / (worstSum / k) else 0, over50 = over50, over100 = over100,
+		addedMax = a[#a] or 0, addedP99 = percentile(a, 99), addedTotal = total,
+	}
+end
+
+-- one recorded window. o.mode: "cold" | "teleport" | "drive" | "teleport_drive"; o.speed; o.seconds;
+-- o.reverse (drive the path backwards); o.prestream (teleport: false = no RequestStreamAroundAsync); o.t0 (cold:
+-- the client start time, so the window begins at join)
+function P.Client.measure(o: any): any
+	assert(RunService:IsClient(), "Client.measure: Play mode, client side")
 	local mode = o.mode or "teleport"
 	local speed = o.speed or 150
-	local seconds = o.seconds or 20
-	local root = workspace:WaitForChild(ROOT, 10)
+	local root = workspace:WaitForChild(ROOT, 30)
 	assert(root, "no workspace." .. ROOT .. " (Build() it in Edit mode first)")
-	local okTK, TK = pcall(function() return require(ReplicatedStorage:WaitForChild("PattayaTestKit", 5) :: any) end)
-	assert(okTK and TK, "needs ReplicatedStorage.PattayaTestKit")
-	local chassis = TK.car()
-	assert(chassis, "seat in a race car first (TK.seatIn())")
-	local remote = ReplicatedStorage:WaitForChild(REMOTE, 5) :: RemoteFunction?
-	assert(remote, "run require(game.ServerStorage.StreamingPrototype).Server.start() on the server first")
+	local TK = getTK()
+	local remote = ReplicatedStorage:WaitForChild(REMOTE, 30) :: RemoteFunction?
 	local path = unpackPath(root:GetAttribute("ProtoPath"))
 	assert(#path >= 2, "the prototype has no drive path")
+	if o.reverse then
+		local r = {}
+		for i = #path, 1, -1 do table.insert(r, path[i]) end
+		path = r
+	end
 	local cum = cumulative(path)
 	local variant = root:GetAttribute("Variant")
 	local cfg = P.CONFIG
+	local centre: Vector3 = root:GetAttribute("Centre") or (cfg.centre + Vector3.new(cfg.offsetX, 0, 0))
+	local half: number = root:GetAttribute("Half") or cfg.half
+	-- road-missing is checked against the copied road layer (roads, discs, aprons, corner fills, shoulders: ProtoCat
+	-- "road"); a ray that hits the proto ground or nothing counts as missing
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = {root}
@@ -698,26 +935,28 @@ function P.Client.run(opts: any?): string
 		local hit = workspace:Raycast(Vector3.new(p.X, p.Y + 30, p.Z), Vector3.new(0, -60, 0), params)
 		return hit ~= nil and hit.Instance:GetAttribute("ProtoCat") == "road"
 	end
+	local function inProto(p: Vector3): boolean
+		return math.abs(p.X - centre.X) <= half and math.abs(p.Z - centre.Z) <= half
+	end
 	local function carPos(): Vector3?
 		local c = TK.car()
 		return c and c.Position
 	end
-	local start = path[1]
 	local nearCount, stopNear = function() return 0 end, function() end
 	if variant == "C" then
 		nearCount, stopNear = startNearLayer(carPos)
 	end
-	local frames: {number} = {}
-	local added: {number} = {}
-	local clientAdded: {number} = {}
-	local missUnder, missAhead5, missAhead10 = 0, 0, 0
+	local frames, added, clientAdded = {}, {}, {}
+	local missUnder, missAhead5, missAhead10, checks = 0, 0, 0, 0
 	local firstRoad: number? = nil
+	local arrived: number? = nil
 	local addCount = 0
 	local addConn = root.DescendantAdded:Connect(function() addCount += 1 end)
 	local mem0 = memory()
 	local recording = false
-	local t0 = 0
+	local t0 = o.t0 or os.clock()
 	local drive: any = nil
+	local moving = mode == "drive" or mode == "teleport_drive"
 	local frameConn = RunService.RenderStepped:Connect(function(dt)
 		if not recording then
 			addCount = 0
@@ -728,40 +967,38 @@ function P.Client.run(opts: any?): string
 		table.insert(clientAdded, nearCount())
 		addCount = 0
 		local pos = carPos()
-		if pos then
+		if pos and inProto(pos) then
+			arrived = arrived or (os.clock() - t0)
+			checks += 1
 			if roadAt(pos) then
 				firstRoad = firstRoad or (os.clock() - t0)
 			else
 				missUnder += 1
 			end
-			if mode ~= "teleport" then
+			if moving and drive then
 				local s = arcOf(path, cum, pos)
-				if not roadAt(pointAt(path, cum, s + speed * 0.5)) then missAhead5 += 1 end
-				if not roadAt(pointAt(path, cum, s + speed * 1.0)) then missAhead10 += 1 end
+				if s < cum[#cum] - speed * 0.5 and not roadAt(pointAt(path, cum, s + speed * 0.5)) then missAhead5 += 1 end
+				if s < cum[#cum] - speed * 1.0 and not roadAt(pointAt(path, cum, s + speed * 1.0)) then missAhead10 += 1 end
 			end
 		end
 	end)
-	local function teleportIn()
+	local msg = ""
+	recording = true
+	if mode == "teleport" or mode == "teleport_drive" then
 		t0 = os.clock()
-		recording = true
-		local ok, msg = remote:InvokeServer("teleport", start, o.prestream ~= false)
-		return ok, msg
+		assert(remote, "server remote missing: Server.start()")
+		local ok, m = (remote :: RemoteFunction):InvokeServer("teleport", path[1], o.prestream ~= false)
+		msg = tostring(ok) .. " " .. tostring(m)
 	end
-	local tpOk, tpMsg
-	if mode == "drive" then
-		tpOk, tpMsg = remote:InvokeServer("teleport", start, o.prestream ~= false)
-		task.wait(o.settle or 8)
-		t0 = os.clock()
-		missUnder = 0
-		recording = true
+	if moving then
+		if mode == "drive" then
+			t0 = os.clock()
+			missUnder, checks = 0, 0
+		end
 		drive = TK.drivePath(path, {speed = speed, physics = o.physics == true, name = "streamproto", holdEnd = 0.5})
-	elseif mode == "teleport_drive" then
-		tpOk, tpMsg = teleportIn()
-		drive = TK.drivePath(path, {speed = speed, physics = o.physics == true, name = "streamproto", holdEnd = 0.5})
-	else
-		tpOk, tpMsg = teleportIn()
 	end
-	local stopAt = os.clock() + seconds
+	local seconds = o.seconds or (if moving then cum[#cum] / speed + 10 else 20)
+	local stopAt = t0 + seconds
 	while os.clock() < stopAt do
 		if drive and drive.done and os.clock() - t0 > 3 then break end
 		task.wait(0.1)
@@ -770,16 +1007,17 @@ function P.Client.run(opts: any?): string
 	frameConn:Disconnect()
 	addConn:Disconnect()
 	if drive and not drive.done then drive:stop("measure end") end
+	stopNear()
 	-- completeness inside MinRadius / TargetRadius of the car (containers by their box, expected vs present)
-	local pos = carPos() or start
+	local pos = carPos() or path[1]
 	local okIdx, index = pcall(function() return HttpService:JSONDecode(root:GetAttribute("Index")) end)
 	local present: {[string]: number} = {}
 	for _, f in root:GetChildren() do
 		for _, m in f:GetChildren() do present[f.Name .. "/" .. m.Name] = 1 + #m:GetDescendants() end
 	end
-	local function complete(r: number): (number, number)
+	local function complete(r: number): number?
+		if not okIdx then return nil end
 		local exp, got = 0, 0
-		if not okIdx then return 0, 0 end
 		for _, row in index do
 			if row[2] ~= "Client" then
 				local dx = math.max(row[4] - pos.X, 0, pos.X - row[5])
@@ -790,50 +1028,73 @@ function P.Client.run(opts: any?): string
 				end
 			end
 		end
-		return got, exp
+		return if exp > 0 then got / exp else nil
 	end
-	local gMin, eMin = complete(cfg.minRadius)
-	local gT, eT = complete(cfg.targetRadius)
 	local mem1 = memory()
-	stopNear()
-	local sorted = table.clone(frames)
-	table.sort(sorted)
-	local over50, over100, maxAdd, sumAdd, maxClient = 0, 0, 0, 0, 0
-	for i, ms in frames do
-		if ms > 50 then over50 += 1 end
-		if ms > 100 then over100 += 1 end
-		maxAdd = math.max(maxAdd, added[i])
-		sumAdd += added[i]
-		maxClient = math.max(maxClient, clientAdded[i])
-	end
+	local st = P.stats(frames, added)
+	local clientMax = 0
+	for _, n in clientAdded do clientMax = math.max(clientMax, n) end
 	local res = {
-		variant = variant, mode = mode, speed = speed, prestream = o.prestream ~= false, teleport = tpMsg, ok = tpOk,
-		frames = #frames, worstMs = sorted[#sorted] or 0, p99Ms = percentile(sorted, 99), p95Ms = percentile(sorted, 95),
-		medianMs = percentile(sorted, 50), over50 = over50, over100 = over100, maxAddedPerFrame = maxAdd,
-		totalAdded = sumAdd, maxClientPerFrame = maxClient, roadMissingUnderCar = missUnder,
-		roadMissingAhead05s = missAhead5, roadMissingAhead1s = missAhead10, firstRoadUnderCarS = firstRoad,
-		completeMin = if eMin > 0 then gMin / eMin else nil, completeTarget = if eT > 0 then gT / eT else nil,
-		memBefore = mem0, memAfter = mem1, drive = drive and drive.reason,
+		variant = variant, mode = mode, speed = if moving then speed else nil, prestream = o.prestream ~= false,
+		stats = st, roadMissingUnderCar = missUnder, roadChecks = checks, roadMissingAhead05s = missAhead5,
+		roadMissingAhead1s = missAhead10, firstRoadUnderCarS = firstRoad, arrivedInProtoS = arrived,
+		completeMin = complete(cfg.minRadius), completeTarget = complete(cfg.targetRadius), clientLayerMax = clientMax,
+		memBefore = mem0, memAfter = mem1, drive = drive and drive.reason, msg = msg,
 	}
-	local memDelta = {}
-	for k, v in mem1 do
-		if mem0[k] then table.insert(memDelta, ("%s %+.1f"):format(k, v - mem0[k])) end
+	local tags = {}
+	for _, t in MEM_TAGS do
+		if mem1[t] then table.insert(tags, ("%s %.0f (%+.0f)"):format(t, mem1[t], mem1[t] - (mem0[t] or 0))) end
 	end
-	table.sort(memDelta)
-	res.summary = ("[StreamProto] variant %s %s v=%.0f prestream=%s | frames %d worst %.0f ms p99 %.0f p95 %.0f median %.0f"
-		.. " | >50ms %d >100ms %d | added max/frame %d total %d (client layer max/frame %d) | road missing under car %d,"
-		.. " ahead 0.5s %d, 1s %d, first road %.2fs | complete min %.0f%% target %.0f%% | mem %.0f MB (%s) | %s")
-		:format(tostring(variant), mode, speed, tostring(res.prestream), #frames, res.worstMs,
-			res.p99Ms, res.p95Ms, res.medianMs, over50, over100, maxAdd, sumAdd, maxClient, missUnder, missAhead5,
-			missAhead10, firstRoad or -1, (res.completeMin or 0) * 100, (res.completeTarget or 0) * 100, mem1.total,
-			table.concat(memDelta, ", "), tostring(tpMsg))
+	res.summary = ("[StreamProto] %s %s%s | avg %.1f fps, p99 %.0f ms, 1%% low %.1f fps, worst %.0f ms, >50ms %d, >100ms %d,"
+		.. " %d frames | added/frame max %d p99 %d total %d%s | road missing under car %d/%d, ahead 0.5s %d, 1s %d;"
+		.. " in proto at %.1fs, first road %.1fs | complete min %s target %s | mem total %.0f MB (%+.0f): %s")
+		:format(tostring(variant), mode, if moving then (" v=%d"):format(speed) else "", st.avgFps, st.p99Ms,
+			st.low1Fps, st.worstMs, st.over50, st.over100, st.frames, st.addedMax, st.addedP99, st.addedTotal,
+			if variant == "C" then (" (client layer max %d)"):format(clientMax) else "", missUnder, checks, missAhead5,
+			missAhead10, arrived or -1, firstRoad or -1,
+			if res.completeMin then ("%.0f%%"):format(res.completeMin * 100) else "-",
+			if res.completeTarget then ("%.0f%%"):format(res.completeTarget * 100) else "-",
+			mem1.total, mem1.total - mem0.total, table.concat(tags, ", "))
 	last = res
 	_G.StreamProto = _G.StreamProto or {}
 	_G.StreamProto.result = res
 	_G.StreamProto.runs = _G.StreamProto.runs or {}
 	table.insert(_G.StreamProto.runs, res.summary)
 	print(res.summary)
-	return res.summary
+	return res
+end
+
+function P.Client.run(opts: any?): string
+	return P.Client.measure(opts or {}).summary
+end
+
+-- the automatic sequence of one fresh Play (boot LocalScript): "cold" or "teleport", then drives at 100 / 150 / 200
+function P.Client.sequence(kind: string): string
+	local tStart = os.clock() -- the client script starts right after join
+	local TK = getTK()
+	local untilT = os.clock() + 60
+	while not TK.car() and os.clock() < untilT do task.wait(0.2) end
+	assert(TK.car(), "[StreamProto] sequence: not seated in a car within 60 s (boot server)")
+	local root = workspace:WaitForChild(ROOT, 30)
+	if kind == "cold" then
+		local secs = (root and root:GetAttribute("ColdSeconds")) or 30
+		P.Client.measure({mode = "cold", t0 = tStart, seconds = secs - (os.clock() - tStart)})
+	else
+		task.wait(math.max(0, 15 - (os.clock() - tStart))) -- the city around the spawn settles first
+		P.Client.measure({mode = "teleport", seconds = 20})
+	end
+	for i, v in {100, 150, 200} do
+		task.wait(2)
+		P.Client.measure({mode = "drive", speed = v, reverse = i % 2 == 0})
+	end
+	local rep = P.Client.report()
+	print(rep)
+	return rep
+end
+
+function P.Client.report(): string
+	local runs = _G.StreamProto and _G.StreamProto.runs
+	return if runs then table.concat(runs, "\n") else "no run yet"
 end
 
 function P.Client.last(): string

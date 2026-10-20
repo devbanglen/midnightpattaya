@@ -449,6 +449,47 @@ def vis_items(build, out):
     return replaced
 
 
+# Sukhumvit shoulder pilot (PattayaShoulderBuilder): the chunks installed in the place (leader, 2026-10-21); the
+# other exported chunks are not built yet. Override with $MP_SHOULDER_CHUNKS="all" or a comma list.
+SHOULDER_INSTALLED = ('s10_26', 's9_1', 's10_25', 's8_2', 's8_1', 's9_25', 's8_2_2', 's8_1_2')
+
+
+def shoulder_items(build, out, ids=None):
+    """ShoulderChunks: road-height boxes (one Part) and triangles (two WedgeParts), all road collision"""
+    d = os.path.join(build, 'shoulders', 'roblox')
+    if not os.path.isdir(d):
+        return
+    env = os.environ.get('MP_SHOULDER_CHUNKS')
+    if ids is None:
+        if env == 'all':
+            ids = [os.path.basename(f)[6:-5] for f in sorted(glob.glob(os.path.join(d, 'chunk_*.luau')))]
+        elif env:
+            ids = env.split(',')
+        else:
+            ids = SHOULDER_INSTALLED
+    for cid in ids:
+        f = os.path.join(d, f'chunk_{cid}.luau')
+        if not os.path.exists(f):
+            continue
+        cd = load(f)
+        chunk = f'ShoulderChunks/Chunk_{cid}'
+        first = len(out)
+        kinds = set()
+        r = lst(cd, 'boxes')
+        for k in range(0, len(r) - 6, 7):
+            out.append(Item(r[k], r[k + 1], 1, 'road', 'shoulders', chunk, 'Shoulder'))
+            kinds.add(r[k + 6])
+        t = lst(cd, 'tris')
+        for k in range(0, len(t) - 6, 7):
+            a, b, c = (t[k], t[k + 1]), (t[k + 2], t[k + 3]), (t[k + 4], t[k + 5])
+            n = wedge_count(a, b, c)
+            if n:
+                out.append(Item((a[0] + b[0] + c[0]) / 3, (a[1] + b[1] + c[1]) / 3, n, 'road', 'shoulders', chunk, 'Shoulder'))
+                kinds.add(t[k + 6])
+        if len(out) > first:
+            out.append(Item(out[first].x, out[first].z, 1 + len(kinds), 'model', 'shoulders', chunk, 'ChunkModel'))
+
+
 def collect(build=None):
     """Every modelled instance group of workspace.PattayaWorld as Items (map-local positions)."""
     build = build or find_build()
@@ -475,6 +516,7 @@ def collect(build=None):
     junction_items(wman, joints('pattaya_wide/roblox/joints.luau'), 'wide', 'WideJunctions', out)
     junction_items(kman, joints('bira/roblox_corridor/joints.luau'), 'corridor', 'WideJunctions', out)
     apron_items(build, out)
+    shoulder_items(build, out)
     furniture_items(build, out)
     coast_items(build, out)
     return out
@@ -1026,6 +1068,7 @@ def analyse(build=None, quick=False):
         speeds = (150.0,) if quick else (100.0, 150.0, 200.0)
         for v in variants:
             res['drive'][v] = {str(int(sp)): simulate(lay[v], path, sp, v, warm=True) for sp in speeds}
+    res['proto_parity'] = proto_parity(items, pcx, pcz)
     res['proto'] = {}
     for v in ('A', 'B', 'C', 'D'):
         p = proto_plan(items, v, pcx, pcz)
@@ -1044,6 +1087,22 @@ def path_ok(build):
 def _brief(r):
     return {k: r[k] for k in ('peak_per_frame', 'p99_per_frame', 'road_missing_under_car_frames',
                               'road_missing_ahead_frames', 'min_road_lead_s', 'frames_over_1000')}
+
+
+def proto_parity(items, cx, cz, half=PROTO_HALF):
+    """per source folder (the PattayaWorld child) {variant: (parts, instances)} for the prototype variants A and B:
+    they must be identical (the same source parts are copied; only grouping and streaming mode differ)"""
+    out = {}
+    for v in ('A', 'B'):
+        p = proto_plan(items, v, cx, cz, half)
+        t = defaultdict(lambda: [0, 0])
+        for k, _name in p['assign']:
+            it = p['source'][k]
+            r = t[it.chunk.split('/')[0]]
+            r[0] += 1
+            r[1] += it.n
+        out[v] = {k: tuple(v2) for k, v2 in sorted(t.items())}
+    return out
 
 
 def _count_modes(cs):
