@@ -88,6 +88,26 @@ class Jobs(unittest.TestCase):
             self.assertEqual(G.buildings_crossed((s['x'], s['z']), a['q']), [], s['id'])
             self.assertLess(G.centreline_dist(a['q']), ON_CENTRELINE, s['id'])
 
+    def test_offer_sets_unchanged(self):
+        """owner condition (2026-10-21): offers are measured junction to junction as before the fix, so every stand
+        offers exactly the destinations of the original main module (Wong Amat keeps Tiffany's)"""
+        old = {k for k in self.res['JOB']['old']}
+        new = {k for k in self.res['JOB']['new']}
+        self.assertEqual(new, old)
+        for s in H.stands():
+            self.assertGreaterEqual(self.res['JOBN']['new'][s['id']], self.res['JOBN']['old'][s['id']], s['id'])
+        self.assertGreaterEqual(self.res['JOBN']['new']['wong_amat'], 1)
+        self.assertIn(('wong_amat', 'tiffanys'), new)
+
+    def test_jobs_server_measures_offers_from_junctions(self):
+        """the harness emulates this flow: PattayaJobsServer must keep offerNode (nearestJunction) for the offer
+        distance and standNode (the anchor) for the route"""
+        src = _qa.strip_comments(_qa.src('ServerScriptService/PattayaJobsServer.server.luau'))
+        self.assertIn('Route.nearestJunction', src)
+        self.assertRegex(src, r'pcall\(Route\.dijkstra, offerSrc\)')
+        self.assertRegex(src, r'pcall\(Route\.dijkstra, src\)')
+        self.assertRegex(src, r'Route\.polylineOf\(prev, src, pick\.node\)')
+
     def test_leader_stands_still_get_jobs(self):
         for sid in LEADER_STANDS:
             self.assertGreater(self.res['JOBN']['new'].get(sid, 0), 0, sid)

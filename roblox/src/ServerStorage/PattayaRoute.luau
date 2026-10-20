@@ -204,6 +204,13 @@ function Route.nearestNode(p: Vector2, maxDist: number, look: Vector2?): number?
 			return anchor
 		end
 	end
+	return Route.nearestJunction(p, maxDist, look)
+end
+
+-- the nearest junction (graph node, never an anchor) within maxDist: nearestNode as it was before anchors.
+-- PattayaJobsServer measures job-offer distances junction to junction with it, as before the snap fix, so the set
+-- of jobs each stand offers is unchanged (docs/ROUTING.md "Job offers")
+function Route.nearestJunction(p: Vector2, maxDist: number, look: Vector2?): number?
 	local best, bs = nil, math.huge
 	for i, n in nodes do
 		local d = (n - p).Magnitude

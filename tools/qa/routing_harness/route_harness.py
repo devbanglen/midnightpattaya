@@ -343,7 +343,7 @@ def run():
     if 'run' in _CACHE:
         return _CACHE['run']
     code, out = _qa.run_luau(build_script(), timeout=600)
-    res = {'code': code, 'raw': out, 'JOB': {'old': {}, 'new': {}}, 'JOBN': {'old': {}, 'new': {}},
+    res = {'code': code, 'raw': out, 'JOB': {'old': {}, 'new': {}}, 'JOBN': {'old': {}, 'new': {}}, 'JOBN_ANCHOR': {'old': {}, 'new': {}},
            'JOBERR': [], 'GPS': {'old': {}, 'new': {}}, 'GPSERR': {'old': {}, 'new': {}},
            'SPR': {'old': {}, 'new': {}}, 'SPRERR': {'old': {}, 'new': {}}, 'XB': {}, 'ANCHOR': {}, 'TIME': {},
            'CHUNKREQ': {}, 'SNAP': {}, 'DONE': False}
@@ -354,6 +354,7 @@ def run():
             res['JOB'][f[1]][(f[2], f[3])] = dict(length=float(f[4]), pts=_pts(f[5]))
         elif k == 'JOBN':
             res['JOBN'][f[1]][f[2]] = int(f[3])
+            res['JOBN_ANCHOR'][f[1]][f[2]] = int(f[4])
         elif k == 'JOBERR':
             res['JOBERR'].append(f[1:])
         elif k == 'GPS':

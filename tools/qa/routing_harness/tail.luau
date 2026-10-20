@@ -33,26 +33,43 @@ for _, variant in {"old", "new"} do
 	-- jobs: exactly the PattayaJobsServer flow (standNode = nearestNode(toLocal(stand.pos), 600), cached; one Dijkstra
 	-- from the start stand; every other stand in range by road is a possible destination; stand positions added at
 	-- both ends of the polyline)
-	local nodeOf = {}
+	-- new variant: the current PattayaJobsServer (offers measured from offerNode = nearestJunction, routes from
+	-- standNode = the stand anchor); old variant: main's PattayaJobsServer + main's PattayaRoute (one node per stand)
+	local nodeOf, offerOf = {}, {}
 	local function standNode(s)
 		if nodeOf[s] == nil then
 			nodeOf[s] = R.nearestNode(R.toLocal(R.toWorld(Vector2.new(s.x, s.z), 1)), 600) or false
 		end
 		return if nodeOf[s] then nodeOf[s] else nil
 	end
+	local function offerNode(s)
+		if variant == "old" then
+			return standNode(s)
+		end
+		if offerOf[s] == nil then
+			offerOf[s] = R.nearestJunction(R.toLocal(R.toWorld(Vector2.new(s.x, s.z), 1)), 600) or false
+		end
+		return if offerOf[s] then offerOf[s] else nil
+	end
 	for _, from in stands do
 		local src = standNode(from)
-		if not src then
+		local offerSrc = offerNode(from)
+		if not (src and offerSrc) then
 			out("JOBERR", variant, from.id, "no node")
 			continue
 		end
-		local dist, prev = R.dijkstra(src)
-		local nOpt = 0
+		local dist = R.dijkstra(offerSrc)
+		local routeDist, prev = R.dijkstra(src)
+		local nOpt, nAnchor = 0, 0
 		for _, to in stands do
 			if to ~= from then
 				local n = standNode(to)
-				local d = n and dist[n]
-				if d and d >= MIN_LEN and d <= MAX_LEN then
+				local o = offerNode(to)
+				if n and routeDist[n] and routeDist[n] >= MIN_LEN and routeDist[n] <= MAX_LEN then
+					nAnchor += 1 -- what the first snap-fix commit offered (distance between anchors)
+				end
+				local d = o and dist[o]
+				if n and routeDist[n] and d and d >= MIN_LEN and d <= MAX_LEN then
 					nOpt += 1
 					local pts = R.polylineOf(prev, src, n)
 					table.insert(pts, 1, R.toLocal(R.toWorld(Vector2.new(from.x, from.z), 1)))
@@ -61,7 +78,7 @@ for _, variant in {"old", "new"} do
 				end
 			end
 		end
-		out("JOBN", variant, from.id, nOpt)
+		out("JOBN", variant, from.id, nOpt, nAnchor)
 	end
 	out("TIME", variant, "jobs", string.format("%.3f", os.clock() - t0))
 	t0 = os.clock()

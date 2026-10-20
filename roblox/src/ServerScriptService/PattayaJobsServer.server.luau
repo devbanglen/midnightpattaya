@@ -136,14 +136,28 @@ local function flatDist(a: Vector3, b: Vector3): number
 	return Vector3.new(a.X - b.X, 0, a.Z - b.Z).Magnitude
 end
 
--- a stand's nearest graph node never changes (stands and graph are static), so it is looked up once per stand
--- instead of once per stand per request (25 stands x a linear scan of ~2,900 nodes on every request)
+-- a stand's graph nodes never change (stands and graph are static), so they are looked up once per stand instead of
+-- once per stand per request (25 stands x a linear scan of ~2,900 nodes on every request):
+--   standNode  = where the route starts / ends: the stand's anchor on its own road (PattayaRoute.nearestNode at a
+--                stand position), so the guidance line never crosses a building block (docs/ROUTING.md)
+--   offerNode  = the stand's nearest junction, as before the snap fix: job offers (MIN_LEN..MAX_LEN by road) are
+--                measured junction to junction, so every stand offers the same destinations as before
 local standNodeCache: {[any]: number | boolean} = {}
 local function standNode(s): number?
 	local n = standNodeCache[s]
 	if n == nil then
 		n = Route.nearestNode(Route.toLocal(s.pos), 600) or false
 		standNodeCache[s] = n
+	end
+	return if n == false then nil else n :: number
+end
+local offerNodeCache: {[any]: number | boolean} = {}
+local function offerNode(s): number?
+	local n = offerNodeCache[s]
+	if n == nil then
+		local find = Route.nearestJunction or Route.nearestNode
+		n = find(Route.toLocal(s.pos), 600) or false
+		offerNodeCache[s] = n
 	end
 	return if n == false then nil else n :: number
 end
@@ -162,24 +176,30 @@ RequestJob.OnServerEvent:Connect(function(plr: Player, standId)
 	if flatDist(chassis.Position, from.pos) > STAND_RADIUS + 4 or speedOf(chassis) > STOP_SPEED then
 		return
 	end
-	local src = standNode(from)
-	if not src then
+	local src = standNode(from) -- first: makes every stand's anchor before any search
+	local offerSrc = offerNode(from)
+	if not (src and offerSrc) then
 		return
 	end
 	routing[plr] = true
-	local okD, dist, prev = pcall(Route.dijkstra, src)
+	local okD, dist = pcall(Route.dijkstra, offerSrc)
+	local okR, routeDist, prev = true, dist, nil
+	if okD then
+		okR, routeDist, prev = pcall(Route.dijkstra, src)
+	end
 	routing[plr] = nil
-	if not okD then
-		warn("PattayaJobsServer: route search failed:", dist)
+	if not (okD and okR) then
+		warn("PattayaJobsServer: route search failed:", if okD then routeDist else dist)
 		return
 	end
-	-- destinations: any other stand whose nearest junction is in range by road
+	-- destinations: any other stand whose nearest junction is in range by road (junction to junction, as before)
 	local options = {}
 	for _, s in byId do
 		if s ~= from then
+			local o = offerNode(s)
 			local n = standNode(s)
-			local d = n and dist[n]
-			if d and d >= MIN_LEN and d <= MAX_LEN then
+			local d = o and dist[o]
+			if n and routeDist[n] and d and d >= MIN_LEN and d <= MAX_LEN then
 				table.insert(options, {stand = s, node = n})
 			end
 		end
