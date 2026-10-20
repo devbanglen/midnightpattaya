@@ -1,0 +1,54 @@
+Routing fix (team15/routing: PattayaRoute.luau + PattayaJobsServer.server.luau), Studio Play, 2026-10-21
+Old module = ServerStorage.Rollback_routing_20261021 copy of main d6140fb; new module = branch 3527866.
+
+1. Full enumeration on the server (same conditions for both: every stand, every offer, the jobs server's own
+   offer rule MIN_LEN 900 .. MAX_LEN 3200, route polylines sampled every 4 studs with a down-raycast against the
+   server's full world; "building" = hit under a Buildings folder, "terrain" = hit on Terrain)
+| | old | new |
+|---|---|---|
+| job stands | 25 | 25 |
+| stands with >= 1 job | 20 | 20 |
+| offered stand->destination pairs | 62 | 62 |
+| per-stand offer counts | (below) | identical to old for all 25 |
+| pairs crossing a building | 2 | 0 |
+| pairs with an off-road run > 20 studs | 16 | 0 |
+| building samples / terrain samples | 9 / 399 | 0 / 0 |
+| longest stand-to-road leg | 269.3 studs | 20.5 studs |
+| longest off-road run | 252 studs | 0 |
+| first stand lookup (anchors built once) | 3 ms | 53 ms |
+| per-request route search median / max | 5.9 / 7.0 ms | 5.9 / 9.4 ms |
+offers per stand (old = new): alcazar 5, art_in_paradise 3, bangkok_hospital 1, big_buddha 0, big_market_jomtien 1,
+bua_khao 3, central_festival 6, chai_mongkhon 3, hong_tu_la 3, jomtien_beach_north 0, jomtien_marina 2, jomtien_night 1,
+lan_pho_naklua 1, mini_siam 1, naklua_fresh 1, night_plaza 6, police_station 7, pratumnak_night 0, sanctuary_truth 0,
+terminal21 4, thepprasit_night 0, tiffanys 3, walking_street 4, windy_plaza 6, wong_amat 1
+Wong Amat keeps its 1 job (to Tiffany's) with no distance range change: offers are measured junction to junction as
+before; only the drawn route starts/ends on the stand's own road.
+Note: the offline harness counts 14 building-crossing pairs before (footprint polygons); this in-game raycast count
+(2) only sees building parts directly under the sampled points. Both methods give 0 after.
+
+2. Real requests through the game (client, RequestJob at every stand, 2 requests each, random destination)
+before: 39 routes, building samples 13, terrain samples 405, max first leg 269.3
+after:  40 routes, building samples 0,  terrain samples 0,   max first leg 20.5
+
+3. Physics drives (TestKit followRoute JobUpdate, 140 studs/s, traffic ghosted)
+central_festival -> Walking Street: done, 41/41 probes on road, up min 1.00, fare paid (416 + tip 93, 0 bumps)
+bangkok_hospital -> Mini Siam:      done, 32/32 probes on road, up min 1.00, fare paid (264 + tip 40, 0 bumps)
+(before the fix the Central Festival physics drive left the road at s=68 over terrain and failed the job)
+
+4. GPS (server publishRouteTo + probePath every 8 studs)
+| start -> dest | before | after |
+|---|---|---|
+| garage -> bira | 262 pts, 28,817 studs, 99.9% road | 260 pts, 28,781 studs, 99.9% road |
+| garage -> central | 20 pts, 1,982 studs, 100% | 18 pts, 1,946 studs, 100% |
+| Central Festival -> bira | 264 pts, 28,979, 99.9% | identical |
+| Central Festival -> central | 22 pts, 2,144, 99.6% | identical |
+| Jomtien Marina -> bira | 333 pts, 38,965, 99.6% | identical |
+| Jomtien Marina -> central | 143 pts, 14,875, 99.7% | identical |
+The garage routes now join the road at the projected point instead of the nearest node (36 studs shorter).
+
+5. Sprint: RequestSprint from the garage started with a 25-point, 2,345-stud course (pointToPoint unchanged; offline
+   test: 34 sprint/race courses byte-identical).
+6. Errors: client none; server only the pre-existing Studio DataStore notice (PattayaProgress).
+7. Visual: screen_capture returned a white frame twice (Studio not in front); no visual check claimed.
+Rollback: ServerStorage.Rollback_routing_20261021 holds both old sources (ServerStorage__PattayaRoute,
+ServerScriptService__PattayaJobsServer); copy them back into the scripts' Source and restart Play.
