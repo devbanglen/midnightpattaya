@@ -45,13 +45,14 @@ QA.CLIENT_SCRIPTS = {"CarController", "CircuitRaceClient", "MidnightActivity", "
 -- Budgets (sources in brackets) -------------------------------------------------------------------------------------
 -- Parts per Atomic chunk model, by PattayaWorld folder [tools/mapgen/config/*.json, VISUAL_PERFORMANCE.md,
 -- STREET_FURNITURE.md]
-QA.CHUNK_CAPS = {VisSliceChunks = 600, FurnitureChunks = 600, CoastChunks = 600, ApronChunks = 1500, LandmarkChunks = 900}
+QA.CHUNK_CAPS = {VisSliceChunks = 600, FurnitureChunks = 600, CoastChunks = 600, ApronChunks = 1500, LandmarkChunks = 900, ShoulderChunks = 600}
 -- Reference BasePart counts per folder [PERFORMANCE_BUDGET.md measured/estimated, build/*.json totals]; WARN above
 -- REF_SLACK x reference (a heuristic: the place has no single documented cap)
 QA.PART_REFS = {
 	["PattayaWorld.Chunks"] = 16027, ["PattayaWorld.WideChunks"] = 37800, ["PattayaWorld.VisSliceChunks"] = 23786,
 	["PattayaWorld.FurnitureChunks"] = 9246, ["PattayaWorld.ApronChunks"] = 23791, ["PattayaWorld.CoastChunks"] = 6042,
 	["PattayaWorld.LandmarkChunks"] = 1658, ["Circuit_bira"] = 6000,
+	["PattayaWorld.ShoulderChunks"] = 2536, -- Sukhumvit shoulder pilot (8 chunks); full patch 12,193
 }
 QA.REF_SLACK = 1.25
 QA.TOTAL_PARTS_WARN = 160000 -- sum of the references above x 1.25 (rounded)

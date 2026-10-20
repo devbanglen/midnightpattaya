@@ -1,0 +1,19 @@
+Shoulder pilot AFTER install (8 chunks: s10_26 s9_1 s10_25 s8_2 s8_1 s9_25 s8_2_2 s8_1_2 = 2,536 parts), 2026-10-21
+Same harness, same 72 runs (2 spots x fwd/rev x lateral +-24/+-20/+-14 x 100/150/200 studs/s), focused 60 fps
+after: 72 runs, 0 flips, min up 0.71
+all runs ok; every run up 0.99 except:
+spot2 fwd -24 v100 ok 0.84 1/10
+spot2 fwd -24 v150 ok 0.84 0/9
+spot2 fwd -24 v200 ok 0.71 0/8
+spot2 rev +24 v100 ok 0.97 0/10
+spot2 rev +24 v150 ok 0.95 0/9
+spot2 rev +24 v200 ok 0.95 0/9
+
+Probe (Edit): 2,536 parts; not flush 0; above road top 0; sidewalk overlaps 0; apron overlaps 0; ray covered 0;
+obstacle hits 2 = one SignalPole at (24430, 934) standing on a shoulder piece (roadside pole, accepted).
+
+Perf, same procedure before/after (teleport to each spot, drive at 150 with physics, 2 spots, frames incl. teleport):
+before: frames 1684 avg 58.6 fps p50 16.6 ms p99 38.5 ms worst 108.2 ms 1% low 20.3 fps | mem 5458 MB tex 206 MB inst 69088
+after:  frames 1675 avg 58.4 fps p50 16.7 ms p99 37.8 ms worst 93.6 ms 1% low 22.0 fps | mem 6158 MB tex 219 MB inst 70971
+Note: memory/instances are not comparable (the after session had run 72 drives first); frame pacing unchanged.
+Streaming: 5 of 8 shoulder chunks were streamed on the client at the end of the run (Atomic chunks, same as roads).
