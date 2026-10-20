@@ -80,6 +80,18 @@ BLOCKED, PENDING_OWNER_TEST (needs Studio focus / emulator / clicks), WAITING_FO
 | day | Traffic cars drove half over the sidewalk on wide one-way roads (outer lane at W/2) → 3W/8, same loops/cars/kinds; old module reproduced byte-for-byte before the swap | DONE / TESTED (Play: 13.4% → 0%) | commit bb120bd |
 | day | Jobs: taxi from Terminal 21 completed (312 + 70 tip, 101 EXP); Central Festival job route starts with a 130-stud connector across a block | TESTED / route snap open | QUALITY_AUDIT |
 
+### 2026-10-21 "NEXT PRIORITY" (road safety, gameplay quality, streaming architecture)
+| Item | Status | Where |
+|---|---|---|
+| Phase A: main = origin, Studio Edit mode, place v100 holds the 2026-10-20 installs, Rollback folders present; owner backup `Documents
+ew21-10-2026.rbxl` (2026-10-21 00:44, 6.6 MB; contents not decodable offline: zstd) | DONE | — |
+| Hygiene: texture_budget.py + mobile decision doc reviewed and committed; offline_checks traffic-vehicle id gap fixed (ALL CHECKS PASSED) | DONE / TESTED | main 36ba10e |
+| Phase B: Sukhumvit shoulder/taper/fill patch, 12,193 parts in 79 chunks, offline wheel-footprint check +24: 6,518 → 1, -24: 7,313 → 27 unsupported | READY, WAITING_FOR_OWNER (install approval) | branch team14/road-safety, docs/ROAD_SHOULDERS.md |
+| Phase C: job route snap fix in PattayaRoute (14 → 0 routes through buildings; GPS 98 and sprint 34 routes identical; job routes 62 → 54, Wong Amat loses its only job) | READY, WAITING_FOR_OWNER | branch team15/routing, docs/ROUTING.md |
+| Phase D: streaming analysis + separate-area prototype (model: driving worst frame 2,143 → 273 instances with road-only 256-stud Atomic cells + non-atomic decoration) | READY, WAITING_FOR_OWNER (prototype is a place change) | branch team16/streaming-arch, docs/STREAMING_ARCHITECTURE.md |
+| Phase E: traffic collision options A–D, team recommends B + recovery kit | WAITING_FOR_OWNER (decision) | main, docs/TRAFFIC_COLLISION_OPTIONS.md |
+| Phase F: building variety stays disabled | unchanged | — |
+
 ## Priority queue (owner order)
 1. Blender mesh optimisation: instance count 2,074 → ≤ 1,018 for the 14-building block (merge per face / per floor band), LOD, UV + material kept, footprint/collision unchanged.
 2. Texture / PBR pipeline (UV, facade textures, normal/roughness/metalness, glass, asphalt, concrete, palms) — offline validated before Roblox.
