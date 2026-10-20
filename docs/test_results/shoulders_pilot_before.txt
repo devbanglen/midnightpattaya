@@ -1,0 +1,41 @@
+Shoulder pilot BEFORE install (Studio Play, focused 60 fps, physics TestKit drivePath, traffic ghosted), 2026-10-21
+columns: spot dir lateral(TestKit, + = right of travel) speed result minUp offRoadProbes/probes
+before: 72 runs, 12 flips, min up 0.07
+spot1 fwd +24 v100 ok 0.90 0/22
+spot1 fwd +24 v150 ok 0.87 0/16
+spot1 fwd +24 v200 ok 0.89 0/14
+spot1 fwd -24 v100 ok 0.89 0/22
+spot1 fwd -24 v150 FLIP 0.26 0/7
+spot1 fwd -24 v200 ok 0.55 0/14
+spot1 fwd +-20/+-14 all speeds: ok 0.99
+spot1 rev +24 v100 ok 0.92 0/22
+spot1 rev +24 v150 ok 0.48 0/17
+spot1 rev +24 v200 ok 0.89 0/15
+spot1 rev -24 v100 FLIP 0.28 0/18
+spot1 rev -24 v150 ok 0.78 1/17
+spot1 rev -24 v200 ok 0.73 1/15
+spot1 rev +-20/+-14 all speeds: ok 0.99
+spot2 fwd +24 v100/150/200 ok 0.99
+spot2 fwd -24 v100 FLIP 0.26 0/9
+spot2 fwd -24 v150 ok 0.96 1/9
+spot2 fwd -24 v200 ok 0.97 0/8
+spot2 fwd +20 all ok 0.99
+spot2 fwd -20 v100 ok 0.58 1/10
+spot2 fwd -20 v150 ok 0.86 0/8
+spot2 fwd -20 v200 ok 0.87 1/8
+spot2 fwd +14 all ok 0.99
+spot2 fwd -14 v100 ok 0.80 1/10
+spot2 fwd -14 v150 ok 0.80 0/8
+spot2 fwd -14 v200 ok 0.70 0/8
+spot2 rev +24 v100 FLIP 0.07 2/4
+spot2 rev +24 v150 FLIP 0.22 2/9
+spot2 rev +24 v200 FLIP 0.15 2/4
+spot2 rev -24 all ok 0.99
+spot2 rev +20 v100 FLIP 0.22 2/4
+spot2 rev +20 v150 FLIP 0.18 2/4
+spot2 rev +20 v200 FLIP 0.29 2/4
+spot2 rev -20 all ok 0.99
+spot2 rev +14 v100 FLIP 0.27 1/4
+spot2 rev +14 v150 FLIP 0.20 1/4
+spot2 rev +14 v200 FLIP 0.27 1/4
+spot2 rev -14 all ok 0.99

@@ -1,0 +1,77 @@
+{
+  "name": "shoulders",
+  "note": "Road shoulders + width tapers along Sukhumvit Road (pilot) - tools/mapgen/road_shoulders.py, docs/ROAD_SHOULDERS.md. Flat road-height strips along slab edges that drop straight to the terrain (road top 1.0, terrain -2), taper fills where the carriageway narrows abruptly, and fills for small holes inside the carriageway. Optional terrain fill boxes (Terrain:FillBlock) beside the shoulders. Distances in map-local studs; world = map + origin_world.",
+  "attribution": "Map data (c) OpenStreetMap contributors, ODbL 1.0",
+  "chunk_size_studs": 512,
+  "origin_world": [20000, 0, 0],
+  "inputs": {
+    "datasets": [["central", "central_pattaya/roblox"], ["wide", "pattaya_wide/roblox"], ["corridor", "bira/roblox_corridor"]],
+    "furniture": "furniture/furniture.json",
+    "coast": "coast/roblox",
+    "landmarks": "landmarks/roblox",
+    "aprons": "aprons/roblox",
+    "road_seams": "qa/road_seams.json"
+  },
+  "out_dir": "shoulders",
+  "targets": {
+    "names": ["Sukhumvit Road", "ถนนสุขุมวิท"],
+    "classes": ["trunk"],
+    "near_classes": {"trunk_link": 80.0},
+    "bboxes_world": [],
+    "note": "an edge is a target when its Studio name is in names AND its class in classes (the trunk), or its class is a near_classes key and it lies within that many studs of a target trunk edge (the slip roads / underpass links). bboxes_world [[x0, z0, x1, z1], ...] limits the targets to those boxes (empty = everywhere)."
+  },
+  "road_top": 1.0,
+  "ground_y": -2.0,
+  "shoulder": {
+    "width": 8.0,
+    "top": 0.985,
+    "thick": 4.0,
+    "material": "Concrete",
+    "color": [92, 91, 88],
+    "name": "Shoulder",
+    "note": "top 1.5 cm under the road top (1.00) and 0.5 cm under the junction / joint discs (0.99), above the aprons (0.98): flush for a wheel, no z-fighting where a piece tucks under a slab edge"
+  },
+  "taper": {
+    "min_len": 30.0,
+    "len_per_stud": 4.0,
+    "max_len": 90.0,
+    "max_turn_deg": 40.0,
+    "min_width_change": 2.0,
+    "bridge_studs": 30.0
+  },
+  "clean": {
+    "road_overlap_studs": 0.1,
+    "open_studs": 0.08,
+    "min_piece_area": 1.0,
+    "min_gap_area": 1.0,
+    "min_tri_area": 0.05,
+    "min_tri_altitude": 0.1,
+    "max_pit_area": 12.0,
+    "max_fill_area": 2500.0
+  },
+  "clearance": {"building_studs": 0.5, "prop_studs": 0.3, "walk_studs": 0.02, "apron_studs": 0.02, "landmark_reach_studs": 4.0},
+  "props": {"palm_radius": 1.0, "light_radius": 0.5, "coast_stride_radius": {"umbrellas": [5, 5.0], "lamps": [4, 2.0], "towers": [4, 6.0]}},
+  "terrain": {
+    "width": 10.0,
+    "top": -2.0,
+    "bottom": -4.0,
+    "slice_len": 8.0,
+    "material": "Ground",
+    "building_studs": 2.0,
+    "prop_studs": 1.0,
+    "note": "optional: Terrain:FillBlock boxes outside the shoulder (from the shoulder edge outwards, width studs), only where the whole slice is clear of every road / sidewalk / apron / corner fill / building (+2) / prop (+1). The box fills half of the voxel layer y -4 .. 0 (top -2): PattayaBuilder.buildTerrain measured that a full layer up to grid line Y renders / collides at Y + 2 (ground filled to -4 shows at -2), so a FULL layer here would show at +2, above the road; half occupancy is expected to show near 0 (1 stud under the shoulder instead of 3) - not measured, PattayaShoulderBuilder.Probe reports the surface height per box. Built only by PattayaShoulderBuilder.BuildTerrain; the touched voxels are backed up first (TerrainRegion) so RemoveTerrain / Remove restore them."
+  },
+  "drive": {
+    "offsets": [0, 8, -8, 14, -14, 20, -20, 24, -24],
+    "step": 2.0,
+    "car_width": 4.0,
+    "car_length": 9.0,
+    "height_tol": 0.3,
+    "contact_radius": 0.05,
+    "car_wheels": [[-3.4, -5.2], [3.4, -5.2], [-3.4, 5.2], [3.4, 5.2]],
+    "note": "a wheel point is supported by any surface within contact_radius (a tyre is not a point: hairline seams under 0.05 studs, road_seams class micro, do not count as a drop)"
+  },
+  "budget": {"batch_size_chunks": 8, "max_parts_per_chunk": 600},
+  "focus_world": [24560, 900],
+  "check_images": [["narrowing_24540_1000", 4530, 980, 160], ["outer_lane_25250_13430", 5250, 13430, 140]]
+}
