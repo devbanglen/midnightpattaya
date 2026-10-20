@@ -89,8 +89,10 @@ local function bodyLayout(src, s)
 	}
 end
 
--- Optional real wheel meshes: MeshParts named WheelMesh_L / WheelMesh_R inside ServerStorage.CarBodies.<id>, each
--- with its origin on the axle and the axle along X (tools/blender/import_car.py). They are never the body mesh.
+-- Optional real wheel meshes (TEST VEHICLES so far, docs/CAR_IMPORT_RED_SPORTS.md): MeshParts named
+-- WheelMesh_FL / _FR / _RL / _RR (or one per side: WheelMesh_L / _R) inside ServerStorage.CarBodies.<id>, each centred
+-- on its axle with the axle along X (tools/blender/import_car.py). They are never the body mesh. Without them the
+-- procedural cylinder wheels are used, as before.
 local function isWheelMesh(inst)
 	return string.sub(inst.Name, 1, 10) == "WheelMesh_"
 end
@@ -127,26 +129,38 @@ local function attachBody(model, chassis, id)
 	body.Parent = model
 	weld(chassis, body)
 	local wheelMeshes = nil
-	local wl, wr = src:FindFirstChild("WheelMesh_L", true), src:FindFirstChild("WheelMesh_R", true)
-	wl = wl and wl:IsA("MeshPart") and wl or nil
-	wr = wr and wr:IsA("MeshPart") and wr or nil
-	if layout and (wl or wr) then
+	local found = {}
+	for _, key in ipairs({"FL", "FR", "RL", "RR", "L", "R"}) do
+		local m = src:FindFirstChild("WheelMesh_" .. key, true)
+		if m and m:IsA("MeshPart") then
+			found[key] = m
+		end
+	end
+	if layout and next(found) then
 		-- the importer bakes the same yaw into every mesh of the import; WheelYawFix overrides it for the wheels only
 		local yaw = src:GetAttribute("WheelYawFix") or src:GetAttribute("YawFix") or 0
-		wheelMeshes = {L = wl, R = wr, scale = s, yaw = math.rad(yaw)}
+		wheelMeshes = {meshes = found, scale = s, yaw = math.rad(yaw)}
 	end
 	return true, layout, wheelMeshes
 end
 
 -- The real wheel mesh as the visual of a procedural wheel part: welded to it, so CarController's spin (about the
 -- part's X), steering and suspension travel move it. Massless, no collision / queries: physics stays raycast-only.
--- A car with only one side's mesh uses it on the other side turned 180 degrees about Y (outer face outward).
+-- Lookup: WheelMesh_<FL..RR>, else WheelMesh_<L|R> for that side, else a mesh of the other side turned 180 degrees
+-- about Y (outer face outward again).
 local function attachWheelMesh(wheel, name, wm)
 	local side = string.sub(name, 2, 2)
-	local srcMesh, yaw = wm[side], wm.yaw
+	local other = side == "L" and "R" or "L"
+	local found, yaw = wm.meshes, wm.yaw
+	local srcMesh = found[name] or found[side]
 	if not srcMesh then
-		srcMesh = wm[side == "L" and "R" or "L"]
+		srcMesh = found[string.sub(name, 1, 1) .. other] or found[other]
+			or found[(string.sub(name, 1, 1) == "F" and "R" or "F") .. other]
 		yaw += math.pi
+	end
+	if not srcMesh then
+		srcMesh = found[(string.sub(name, 1, 1) == "F" and "R" or "F") .. side]
+		yaw = wm.yaw
 	end
 	local m = srcMesh:Clone()
 	m.Name = "WheelMesh"
