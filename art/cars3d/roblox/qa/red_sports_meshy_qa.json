@@ -1,0 +1,167 @@
+{
+ "car": "red_sports_meshy",
+ "scale_studs_per_m": 3.5564,
+ "alignment": {
+  "front_axle_z_diff_m": 0.0,
+  "rear_axle_z_diff_m": 0.0,
+  "front_y_diff_m": 0.002,
+  "rear_y_diff_m": 0.0015,
+  "front_track_asymmetry_m": -0.0032,
+  "rear_track_asymmetry_m": -0.0026,
+  "wheelbase_m": 2.6944,
+  "track_front_m": 1.5094,
+  "track_rear_m": 1.5086,
+  "wheel_mesh_bbox_centre_vs_axle_m": {
+   "FL": 0.0298,
+   "FR": 0.0293,
+   "RL": 0.0056,
+   "RR": 0.0337
+  }
+ },
+ "clearance": {
+  "FL": {
+   "rest_points_inside": 640,
+   "rest_min_gap_m": -0.0773,
+   "rest_hub_area_points": 0,
+   "first_contact_bump_m": 0.0037,
+   "first_contact_bump_studs": 0.013,
+   "max_bump_m": 0.2474,
+   "max_droop_m": 0.2025,
+   "droop_points_inside": 214,
+   "steer": {
+    "-28deg": {
+     "rest_points_inside": 424,
+     "rest_min_gap_m": -0.0773,
+     "half_bump_points_inside": 656
+    },
+    "+28deg": {
+     "rest_points_inside": 418,
+     "rest_min_gap_m": -0.0955,
+     "half_bump_points_inside": 703
+    }
+   }
+  },
+  "FR": {
+   "rest_points_inside": 624,
+   "rest_min_gap_m": -0.0808,
+   "rest_hub_area_points": 2,
+   "first_contact_bump_m": 0.0037,
+   "first_contact_bump_studs": 0.013,
+   "max_bump_m": 0.2474,
+   "max_droop_m": 0.2025,
+   "droop_points_inside": 196,
+   "steer": {
+    "-28deg": {
+     "rest_points_inside": 379,
+     "rest_min_gap_m": -0.0962,
+     "half_bump_points_inside": 820
+    },
+    "+28deg": {
+     "rest_points_inside": 581,
+     "rest_min_gap_m": -0.1007,
+     "half_bump_points_inside": 767
+    }
+   }
+  },
+  "RL": {
+   "rest_points_inside": 1299,
+   "rest_min_gap_m": -0.0862,
+   "rest_hub_area_points": 0,
+   "first_contact_bump_m": 0.0037,
+   "first_contact_bump_studs": 0.013,
+   "max_bump_m": 0.2474,
+   "max_droop_m": 0.2025,
+   "droop_points_inside": 947
+  },
+  "RR": {
+   "rest_points_inside": 1543,
+   "rest_min_gap_m": -0.0832,
+   "rest_hub_area_points": 0,
+   "first_contact_bump_m": 0.0037,
+   "first_contact_bump_studs": 0.013,
+   "max_bump_m": 0.2474,
+   "max_droop_m": 0.2025,
+   "droop_points_inside": 685
+  }
+ },
+ "rotation": {
+  "spin_axis": "mesh X = wheel part X (CarController: C0 * Angles(-spin, 0, 0))",
+  "direction": "spin += forward_speed * dt / radius; for forward (-Z) motion the contact point moves to +Z (backward) = rolling without slip",
+  "visual_vs_rolling_radius": "game radius = WheelRadius * 1.04 (RaceCarServer), so the mesh turns 4 % slower than true rolling and floats 0.04 r above the ground",
+  "steer_pivot": "Angles(0, steer, 0) about the wheel part centre = mesh bbox centre = axle centre (see alignment.wheel_mesh_bbox_centre_vs_axle_m)"
+ },
+ "triangles": {
+  "body": 17819,
+  "wheels": {
+   "FL": 1980,
+   "FR": 1979,
+   "RL": 1979,
+   "RR": 1979
+  },
+  "limit_per_meshpart": 20000
+ },
+ "textures": {
+  "body": {
+   "Image_0": {
+    "size": [
+     1024,
+     1024
+    ],
+    "kind": [
+     "Base Color"
+    ]
+   },
+   "Image_1": {
+    "size": [
+     1024,
+     1024
+    ],
+    "kind": [
+     "Metallic",
+     "Roughness"
+    ]
+   },
+   "Image_2": {
+    "size": [
+     1024,
+     1024
+    ],
+    "kind": [
+     "Normal"
+    ]
+   }
+  },
+  "wheels": {
+   "FL": [
+    512,
+    512
+   ],
+   "FR": [
+    512,
+    512
+   ],
+   "RL": [
+    512,
+    512
+   ],
+   "RR": [
+    512,
+    512
+   ]
+  }
+ },
+ "collision": {
+  "chassis_box_studs": [
+   7,
+   1.6,
+   15
+  ],
+  "body_size_studs": [
+   7.33,
+   4.13,
+   16.0
+  ],
+  "body_meshpart": "CanCollide false, Massless (RaceCarServer.attachBody)",
+  "wheel_meshes": "CanCollide/CanQuery/CanTouch false, Massless, welded to the hidden wheel cylinder (itself CanCollide false, Massless); suspension = raycasts from the chassis mounts"
+ }
+}

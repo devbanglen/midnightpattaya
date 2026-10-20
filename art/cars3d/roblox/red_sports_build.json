@@ -1,0 +1,88 @@
+{
+ "source_tris": 1943102,
+ "wheel_faces_cut": {
+  "FL": 151005,
+  "FR": 138605,
+  "RL": 150808,
+  "RR": 143838
+ },
+ "front_source_axis": "+z",
+ "dark_texel_lum": 0.043,
+ "wheels": {
+  "FL": {
+   "tris_cut": 151005,
+   "tris": 1979,
+   "tread_radius_min_max": [
+    0.3467,
+    0.3869
+   ],
+   "empty_10deg_sectors": 0,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "FR": {
+   "tris_cut": 138605,
+   "tris": 1980,
+   "tread_radius_min_max": [
+    0.3472,
+    0.3875
+   ],
+   "empty_10deg_sectors": 0,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "RL": {
+   "tris_cut": 150808,
+   "tris": 1980,
+   "tread_radius_min_max": [
+    0.3471,
+    0.3911
+   ],
+   "empty_10deg_sectors": 0,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "RR": {
+   "tris_cut": 143838,
+   "tris": 1978,
+   "tread_radius_min_max": [
+    0.3464,
+    0.3903
+   ],
+   "empty_10deg_sectors": 0,
+   "texture": [
+    512,
+    512
+   ]
+  }
+ },
+ "body_tris_cut": 1358846,
+ "arch_disc_tris": 224,
+ "body_tris": 17820,
+ "body_textures": {
+  "red+sports+car+3d+model_basecolor.jpg": {
+   "size": [
+    1024,
+    1024
+   ],
+   "kind": [
+    "Base Color"
+   ]
+  }
+ },
+ "body_texture": [
+  1024,
+  1024
+ ],
+ "size_m": [
+  2.2067,
+  1.2552,
+  4.5014
+ ]
+}

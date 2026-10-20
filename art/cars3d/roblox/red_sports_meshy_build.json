@@ -1,0 +1,107 @@
+{
+ "source_tris": 1229448,
+ "wheel_faces_cut": {
+  "FL": 113952,
+  "FR": 116350,
+  "RL": 122372,
+  "RR": 117027
+ },
+ "front_source_axis": "-x",
+ "dark_texel_lum": 0.0,
+ "wheels": {
+  "FL": {
+   "tris_cut": 113952,
+   "tris": 1980,
+   "tread_radius_min_max": [
+    0.3666,
+    0.414
+   ],
+   "empty_10deg_sectors": 3,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "FR": {
+   "tris_cut": 116350,
+   "tris": 1979,
+   "tread_radius_min_max": [
+    0.3678,
+    0.4137
+   ],
+   "empty_10deg_sectors": 3,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "RL": {
+   "tris_cut": 122372,
+   "tris": 1979,
+   "tread_radius_min_max": [
+    0.3971,
+    0.4483
+   ],
+   "empty_10deg_sectors": 4,
+   "texture": [
+    512,
+    512
+   ]
+  },
+  "RR": {
+   "tris_cut": 117027,
+   "tris": 1979,
+   "tread_radius_min_max": [
+    0.3952,
+    0.4459
+   ],
+   "empty_10deg_sectors": 5,
+   "texture": [
+    512,
+    512
+   ]
+  }
+ },
+ "body_tris_cut": 759747,
+ "arch_disc_tris": 224,
+ "body_tris": 17819,
+ "body_textures": {
+  "Image_0": {
+   "size": [
+    1024,
+    1024
+   ],
+   "kind": [
+    "Base Color"
+   ]
+  },
+  "Image_1": {
+   "size": [
+    1024,
+    1024
+   ],
+   "kind": [
+    "Metallic",
+    "Roughness"
+   ]
+  },
+  "Image_2": {
+   "size": [
+    1024,
+    1024
+   ],
+   "kind": [
+    "Normal"
+   ]
+  }
+ },
+ "body_texture": [
+  1024,
+  1024
+ ],
+ "size_m": [
+  2.0621,
+  1.16,
+  4.4989
+ ]
+}

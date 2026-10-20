@@ -28,6 +28,19 @@ import numpy as np
 from PIL import Image
 
 
+def node_matrix(n):
+    if 'matrix' in n:
+        return np.array(n['matrix'], float).reshape(4, 4).T          # glTF stores column-major
+    x, y, z, w = n.get('rotation', [0, 0, 0, 1])
+    R = np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                  [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                  [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+    M = np.eye(4)
+    M[:3, :3] = R * np.array(n.get('scale', [1, 1, 1]))
+    M[:3, 3] = n.get('translation', [0, 0, 0])
+    return M
+
+
 def load_glb(path):
     b = open(path, 'rb').read()
     assert b[:4] == b'glTF', 'not a GLB'
@@ -46,8 +59,11 @@ def load_glb(path):
     P = acc(prim['attributes']['POSITION'], np.float32, 3).astype(np.float64)
     UV = acc(prim['attributes']['TEXCOORD_0'], np.float32, 2).astype(np.float64)
     I = acc(prim['indices'], np.uint32, 1).reshape(-1, 3)
-    for n in j.get('nodes', []):
-        assert not any(k in n for k in ('matrix', 'rotation', 'scale', 'translation')), 'node transforms not handled'
+    # the mesh's node transform (matrix or TRS) is applied, so P is in glTF world space (parents not handled)
+    node = next(n for n in j['nodes'] if n.get('mesh') == 0)
+    assert not any(node in [j['nodes'][c] for c in n.get('children', [])] for n in j['nodes']), 'parented mesh node'
+    M = node_matrix(node)
+    P = P @ M[:3, :3].T + M[:3, 3]
     tex = j['materials'][prim['material']]['pbrMetallicRoughness']['baseColorTexture']['index']
     iv = bv[j['images'][j['textures'][tex]['source']]['bufferView']]
     img = Image.open(io.BytesIO(B[iv.get('byteOffset', 0):iv.get('byteOffset', 0) + iv['byteLength']])).convert('RGB')
@@ -203,9 +219,19 @@ def main():
     ap.add_argument('--views')
     a = ap.parse_args()
 
-    P, UV, I, img = load_glb(a.glb)
+    P0, UV, I, img = load_glb(a.glb)
+    # glTF is Y-up. The car's length is its longest horizontal axis (X or Z). R0 turns that axis onto +Z (a proper
+    # rotation about Y), so the +z / -z end tests below work for any source orientation.
+    ext0 = np.ptp(P0, 0)
+    assert ext0[1] < max(ext0[0], ext0[2]), f'Y is not the up axis? extents {ext0}'
+    if ext0[0] > ext0[2]:
+        R0 = np.array([[0.0, 0, -1], [0, 1, 0], [1, 0, 0]])      # +X -> +Z, +Z -> -X
+        axis = 'x'
+    else:
+        R0 = np.eye(3)
+        axis = 'z'
+    P = P0 @ R0.T
     ext = np.ptp(P, 0)
-    assert ext[2] > ext[0] and ext[2] > ext[1], f'length is not along Z: {ext}'
     C = vertex_colours(UV, img)
     sc = end_scores(P, C)
     zs, top = profile(P)
@@ -227,7 +253,8 @@ def main():
         splat(P, C, a.views, 'src_side', -z, y, -x)
 
     yaw180 = front == '+z'
-    R = np.diag([-1.0, 1.0, -1.0]) if yaw180 else np.eye(3)
+    R = (np.diag([-1.0, 1.0, -1.0]) if yaw180 else np.eye(3)) @ R0     # source (glTF world) -> N
+    P = P0
     scale = a.length / ext[2]
     Q = P @ R.T * scale
     lo, hi = Q.min(0), Q.max(0)
@@ -239,7 +266,8 @@ def main():
     json.dump({
         'source': {'tris': int(len(I)), 'verts': int(len(P)), 'bbox_min': P.min(0).tolist(), 'bbox_max': P.max(0).tolist(),
                    'texture': list(img.size)},
-        'front_source_axis': front, 'front_auto': auto, 'end_scores': sc, 'profile_top': {'z': zs, 'y': top},
+        'length_axis': axis, 'front_source_axis': ('+' if front == '+z' else '-') + axis, 'front_auto': auto,
+        'R': R.tolist(), 'end_scores': sc, 'profile_top': {'z': zs, 'y': top},
         'yaw180': yaw180, 'scale': scale, 'centre': centre.tolist(), 'length': a.length,
         'size_N': (hi - lo).tolist(), 'wheels': wheels,
     }, open(a.out, 'w'), indent=1)

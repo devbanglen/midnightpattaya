@@ -52,7 +52,8 @@ def opt(name, default, cast=str):
 
 CAR_ID = opt('--id', 'red_sports')
 WHEELS = ('FL', 'FR', 'RL', 'RR')
-RF = 1.03          # a face belongs to a wheel when all its verts are within RF * r of the axle ...
+IMAGE_FORMAT = opt('--image-format', 'PNG')   # PNG (like the other cars) or JPEG (smaller GLBs, 3 PBR maps)
+RF = 1.015         # a face belongs to a wheel when all its verts are within RF * r of the axle ...
 XM = 0.03          # ... and within [x_in - XM, x_out + XM] (metres) across
 DISC_IN = 0.06     # arch disc: this far (m) toward the car centre from the wheel's inner face
 # game numbers (RaceCarServer / CarController) for the QA sweeps
@@ -101,10 +102,20 @@ def import_mesh(path, name):
     return ob
 
 
-def to_frame(ob, yaw180, scale=None, centre_n=None, length=None):
-    """Move a source mesh into frame N (Blender axes): optional 180 deg yaw, scale, centre. Returns (scale, centre)."""
-    R = Matrix.Diagonal((-1.0, -1.0, 1.0, 1.0)) if yaw180 else Matrix.Identity(4)
-    ob.data.transform(R)
+def rot_b(rot):
+    """Rotation given in glTF axes (3x3, source -> N) as a Blender-axes 4x4: C R C^T with Blender = C glTF."""
+    C = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))
+    return (C @ Matrix(rot) @ C.transposed()).to_4x4()
+
+
+def det_rot(det):
+    return det['R'] if 'R' in det else ([[-1, 0, 0], [0, 1, 0], [0, 0, -1]] if det['yaw180'] else
+                                        [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+
+
+def to_frame(ob, rot, scale=None, centre_n=None, length=None):
+    """Move a source mesh into frame N (Blender axes): rotation (glTF axes 3x3), scale, centre."""
+    ob.data.transform(rot_b(rot))
     lo, hi = bounds_np(ob)
     if scale is None:
         scale = length / (hi[1] - lo[1])
@@ -148,9 +159,43 @@ def arrays(me):
     return co.reshape(-1, 3), vi.reshape(-1, 3), uv.reshape(-1, 3, 2)
 
 
+def base_color_node(mat):
+    """The image node feeding the Principled BSDF's Base Color (not the normal / metallic-roughness maps)."""
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    stack = [l.from_node for l in bsdf.inputs['Base Color'].links]
+    while stack:
+        n = stack.pop()
+        if n.type == 'TEX_IMAGE':
+            return n
+        for i in n.inputs:
+            stack += [l.from_node for l in i.links]
+    return next(n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE')
+
+
 def tex_image(ob):
-    mat = ob.active_material
-    return next(n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE').image
+    return base_color_node(ob.active_material).image
+
+
+def image_role(mat, im):
+    """Names of the BSDF inputs an image feeds (Base Color / Roughness / Metallic / Normal), following links."""
+    roles, stack = set(), [n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image == im]
+    seen = set()
+    while stack:
+        n = stack.pop()
+        if n.name in seen:
+            continue
+        seen.add(n.name)
+        for o in n.outputs:
+            for l in o.links:
+                if l.to_node.type == 'BSDF_PRINCIPLED':
+                    roles.add(l.to_socket.name)
+                else:
+                    stack.append(l.to_node)
+    return sorted(roles)
+
+
+def all_images(mat):
+    return [n.image for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image]
 
 
 def image_np(img):
@@ -178,10 +223,39 @@ def wheel_masks(co, faces, uv, tex, wheels):
         cen = co[faces[idx]].mean(1)
         crad = np.hypot(cen[:, 1] - w['c'].y, cen[:, 2] - w['c'].z)
         col = sample(tex, uv[idx].mean(1))
-        paint = (col[:, 0] > 0.3) & (col[:, 0] > 2.2 * col[:, 1]) & (col[:, 0] > 2.2 * col[:, 2])
-        m[idx[(crad > 0.95 * w['r']) & paint]] = False
-        masks[k] = m
+        paint = (col[:, 0] > 0.18) & (col[:, 0] > 2.2 * col[:, 1]) & (col[:, 0] > 2.2 * col[:, 2])
+        m[idx[(crad > 0.82 * w['r']) & paint]] = False      # body paint over the tyre (arch lip) stays body
+        # arch lip / liner strips hugging the tyre face the axle (a tread faces away from it): they stay body
+        t = co[faces[idx]]
+        nrm = np.cross(t[:, 1] - t[:, 0], t[:, 2] - t[:, 0])
+        nrm /= np.linalg.norm(nrm, axis=1, keepdims=True) + 1e-12
+        radial = np.stack([np.zeros(len(idx)), cen[:, 1] - w['c'].y, cen[:, 2] - w['c'].z], 1) / (crad[:, None] + 1e-12)
+        m[idx[(crad > 0.97 * w['r']) & ((nrm * radial).sum(1) < -0.3)]] = False
+        masks[k] = drop_small_parts(m, faces, 0.02)
     return masks
+
+
+def drop_small_parts(mask, faces, frac):
+    """Clear mask faces that belong to connected pieces (shared vertices) smaller than frac of the masked faces."""
+    idx = np.nonzero(mask)[0]
+    f = faces[idx]
+    verts, inv = np.unique(f, return_inverse=True)
+    inv = inv.reshape(-1, 3)
+    lab = np.arange(len(verts))
+    for _ in range(500):                       # label propagation: each face pulls its verts to the min label
+        fl = lab[inv].min(1)
+        new = lab.copy()
+        np.minimum.at(new, inv.ravel(), np.repeat(fl, 3))
+        new = new[new]                         # pointer jumping
+        if (new == lab).all():
+            break
+        lab = new
+    flab = lab[inv[:, 0]]
+    ids, counts = np.unique(flab, return_counts=True)
+    small = ids[counts < frac * len(idx)]
+    out = mask.copy()
+    out[idx[np.isin(flab, small)]] = False
+    return out
 
 
 def subset(src, keep, name):
@@ -273,7 +347,7 @@ def bake_wheel(ob, size, out_dir):
     ob.data.materials.clear()
     ob.data.materials.append(mat)
     nt = mat.node_tree
-    tex = next(n for n in nt.nodes if n.type == 'TEX_IMAGE')
+    tex = base_color_node(mat)
     uvn = nt.nodes.new('ShaderNodeUVMap')
     uvn.uv_map = 'src'
     nt.links.new(uvn.outputs['UV'], tex.inputs['Vector'])
@@ -314,10 +388,13 @@ def bake_wheel(ob, size, out_dir):
 
 
 def export(ob, path):
+    ob.data.validate(clean_customdata=False)
     activate(ob)
     bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=True, export_yup=True,
                               export_apply=True, export_texcoords=True, export_normals=True,
-                              export_materials='EXPORT', export_animations=False)
+                              export_materials='EXPORT', export_animations=False,
+                              export_image_format='JPEG' if IMAGE_FORMAT == 'JPEG' else 'AUTO',
+                              export_jpeg_quality=90)
 
 
 def to_n(v):
@@ -358,10 +435,15 @@ def finish_body(body, img, opts, info):
     info['body_tris'] = decimate(body, opts['body_tris'])
     smooth(body, 40)
     if img is not None:
-        if max(img.size) > opts['tex']:
-            img.scale(opts['tex'], opts['tex'])
-        img.file_format = 'PNG'          # embedded as PNG, like the other car GLBs
-        img.pack()
+        # every map of the body material (base colour, and for PBR sources normal + metallic-roughness) -> <= tex
+        info['body_textures'] = {}
+        for im in all_images(body.active_material):
+            if max(im.size) > opts['tex']:
+                im.scale(opts['tex'], opts['tex'])
+            im.file_format = opts['image_format']
+            im.pack()
+            kind = image_role(body.active_material, im)
+            info['body_textures'][im.name] = {'size': list(im.size), 'kind': kind}
         info['body_texture'] = list(img.size)
     lo, hi = bounds_np(body)
     shift = (lo + hi) / 2
@@ -393,7 +475,7 @@ def write_outputs(out_dir, body, wheel_obs, centres_b, per_wheel, rim, size_b, s
 
 def options():
     return {'body_tris': opt('--body-tris', 18000, int), 'wheel_tris': opt('--wheel-tris', 2000, int),
-            'tex': opt('--tex', 1024, int), 'wheel_tex': opt('--wheel-tex', 512, int)}
+            'tex': opt('--tex', 1024, int), 'wheel_tex': opt('--wheel-tex', 512, int), 'image_format': IMAGE_FORMAT}
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -405,7 +487,7 @@ def build():
     det = json.load(open(det_path))
     reset()
     src = import_mesh(src_glb, CAR_ID + '_src')
-    to_frame(src, det['yaw180'], scale=det['scale'], centre_n=det['centre'])
+    to_frame(src, det_rot(det), scale=det['scale'], centre_n=det['centre'])
     wheels = {k: wheel_b(w) for k, w in det['wheels'].items()}
     img = tex_image(src)
     tex = image_np(img)
@@ -471,7 +553,7 @@ def build():
     if dark_uv is not None:
         for k, w in wheels.items():
             disc_x[k] = inner_x[k] - w['s'] * DISC_IN
-            info['arch_disc_tris'] += add_disc(body, w['c'], disc_x[k], w['r'] * 1.3, dark_uv,
+            info['arch_disc_tris'] += add_disc(body, w['c'], disc_x[k], w['r'] * 1.15, dark_uv,
                                                y_clip=w['c'].z - 0.55 * w['r'])
     shift, size_b = finish_body(body, img, o, info)
     write_outputs(out_dir, body, wheel_obs, centres, per_wheel, rim, size_b, shift, info,
@@ -486,7 +568,9 @@ def build_parts():
     P = json.load(open(parts_path))
     reset()
     body = import_mesh(body_glb, CAR_ID)
-    to_frame(body, P['front_source_axis'] == '+z', length=P.get('length', 4.5))
+    rot = P.get('R') or ([[-1, 0, 0], [0, 1, 0], [0, 0, -1]] if P['front_source_axis'] == '+z' else
+                         [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+    to_frame(body, rot, length=P.get('length', 4.5))
     info = {'source_tris': tri_count(body), 'mode': 'parts'}
     img = tex_image(body) if body.active_material and body.active_material.use_nodes else None
 
@@ -537,6 +621,7 @@ def setup_render(res):
 
 
 def shoot(cam, objs, path, az, el, pad=1.1):
+    bpy.context.view_layer.update()          # bound_box / matrix_world are stale after data or location changes
     pts = [o.matrix_world @ Vector(c) for o in objs for c in o.bound_box]
     lo = Vector([min(p[i] for p in pts) for i in range(3)])
     hi = Vector([max(p[i] for p in pts) for i in range(3)])
@@ -600,10 +685,11 @@ def wheel_sweep(body_pts, c, r, w, steer_deg, dy):
     x = p[:, 0] * ca + p[:, 1] * sa                 # rotate by -steer about Z (into the wheel frame)
     y = -p[:, 0] * sa + p[:, 1] * ca
     rad = np.hypot(y, p[:, 2])
-    band = np.abs(x) <= w / 2 - 0.005
-    inside = band & (rad <= r * 0.985)
-    gap = float((rad[band] - r).min()) if band.any() else float('inf')
-    return int(inside.sum()), gap
+    band = np.abs(x) <= 0.45 * w                 # the tyre, not the 3 cm cut margins
+    ring = band & (rad > 0.75 * r)               # tyre ring; inner hub-area body bits are hidden behind the rim
+    inside = ring & (rad <= r * 0.985)
+    gap = float((rad[ring] - r).min()) if ring.any() else float('inf')
+    return int(inside.sum()), gap, int((band & (rad <= 0.75 * r)).sum())
 
 
 def qa():
@@ -617,7 +703,7 @@ def qa():
         det = json.load(open(det_path))
         reset()
         src = import_mesh(src_glb, 'src')
-        to_frame(src, det['yaw180'], scale=det['scale'], centre_n=det['centre'])
+        to_frame(src, det_rot(det), scale=det['scale'], centre_n=det['centre'])
         cam = setup_render((900, 560))
         paths = []
         for name, az, el in VIEWS:
@@ -686,19 +772,19 @@ def qa():
         rest = wheel_sweep(bpts, c, r, w, 0, 0)
         first = None
         for dy in dys[dys >= 0]:
-            n, _ = wheel_sweep(bpts, c, r, w, 0, float(dy))
+            n = wheel_sweep(bpts, c, r, w, 0, float(dy))[0]
             if n > 0:
                 first = float(dy)
                 break
-        entry = {'rest_points_inside': rest[0], 'rest_min_gap_m': round(rest[1], 4),
+        entry = {'rest_points_inside': rest[0], 'rest_min_gap_m': round(rest[1], 4), 'rest_hub_area_points': rest[2],
                  'first_contact_bump_m': first, 'first_contact_bump_studs': None if first is None else round(first * s, 3),
                  'max_bump_m': round(bump, 4), 'max_droop_m': round(droop, 4),
                  'droop_points_inside': wheel_sweep(bpts, c, r, w, 0, -droop)[0]}
         if k[0] == 'F':
             entry['steer'] = {}
             for st in (-STEER_DEG, STEER_DEG):
-                n0, g0 = wheel_sweep(bpts, c, r, w, st, 0)
-                nb, _ = wheel_sweep(bpts, c, r, w, st, bump * 0.5)
+                n0, g0, _ = wheel_sweep(bpts, c, r, w, st, 0)
+                nb = wheel_sweep(bpts, c, r, w, st, bump * 0.5)[0]
                 entry['steer'][f'{st:+d}deg'] = {'rest_points_inside': n0, 'rest_min_gap_m': round(g0, 4),
                                                  'half_bump_points_inside': nb}
         sweeps[k] = entry
@@ -714,7 +800,7 @@ def qa():
     }
     report['triangles'] = {'body': build.get('body_tris'), 'wheels': {k: v.get('tris') for k, v in build['wheels'].items()},
                            'limit_per_meshpart': 20000}
-    report['textures'] = {'body': build.get('body_texture'), 'wheels': {k: v.get('texture') for k, v in build['wheels'].items()}}
+    report['textures'] = {'body': build.get('body_textures', build.get('body_texture')), 'wheels': {k: v.get('texture') for k, v in build['wheels'].items()}}
     report['collision'] = {
         'chassis_box_studs': CHASSIS_STUDS,
         'body_size_studs': [round(v * s, 2) for v in lay['size']],
