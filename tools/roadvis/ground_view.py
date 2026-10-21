@@ -25,9 +25,12 @@ STEP_COLORS = [(0.6 + 1e-9, (40, 170, 70)), (1.2 + 1e-9, (240, 200, 0)), (1.5, (
 CAMS = {
     'owner': dict(pos=(24564.0, 57.0, 807.0), dir=(-0.39, -0.39, 0.84), fov=70, res=(1600, 900)),
     'overview': dict(pos=(24790.0, 330.0, 1330.0), look=(24520.0, 0.0, 950.0), fov=50, res=(1600, 1000)),
-    # a chase camera 6 studs up, 12 behind a car that runs down the east edge of Sukhumvit (spot 2, path B, lateral -14)
-    # towards the trench in front of the two buildings at world x 24544..24561, z 990..1045
-    'driver_low': dict(pos=(24556.0, 6.5, 925.0), look=(24543.0, 1.2, 1010.0), fov=65, res=(1600, 900)),
+    # a driver's eye 6 studs up on Sukhumvit (spot 2, path B), looking across the shoulder strip into the frontage in
+    # front of the two buildings at world x 24544..24561, z 990..1045 (the spot 2 drop zone: today a 3-stud trench)
+    'driver_low': dict(pos=(24530.0, 6.0, 960.0), look=(24556.0, 1.0, 1010.0), fov=65, res=(1600, 900)),
+    # a driver's eye on the +z leg, 10 studs in from the longest Road B edge that still faces the -2 terrain with a
+    # building 4..16 studs behind it (28 studs of edge around world (24516.5, 1136.3), building 8.9 studs away)
+    'driver_edge': dict(pos=(24512.8, 6.0, 1112.5), look=(24518.7, 0.0, 1143.1), fov=65, res=(1600, 900)),
 }
 
 
@@ -189,7 +192,7 @@ def scenes(W, PB, G, out_dir):
 LABELS = {'today': 'TODAY (as built before Road B)', 'B': 'ROAD B (built 2026-10-22)', 'B_ground': 'ROAD B + GROUND (proposed)'}
 
 
-def compose(render_dir, out_dir, cams=('owner', 'overview', 'driver_low'), states=('today', 'B', 'B_ground'), width=640,
+def compose(render_dir, out_dir, cams=('owner', 'overview', 'driver_low', 'driver_edge'), states=('today', 'B', 'B_ground'), width=640,
             note='offline EEVEE preview, not Studio'):
     """small labelled panels per camera: <state>_<cam>.png from blender_preview.py -> ground_cmp_<cam>.png"""
     f = ImageFont.load_default()

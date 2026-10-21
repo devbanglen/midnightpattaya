@@ -446,19 +446,51 @@ def city_objects(broot, W, mask, field=None, bbox=None, state=None):
 
 
 # ---- areas that must not be raised ----------------------------------------------------------------------------------------
+def landmark_low_parts(broot, raise_to=0.43, margin=0.3):
+    """per landmark: parts whose top lies below the raised ground + margin (a raise would bury them: floating market
+    water, plazas, steps), from the landmark chunk rows {name, shape, sx, sy, sz, x, y, z, rx, ry, rz, ...}"""
+    d = os.path.join(broot, 'landmarks', 'roblox')
+    out = {}
+    for f in sorted(os.listdir(d)):
+        if not f.startswith('chunk_'):
+            continue
+        cd = _luau(os.path.join(d, f))
+        for lm in _lst(cd, 'landmarks'):
+            r = _lst(lm, 'parts')
+            low, lowest, n = 0, 99.0, 0
+            for i in range(0, len(r) - 14, 15):
+                sx, sy, sz, y, rz = r[i + 2], r[i + 3], r[i + 4], r[i + 6], r[i + 10]
+                h = sx if abs(abs(rz) - math.pi / 2) < 0.05 else sy          # a vertical cylinder is rolled 90 deg
+                bottom, top = y - h / 2, y + h / 2
+                n += 1
+                lowest = min(lowest, bottom)
+                if top < raise_to + margin:
+                    low += 1
+            out[lm['id']] = dict(parts=n, buried_by_a_raise=low, lowest_bottom=round(lowest, 2), x=lm['x'], z=lm['z'])
+    return out
+
+
 def no_raise_zones(broot, W, mask):
     """the places a city-wide raise has to leave alone (map-local unless noted), with sizes"""
     lm = _luau(os.path.join(broot, 'landmarks', 'roblox', 'manifest.luau'))
     marks = [dict(id=l['id'], x=l['x'], z=l['z']) for l in _lst(lm, 'landmarks')]
-    vis = _luau(os.path.join(broot, 'vis_slice', 'roblox', 'manifest.luau'))
-    vb = vis.get('bbox') or vis.get('bboxLocal')
+    vb = None
+    vd = os.path.join(broot, 'vis_slice', 'roblox')
+    xs, zs = [], []
+    for f in sorted(os.listdir(vd)) if os.path.isdir(vd) else []:
+        if f.startswith('chunk_'):
+            for b in _lst(_luau(os.path.join(vd, f)), 'buildings'):
+                xs.append(b['x'])
+                zs.append(b['z'])
+    if xs:
+        vb = [round(min(xs)), round(min(zs)), round(max(xs)), round(max(zs))]
     cm = _luau(os.path.join(broot, 'coast', 'roblox', 'manifest.luau')) if os.path.isdir(os.path.join(broot, 'coast', 'roblox')) else {}
     wide = _luau(os.path.join(broot, 'pattaya_wide', 'roblox', 'manifest.luau'))
     return dict(
         frame_local=dict(wide['frame']), base_frame_local=dict(wide['baseFrame']),
         water_studs2=round(mask.area(1), 0), sand_studs2=round(mask.area(2), 0), coast_cells=mask.coast_cells,
         coast_prop_chunks=len(_lst(cm, 'chunks')), coast_islands=[i['name'] for i in _lst(cm, 'islands')],
-        landmarks=marks, vis_slice_bbox=vb,
+        landmarks=marks, landmark_low_parts=landmark_low_parts(broot), vis_slice_bbox_local=vb,
         race_map_world=[6000, 100, 0], streaming_proto_world_x=60000, template_world=[0, 0, 0],
     )
 

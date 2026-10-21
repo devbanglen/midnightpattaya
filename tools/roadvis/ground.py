@@ -657,6 +657,32 @@ def chords(c, max_len, tol):
     return out
 
 
+# ---- option (b) / (c): what paving Parts would cost instead of the terrain ---------------------------------------------
+def paving_cost(st, plateau, frontage=40.0, cell=256.0):
+    """option (b): pave every patch of open terrain in the box with Road B-style flat WedgePart triangles at sidewalk
+    height (1.6, kerbed against the road), so nothing drops; option (c): pave only the frontage (terrain within
+    `frontage` studs of a building) and raise the terrain for the rest. Counted like the Road B export: constrained-
+    Delaunay triangles of the area simplified 0.25, two WedgeParts each (one where the altitude foot is a corner),
+    plus one kerb Part per 12 studs of road edge that meets the paving. Returns counts and the fullest 256-stud cell."""
+    from collections import Counter
+    surf = st.paved_union()
+    free = plateau.difference(surf).difference(st.bld_union)
+    out = {}
+    for name, area in (('b_all_open_terrain', free), ('c_frontage_only', free.intersection(st.bld_union.buffer(frontage)))):
+        tris = junction.triangles(area.simplify(0.25), simplify=0)
+        wedges = sum(junction.wedge_parts(t) for t in tris)
+        per = Counter()
+        for t in tris:
+            c = t.centroid
+            per[(math.floor(c.x / cell), math.floor(c.y / cell))] += junction.wedge_parts(t)
+        road_edge = area.boundary.intersection(unary_union([g for top, g in st.H.groups if 0.95 <= top <= 1.01]).buffer(0.5))
+        kerbs = int(math.ceil(road_edge.length / 2 / 12.0))     # the boundary runs on both sides of the 0.5 buffer
+        out[name] = dict(area=round(area.area, 0), triangles=len(tris), wedge_parts=int(wedges), kerb_parts=kerbs,
+                         parts=int(wedges + kerbs), max_parts_in_a_256_cell=int(max(per.values()) if per else 0),
+                         cells_over_600=int(sum(1 for v in per.values() if v > 600)))
+    return out
+
+
 # ---- one call: plan + QA for today / B / B + ground ------------------------------------------------------------------
 def pilot(W, PB, cfg=None, log=print, details=True):
     """the ground plan on Road B and the static QA of today, B, B + ground (and today + ground, for reference)"""
@@ -693,6 +719,7 @@ def pilot(W, PB, cfg=None, log=print, details=True):
     res['materials'] = visible_materials(G, states['B_ground'])
     segs, covered = kerb_bands(W, PB, G, cfg, st=states['B_ground'])
     res['kerbs'] = dict(parts=len(segs), edge_covered=round(covered, 1))
+    res['paving_cost'] = paving_cost(states['B'], plateau)
     G['kerbs'] = segs
     log(f"ramp band: {dict((k, v['drop_cells'] if isinstance(v, dict) else v) for k, v in res['ramp_band'].items())}; "
         f"materials {res['materials']}; kerb bands {res['kerbs']}")
