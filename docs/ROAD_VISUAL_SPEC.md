@@ -15,7 +15,7 @@ geometry), never Roblox visual acceptance and never a Visual PASS. Root cause an
 | `tools/roadvis/cli.py` | `analyze [--city]`, `pilot [--art]` |
 | `tools/roadvis/export_luau.py` | Design B pilot -> Studio data modules `build/roadvis/roblox/` (manifest + cells, <= 600 parts each, the exact replace list, probe samples + expectation) |
 | `roblox/src/ServerStorage/PattayaRoadVisBuilder.luau` | Studio builder: Plan / Build / MoveReplaced / Probe / Remove / ShoulderLook (+Revert), offline-tested only |
-| `tools/qa/tests/test_roadvis.py` | 25 offline tests (incl. the builder in the luau CLI on the real data: counts, cells, move / restore round trip, abort, shoulders untouched) |
+| `tools/qa/tests/test_roadvis.py` | 26 offline tests (incl. the builder in the luau CLI on the real data: counts, cells, move / restore round trip, abort, shoulders untouched) |
 | `build/roadvis/` (gitignored) | `analysis.json`, `compare.json`, `pilot_sukhumvit_klang_{A,B}.json`, `scene_{before,A,B}.json`, `top_*.png` |
 | `art/roadvis/` | Small preview PNGs (top-down and the 4 camera views for before / A / B) |
 
@@ -70,7 +70,12 @@ Rerun the pilot and previews (about 25 s): `D:\ROBLOXRACE\.venv\Scripts\python t
      (Voronoi). The split line becomes a double yellow between opposite directions and a solid white between
      same-direction ones.
    - Edge lines run 1.2 inside every kerb, never along the seam.
-   - No markings inside junction complexes.
+   - No lane, centre or edge markings inside the junction polygon. That polygon is the intersection complexes
+     plus every place where two carriageways share asphalt at more than 12° to each other (merging slip roads, the
+     field between Pattaya Klang and the slip roads), closed with a 12-stud radius. Only stop lines and zebras sit at
+     its boundary. A stop line moves out along its leg (up to 60 studs) until it is clear of the field.
+   - Same-direction carriageways that share asphalt get no separator line; each keeps its own lane dashes. The
+     opposite-direction double line is straightened (simplified 2 studs) before it is drawn.
    - Stop lines (1.6 wide) on every inbound mouth: the left half on two-way roads (Thailand drives on the left).
 8. **Crosswalks.**
    - Only on junction legs that have OSM crossing evidence within 60 studs of the mouth (the real Pattaya crossings).
@@ -120,12 +125,12 @@ Recommendation: a (now), d (with the art team), b only after a drive test.
 | Meaningless asphalt (outside lane corridors and junction complexes) | 470, plus blobs from fills and discs | 198 | **0** |
 | Wheel drops on lane centres, 3,253 samples outside the seam band | 250 | 248 | **0** |
 | Same, including the seam band (3,871) | 295 | 304 | 35 (at the seam, where the old merged slab continues outside) |
-| Lane-boundary coverage (where the carriageway has asphalt) | 45.8 % visible / 11.9 % hidden | 98.2 % | **98.8 %** (all carriageways) |
+| Lane-boundary coverage (where the carriageway has asphalt) | 45.8 % visible / 11.9 % hidden | 98.9 % | **99.3 %** (all carriageways, outside the junction polygon) |
 | Crossings | 18; 0 land on a sidewalk at both ends | 3 (both ends land) | 5 (both ends land, perpendicular, kerb to kerb; 2 across all of Sukhumvit, 104–109 studs) |
 | Stop lines | none | at inbound mouths | at inbound mouths |
 | Shoulder gate: drops after ≤ before at every offset (0 / ±8 / ±14 / ±20 / ±24) | baseline (0, 0/10, 0/74, 1/155, 3/247) | **fails at +14** (2 vs 0) | **passes**. In-lane drops 0 at every offset. Out-of-lane −24: 61 vs 247 |
 | Kerb contacts (0.45–0.6 step up, no drop) at ±24 in-lane | 0 | 7 / 53 | 57 / 71 (carriageway edge = kerb line) |
-| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 1,711 (53 slabs, 695 wedges, 520 sidewalk + 148 island wedges, 295 marking Parts) | **902** with visual meshes (385 asphalt + 379 sidewalk + 102 island collision wedges + 36 MeshParts, markings inside the meshes); **1,610 with the default Parts build** (collision visible + 614 marking Parts + 66 kerb + 64 grass). |
+| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 1,659 (53 slabs, 695 wedges, 520 sidewalk + 148 island wedges, 243 marking Parts) | **902** with visual meshes (385 asphalt + 379 sidewalk + 102 island collision wedges + 36 MeshParts, markings inside the meshes); **1,388 with the default Parts build** (collision visible + 392 marking Parts + 66 kerb + 64 grass). |
 | Visual triangles | | 1,276 | 603 |
 | Streaming (road-only Atomic cells, layout b: 256 studs, cap 1,500) | about 5.5 cells × 145 instances | about 310 per cell | about 165 per cell. 8 MeshParts per cell (each tile mesh streams with its cell). |
 | Installation complexity | | Medium-high: changes to PattayaBuilder / road_fix / dual / aprons rules, chunk modules regenerated, RebuildChunks per batch. Touches tested code paths citywide. | Medium: a NEW builder + a new folder. Old parts in the area are moved to a backup folder (not deleted). Visual meshes need edit-time EditableMesh → MeshPart (or uploaded mesh assets). Fallback: visual as WedgeParts (+1,200 parts). |
@@ -205,16 +210,16 @@ run in Studio.
 **Data:** `build/roadvis/roblox/` (written by `tools/roadvis/cli.py pilot` or `tools/roadvis/export_luau.py`):
 
 - `manifest.luau`
-- 8 `cell_<cx>_<cz>[_k].luau` modules: at most 600 parts each, largest 91 KB.
+- 7 `cell_<cx>_<cz>[_k].luau` modules: at most 600 parts each.
 
-**The default build is Parts, about 1,610 parts in 7 Atomic cells (Model `Cell_<cx>_<cz>`, one per 256-stud cell):**
+**The default build is Parts, about 1,388 parts in 7 Atomic cells (Model `Cell_<cx>_<cz>`, one per 256-stud cell):**
 
 | Kind | Parts | Notes |
 |---|---|---|
 | Asphalt collision | 385 WedgeParts | Visible, named `Road` so RoadLook styles them like other roads |
 | Sidewalk | 379 WedgeParts | |
 | Island | 102 WedgeParts | |
-| Markings | 614 thin non-colliding Parts | lane 198, centre 105, edge 228, stop 9, zebra 74 |
+| Markings | 392 thin non-colliding Parts | lane 174, centre 30, edge 108, stop 6, zebra 74 |
 | Kerb strips | 66 | |
 | Grass | 64 | |
 
@@ -235,12 +240,12 @@ It is a preview only, and it falls back to Parts when the API is missing.
    - Create Folder `ServerStorage.PattayaDataRoadVis` with ModuleScripts `manifest` and every `cell_*`, from
      `build/roadvis/roblox/`. Use the same localhost bundle method as the other data folders.
 3. **Plan:** `local RV = require(game.ServerStorage.PattayaRoadVisBuilder) print(RV.Plan())`
-   - Expected: `8 modules, 7 cells, 1610 parts to build`.
+   - Expected: `7 modules, 7 cells, 1388 parts to build`.
    - Move plan: `Road 397, Sidewalk 7, Dash 41, Centre 22, Junction 17, Joint 10, Apron 142, CornerFill 13,
      ZebraStripe 155 -> MATCHES the data; selected 804, expected 804`.
    - **If it says DOES NOT MATCH, stop.** The place differs from the build data (e.g. a chunk was rebuilt). Report the
      printed unmatched parts and do not continue.
-4. **Build:** `print(RV.Build())`. Expected: `built 7 cells, 1610 parts (Parts)` and no warnings.
+4. **Build:** `print(RV.Build())`. Expected: `built 7 cells, 1388 parts (Parts)` and no warnings.
 5. **Move the old parts:** `print(RV.MoveReplaced())`.
    - Expected: `moved 804 parts ... to ServerStorage.RoadVisBackup`.
    - It aborts and moves nothing if the selection differs from the list. It never selects anything in
@@ -250,7 +255,7 @@ It is a preview only, and it falls back to Parts when the API is missing.
 6. **Probe:** `print(RV.Probe())`.
    - Expected per offset (0, ±8, ±14, ±20, ±24, in-lane samples only): `drop 0`.
    - Kerb contacts close to the offline values: about 3 at -20, 15 at +24, 25 at -24.
-   - Building overlaps 0. Pilot parts 1610 (data 1610). Moved parts 804.
+   - Building overlaps 0. Pilot parts 1388 (data 1388). Moved parts 804.
 7. **Optional, only if the owner approves the shoulder look:**
    `print(RV.ShoulderLook({recolour = true, hideGapFills = true}))`. Revert with `RV.ShoulderLookRevert()`.
    - Strips and tapers become gutter concrete 176, 174, 168.
@@ -309,7 +314,7 @@ This renders Cycles GPU with a Nishita sky and sun. Only the scripts and the exp
 
 ## 11. Risks
 
-- The default Parts build has more parts than it replaces (1,610 against 804) because every marking is a Part. The
+- The default Parts build has more parts than it replaces (1,388 against 804) because every marking is a Part. The
   mesh build (902) needs EditableMesh assets that persist. Uploading the tile meshes as assets is the follow-up that
   brings the count down.
 
