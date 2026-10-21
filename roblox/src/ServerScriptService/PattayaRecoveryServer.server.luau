@@ -410,7 +410,7 @@ RequestRescue.OnServerEvent:Connect(function(plr: Player, reason)
 end)
 
 -- arcade TrafficHit reports --------------------------------------------------------------------------------------
-local TRAFFIC_ORIGIN_X, TRAFFIC_ORIGIN_Z = 20000, 0 -- PattayaBuilder.ORIGIN (as in PattayaTraffic.client.luau)
+local TRAFFIC_ORIGIN_X, TRAFFIC_ORIGIN_Z = Recovery.TRAFFIC_ORIGIN_X, Recovery.TRAFFIC_ORIGIN_Z -- shared with PattayaTraffic
 local trafficRoutes = nil :: any
 local function routesOnce()
 	if trafficRoutes == nil then

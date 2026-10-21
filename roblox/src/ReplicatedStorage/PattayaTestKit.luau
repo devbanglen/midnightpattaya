@@ -64,6 +64,10 @@
 --   TK_HitTarget in PattayaTraffic, Studio / DevTest only). The car waits 0.3 s at its start; only a hit after the
 --   approach began, near the planned meeting time, on the target counts (PattayaRecovery.acceptStagedHit). Arcade:
 --   my car ignores scenery during the approach. Each row reports the Heartbeat rate (Hz).
+-- TK.selfCheck(n?) -> ok, lines             round 5: for the n (5) nearest cars, the key TestKit computes against the
+--   model PattayaTraffic shows (TrafficKey attribute + position); every line must say "match" before hitMatrix
+-- TK.trafficModels() -> {[key]: Model}        the traffic models shown now, by key
+-- TK.hitMatrixStart(opts?) -> handle          hitMatrix in the background (handle:poll(), .lines, .done, :stop())
 -- TK.hitMatrix(opts?) -> summary, rows       every row of TK.HIT_MATRIX, PASS / FAIL against the owner's table;
 --   opts.runs = 3 repeats it and prints "REPEATABLE" only when every row of every run passed. Rows are isolated
 --   (other traffic ghosts, labelled "isolated"); opts.isolate = false = real traffic: another car within 30 studs
@@ -1113,28 +1117,65 @@ end
 local recModule = ReplicatedStorage:FindFirstChild("PattayaRecovery")
 local Rec = recModule and require(recModule) :: any
 local trafficRoutes = nil
+
+-- cooperative waits: inside TK.hitMatrixStart's runner (a coroutine resumed by a Heartbeat connection, so it outlives
+-- the Studio execute snippet that started it) they yield to the runner; anywhere else they wait a Heartbeat
+local runnerCo: thread? = nil
+local function waitFrame()
+	if runnerCo ~= nil and coroutine.running() == runnerCo then
+		coroutine.yield()
+	else
+		RunService.Heartbeat:Wait()
+	end
+end
+local function waitSeconds(sec: number)
+	local t0 = os.clock()
+	repeat waitFrame() until os.clock() - t0 >= sec
+end
+
+-- traffic cars around the car (or `at`), nearest first, computed with PattayaRecovery's shared functions: the same
+-- numbers PattayaTraffic draws its cars with (by construction since team18/arcade-fix-4). Each entry: key (the car's
+-- key in PattayaTraffic and its model's TrafficKey attribute), ri, k, pos, look, speed, halfLen, halfWid, kind, dist,
+-- route, s, t.
 function TK.trafficNear(radius: number?, at: Vector3?)
 	assert(Rec, "trafficNear: ReplicatedStorage.PattayaRecovery missing")
 	if not trafficRoutes then
 		local data = ReplicatedStorage:FindFirstChild("PattayaTraffic")
 		assert(data, "trafficNear: ReplicatedStorage.PattayaTraffic missing")
-		trafficRoutes = Rec.buildTrafficRoutes(require(data :: ModuleScript), 20000, 0)
+		trafficRoutes = Rec.buildTrafficRoutes(require(data :: ModuleScript), Rec.TRAFFIC_ORIGIN_X, Rec.TRAFFIC_ORIGIN_Z)
 	end
-	local chassis = TK.car()
-	local c = at or (chassis and chassis.Position)
+	local c = at
+	if not c then
+		local chassis = TK.car()
+		c = chassis and chassis.Position
+	end
 	assert(c, "trafficNear: get in a car or pass a position")
 	local out = {}
 	for _, e in Rec.trafficNear(trafficRoutes, workspace:GetServerTimeNow(), c.X, c.Z, radius or 300) do
-		local sh = Rec.TRAFFIC_SHAPES[e.kind] or Rec.TRAFFIC_SHAPES[0]
-		table.insert(out, {pos = Vector3.new(e.x, 1, e.z), look = Vector3.new(e.lx, 0, e.lz), speed = e.speed,
-			halfLen = sh.len / 2, halfWid = sh.wid / 2, kind = e.kind, dist = e.dist, route = e.route, s = e.s, t = e.t,
-			key = e.key})
+		local te = Rec.tkTrafficEntry(e)
+		te.pos = Vector3.new(te.x, Rec.TRAFFIC_ROAD_Y, te.z)
+		te.look = Vector3.new(te.lx, 0, te.lz)
+		table.insert(out, te)
 	end
 	return out
 end
 
--- the traffic model PattayaTraffic shows near a spot (nil = that car has no model this frame: the pool of 70 is full,
--- and a car without a model is invisible and cannot be hit at all)
+-- the traffic models PattayaTraffic shows right now, by key (its TrafficKey attribute)
+local function trafficModels(): {[number]: Model}
+	local out = {}
+	local folder = workspace:FindFirstChild("PattayaTraffic")
+	if folder then
+		for _, m in folder:GetChildren() do
+			local key = m:IsA("Model") and m.PrimaryPart and m:GetAttribute("TrafficKey")
+			if type(key) == "number" then out[key] = m :: Model end
+		end
+	end
+	return out
+end
+TK.trafficModels = trafficModels
+
+-- the traffic model PattayaTraffic shows near a spot (nil = no model there: the pool of 70 is full, and a car without
+-- a model is invisible and cannot be hit at all)
 local function trafficModelAt(pos: Vector3, within: number): Model?
 	local folder = workspace:FindFirstChild("PattayaTraffic")
 	if not folder then return nil end
@@ -1150,6 +1191,68 @@ local function trafficModelAt(pos: Vector3, within: number): Model?
 end
 TK.trafficModelAt = trafficModelAt
 
+-- ghosted by PattayaTraffic (faded, no arcade hits)?
+local function ghosted(m: Model): boolean
+	local root = m.PrimaryPart
+	return root ~= nil and (root.LocalTransparencyModifier or 0) > 0.3
+end
+
+-- does the car with this key have a model where the shared maths says it is (and is it real, not ghosted)?
+-- returns nil when it does, else the reason
+local function modelProblem(models, e, tol: number): string?
+	local m = models[e.key]
+	if not m then
+		local other = trafficModelAt(e.pos, 6)
+		if other then
+			return ("the model at its spot has key %s"):format(tostring(other:GetAttribute("TrafficKey")))
+		end
+		return "no model (pool full or out of range)"
+	end
+	local d = flat((m.PrimaryPart :: BasePart).Position - e.pos).Magnitude
+	if d > tol then
+		return ("its model is %.0f studs from the computed spot"):format(d)
+	end
+	if ghosted(m) then
+		return "ghosted"
+	end
+	return nil
+end
+
+-- TK.selfCheck(n?) -> ok, lines: for the n (5) nearest cars, the key TestKit computes against the model PattayaTraffic
+-- shows (its TrafficKey and position). Run it before hitMatrix: every line must say "match".
+function TK.selfCheck(n: number?, at: Vector3?)
+	assert(Rec, "selfCheck: PattayaRecovery missing")
+	if not at and not TK.car() then
+		local cam = workspace.CurrentCamera
+		at = cam and cam.Focus.Position
+	end
+	local folder = workspace:FindFirstChild("PattayaTraffic")
+	local lines = {}
+	local positions = folder and folder:GetAttribute("Positions")
+	local models = trafficModels()
+	local anyTagged = next(models) ~= nil
+	local compared, matched, shown = 0, 0, 0
+	for _, e in TK.trafficNear(650, at) do
+		if shown >= (n or 5) then break end
+		local problem = modelProblem(models, e, 4)
+		if problem == "no model (pool full or out of range)" then continue end
+		shown += 1
+		compared += 1
+		if not problem then matched += 1 end
+		table.insert(lines, ("%s key %d (route %d car %d) at (%.0f, %.0f), %.0f studs away: %s"):format(
+			if problem then "MISMATCH" else "match", e.key, e.ri, e.k, e.pos.X, e.pos.Z, e.dist, problem or "model there"))
+	end
+	local hook = player:GetAttribute("TK_HitTarget")
+	-- a leftover isolation hook ghosts every car but one: that is a failed check too
+	local ok = compared > 0 and matched == compared and positions == "shared" and hook == nil
+	table.insert(lines, ("selfCheck: %d/%d keys match their models; PattayaTraffic positions: %s%s%s%s"):format(matched,
+		compared, tostring(positions), if anyTagged then "" else "; models carry no TrafficKey (old PattayaTraffic?)",
+		if hook ~= nil then ("; TK_HitTarget is still set (%s)"):format(tostring(hook)) else "",
+		if ok then " - OK" else " - FAIL"))
+	for _, l in lines do print(l) end
+	return ok, lines
+end
+
 -- staged hit: plan, target and lane checks (all maths in PattayaRecovery: stagePlan, plannedPathClear,
 -- acceptStagedHit, tested offline in tools/qa/tests/test_recovery.py)
 local function stage(target, mode: string, speed: number, opts)
@@ -1158,13 +1261,15 @@ local function stage(target, mode: string, speed: number, opts)
 		offset = opts.offset, angle = opts.angle, runLat = opts.runLat})
 end
 
--- the nearest traffic car with a model whose whole approach is clear of every other traffic car by `clearance`
--- studs (start spot included); returns target, clear (false = none was clear: the nearest with a model)
+-- the nearest traffic car whose model is where the shared maths puts it (by key, not ghosted) and whose whole
+-- approach is clear of every other traffic car by `clearance` studs (start spot included); returns target, clear
+-- (false = none was clear: the nearest valid car)
 local function pickTarget(mode: string, speed: number, opts, startDelay: number)
 	local clearance = opts.clearance or 30
 	local fallback = nil
-	for _, e in TK.trafficNear(opts.radius or 500) do
-		if not trafficModelAt(e.pos, 4) or (opts.excludeKeys and opts.excludeKeys[e.key]) then continue end
+	local models = trafficModels()
+	for _, e in TK.trafficNear(opts.radius or 500, opts.around) do
+		if (opts.excludeKeys and opts.excludeKeys[e.key]) or modelProblem(models, e, 4) then continue end
 		fallback = fallback or e
 		-- plan from the moment the approach will start
 		local t0 = e.t + startDelay
@@ -1209,8 +1314,9 @@ local function carColliders(model: Model): {BasePart}
 	return out
 end
 
--- one staged hit (TK.hitTest retries it)
-local function hitOnce(mode: string, speed: number, opts)
+-- one staged hit. Everything it changes (TK_HitTarget, collisions, connections) is undone by `cleanup`, which
+-- hitOnce runs whatever happens (MISSED, rejected, error).
+local function hitBody(mode: string, speed: number, opts, cleanup: {() -> ()})
 	local chassis, model = TK.car()
 	assert(chassis and model and Rec, "hitTest: get in a car first (and PattayaRecovery must be installed)")
 	local arcade = workspace:GetAttribute("CollisionModel") == "arcade"
@@ -1219,12 +1325,14 @@ local function hitOnce(mode: string, speed: number, opts)
 	if not target then
 		target, clear = pickTarget(mode, speed, opts, START_DELAY)
 	end
-	assert(target, "hitTest: no traffic car with a model nearby")
+	assert(target, "hitTest: no traffic car whose model matches TestKit nearby (run TK.selfCheck())")
+	assert(target.key ~= nil, "hitTest: target without a key")
 	-- isolate: every other car ghosts for this run (TestKit-only hook TK_HitTarget in PattayaTraffic). Default for
 	-- TK.hitMatrix; otherwise only when no clear lane was found
 	local ghostOthers = opts.isolate == true or not clear
 	if ghostOthers then
 		player:SetAttribute("TK_HitTarget", target.key)
+		table.insert(cleanup, function() player:SetAttribute("TK_HitTarget", nil) end)
 	end
 	local approachT = workspace:GetServerTimeNow() + START_DELAY
 	local probe = table.clone(target)
@@ -1241,13 +1349,19 @@ local function hitOnce(mode: string, speed: number, opts)
 	local colliders = if arcade then carColliders(model) else {}
 	local saved = {}
 	for _, p in colliders do saved[p] = p.CanCollide end
+	table.insert(cleanup, function()
+		for p, c in saved do
+			if p.Parent then p.CanCollide = c end
+		end
+	end)
 	local function noCollide()
 		for _, p in colliders do
 			if p.Parent and p.CanCollide then p.CanCollide = false end
 		end
 	end
 	local hitsBefore = nil
-	local state = {done = false, reason = "", releaseAt = 0, frames = 0, startClock = 0, abort = nil}
+	local state = {done = false, reason = "", releaseAt = 0, frames = 0, startClock = 0, abort = nil,
+		targetCheck = "not checked"}
 	-- speed as the hit test sees it (after physics, Heartbeat): the lowest during the approach, and the last one
 	local seen = {min = math.huge, last = 0}
 	local hb = RunService.Heartbeat:Connect(function()
@@ -1256,14 +1370,18 @@ local function hitOnce(mode: string, speed: number, opts)
 		seen.last = v
 		seen.min = math.min(seen.min, v)
 	end)
+	table.insert(cleanup, function() hb:Disconnect() end)
 	local conn = onPreSim(function()
 		if state.done then return end
 		if arcade then noCollide() end
 		local t = workspace:GetServerTimeNow()
 		local count = player:GetAttribute("Recovery_HitCount") or 0
 		if t < approachT then
-			-- holding at the start: anything counted here is not the staged hit
+			-- holding at the start: anything counted here is not the staged hit; the target's model must be where
+			-- the plan thinks it is, and real (the isolation hook ghosts every OTHER car)
 			hitsBefore = count
+			local tp = targetAt(t)
+			state.targetCheck = modelProblem(trafficModels(), {key = target.key, pos = tp}, 6 + target.speed / 30)
 			local x, z, dx, dz = plan(approachT)
 			local p = Vector3.new(x, Y, z)
 			chassis.CFrame = CFrame.lookAt(p, p + Vector3.new(dx, 0, dz))
@@ -1271,7 +1389,13 @@ local function hitOnce(mode: string, speed: number, opts)
 			chassis.AssemblyAngularVelocity = Vector3.zero
 			return
 		end
-		if state.frames == 0 then state.startClock = os.clock() end
+		if state.frames == 0 then
+			state.startClock = os.clock()
+			if state.targetCheck then
+				state.done, state.reason, state.abort = true, "target check: " .. tostring(state.targetCheck), "target"
+				return
+			end
+		end
 		state.frames += 1
 		if hitsBefore and count ~= hitsBefore then
 			-- a hit registered: is it the staged one?
@@ -1310,7 +1434,8 @@ local function hitOnce(mode: string, speed: number, opts)
 		chassis.AssemblyLinearVelocity = dir * speed
 		chassis.AssemblyAngularVelocity = Vector3.zero
 	end)
-	while not state.done do RunService.Heartbeat:Wait() end
+	table.insert(cleanup, function() conn:Disconnect() end)
+	while not state.done do waitFrame() end
 	conn:Disconnect()
 	hb:Disconnect()
 	for p, c in saved do
@@ -1321,21 +1446,24 @@ local function hitOnce(mode: string, speed: number, opts)
 	local look0 = flat(chassis.CFrame.LookVector).Unit
 	local minSpeed, minUp, minDist = immediate, 1, math.huge
 	local t1 = os.clock()
-	while os.clock() - t1 < 2 do
-		RunService.Heartbeat:Wait()
-		local v = flat(chassis.AssemblyLinearVelocity).Magnitude
-		if os.clock() - t1 < 0.4 then minSpeed = math.min(minSpeed, v) end
-		minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
-		minDist = math.min(minDist, flat(chassis.Position - targetAt(workspace:GetServerTimeNow())).Magnitude)
+	if state.abort == nil then
+		while os.clock() - t1 < 2 do
+			waitFrame()
+			local v = flat(chassis.AssemblyLinearVelocity).Magnitude
+			if os.clock() - t1 < 0.4 then minSpeed = math.min(minSpeed, v) end
+			minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
+			minDist = math.min(minDist, flat(chassis.Position - targetAt(workspace:GetServerTimeNow())).Magnitude)
+		end
 	end
-	if ghostOthers then
-		player:SetAttribute("TK_HitTarget", nil)
-	end
+	-- stop the car where it is (it would otherwise drive on at test speed into the scenery between rows)
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	chassis.AssemblyAngularVelocity = Vector3.zero
 	local look1 = flat(chassis.CFrame.LookVector).Unit
 	local yaw = math.deg(math.atan2(look0:Cross(look1).Y, look0:Dot(look1)))
 	local res = {mode = mode, speed = speed, angle = opts.angle, model = if arcade then "arcade" else "physical",
 		reason = state.reason, abort = state.abort, yawDeg = yaw, minUp = minUp, flipped = minUp < 0.5, hz = frameHz,
-		ghostedOthers = ghostOthers, vT = target.speed, targetKey = target.key, approachMin = if seen.min < math.huge then seen.min else nil,
+		ghostedOthers = ghostOthers, vT = target.speed, targetKey = target.key,
+		approachMin = if seen.min < math.huge then seen.min else nil,
 		uprights = (player:GetAttribute("Recovery_Uprights") or 0) - uprightsBefore}
 	if arcade then
 		local good = state.reason == "hit"
@@ -1352,9 +1480,9 @@ local function hitOnce(mode: string, speed: number, opts)
 	end
 	res.lossPct = (1 - (res.after or 0) / math.max(res.before or speed, 1)) * 100
 	res.lastHit = player:GetAttribute("Recovery_LastHit")
-	res.text = ("hitTest %s @%d%s [%s, %.0f Hz%s]: %s tier=%s vc=%s %d->%d (-%d%%) approach-min %s yaw=%d minUp=%.2f%s")
+	res.text = ("hitTest %s @%d%s [%s, %.0f Hz%s, key %d]: %s tier=%s vc=%s %d->%d (-%d%%) approach-min %s yaw=%d minUp=%.2f%s")
 		:format(mode, speed, if opts.angle then " a" .. opts.angle elseif opts.offset then " off" .. opts.offset else "",
-		res.model, frameHz, if ghostOthers then ", isolated" else "",
+		res.model, frameHz, if ghostOthers then ", isolated" else "", target.key,
 		if res.touched then "hit" else "MISSED (" .. state.reason .. ")", tostring(res.tier),
 		if res.vc then tostring(math.floor(res.vc)) else "-", math.floor(res.before or 0), math.floor(res.after or 0),
 		math.floor(res.lossPct + 0.5), if res.approachMin then tostring(math.floor(res.approachMin)) else "-",
@@ -1362,8 +1490,21 @@ local function hitOnce(mode: string, speed: number, opts)
 	return res
 end
 
--- staged hit with retries: a run aborted by other traffic (not isolated) is tried again with another target,
--- up to opts.tries (3) times; res.tries says how many it took
+-- finally-style wrapper: the cleanup runs on every path, errors included (round 5: TK_HitTarget must never stay set)
+local function hitOnce(mode: string, speed: number, opts)
+	local cleanup = {}
+	local ok, res = pcall(hitBody, mode, speed, opts, cleanup)
+	for i = #cleanup, 1, -1 do
+		pcall(cleanup[i])
+	end
+	if not ok then
+		error(res, 0)
+	end
+	return res
+end
+
+-- staged hit with retries: a run aborted by other traffic (not isolated) or by a failed target check is tried again
+-- with another target, up to opts.tries (3) times; res.tries says how many it took
 function TK.hitTest(mode: string, speed: number, opts)
 	opts = table.clone(opts or {})
 	local tried = {}
@@ -1372,11 +1513,13 @@ function TK.hitTest(mode: string, speed: number, opts)
 		opts.excludeKeys = tried
 		res = hitOnce(mode, speed, opts)
 		res.tries = i
-		tried[res.targetKey] = true
+		if res.targetKey ~= nil then
+			tried[res.targetKey] = true
+		end
 		if not res.abort or opts.target then
 			return res
 		end
-		task.wait(1)
+		waitSeconds(1)
 	end
 	return res
 end
@@ -1388,12 +1531,18 @@ TK.HIT_MATRIX = {
 	{"side", 150, {angle = 5}}, {"side", 150, {angle = 20}}, {"side", 70, {angle = 25}}, {"side", 100, {angle = 10}},
 }
 
--- one matrix run: PASS / FAIL per row
-local function matrixRun(opts, cfg, label: string)
+-- one matrix run: PASS / FAIL per row (out = optional list the lines are appended to as they come)
+local function matrixRun(opts, cfg, label: string, out: {string}?)
 	local rows, pass = {}, 0
 	for i, row in opts.rows or TK.HIT_MATRIX do
 		local mode, speed, o = row[1], row[2], table.clone(row[3] or {})
 		if o.isolate == nil then o.isolate = opts.isolate ~= false end
+		o.around = opts.around -- targets are searched around the matrix's home spot, not where the last row ended
+		local chassis = TK.car()
+		if chassis then
+			chassis.AssemblyLinearVelocity = Vector3.zero
+			chassis.AssemblyAngularVelocity = Vector3.zero
+		end
 		local ok, res = pcall(TK.hitTest, mode, speed, o)
 		local line
 		if not ok then
@@ -1426,44 +1575,113 @@ local function matrixRun(opts, cfg, label: string)
 		end
 		print(line)
 		table.insert(rows, line)
-		task.wait(opts.gap or 1.5)
+		if out then table.insert(out, line) end
+		waitSeconds(opts.gap or 1.5)
 	end
 	return pass, rows
 end
 
--- TK.hitMatrix(opts?) -> summary, rows   runs TK.HIT_MATRIX (opts.rows to choose) opts.runs (1) times and prints a
--- PASS / FAIL line per row against the owner's table, a summary per run and an overall line. Rows are isolated
--- (every other traffic car ghosts; opts.isolate = false runs them in real traffic with retries).
+-- TK.hitMatrix(opts?) -> summary, rows, perRun   runs TK.HIT_MATRIX (opts.rows to choose) opts.runs (1) times and
+-- prints a PASS / FAIL line per row against the owner's table, a summary per run and an overall line. Rows are
+-- isolated (every other traffic car ghosts; opts.isolate = false runs them in real traffic with retries). Targets are
+-- searched around where the car is when the matrix starts (opts.around), so rows do not wander off. It starts with
+-- TK.selfCheck() and stops if TestKit and PattayaTraffic disagree on the keys (opts.skipSelfCheck = true to run anyway).
 -- A row passes when: the hit is the staged one; the tier is the table's for the geometry and the target's real
 -- speed (PattayaRecovery.expectedStaged); the loss is within opts.tol (0.05) (head-on: near stop); the speed at the
 -- hit is >= 90 % of the planned speed; no flip (minUp >= 0.85).
-function TK.hitMatrix(opts)
-	opts = opts or {}
+-- A full run takes about 5 s a row: from the Studio execute tool use TK.hitMatrixStart (below) and poll it.
+function TK.hitMatrix(opts, out: {string}?)
+	opts = table.clone(opts or {})
 	assert(Rec, "hitMatrix: PattayaRecovery missing")
 	assert(workspace:GetAttribute("CollisionModel") == "arcade", "hitMatrix: set CollisionModel = \"arcade\" on the server")
+	local chassis = TK.car()
+	assert(chassis, "hitMatrix: get in a car first")
+	opts.around = opts.around or chassis.Position
+	player:SetAttribute("TK_HitTarget", nil)
+	if not opts.skipSelfCheck then
+		local ok, lines = TK.selfCheck(5)
+		if out then for _, l in lines do table.insert(out, l) end end
+		if not ok then
+			local s = "hitMatrix: not run - TK.selfCheck failed (TestKit and PattayaTraffic disagree; see the lines above)"
+			print(s)
+			if out then table.insert(out, s) end
+			return s, {}, {}
+		end
+	end
 	local cfg = Rec.config()
 	local runs = opts.runs or 1
 	local total = #(opts.rows or TK.HIT_MATRIX)
 	local all, perRun, allPass = {}, {}, 0
-	for r = 1, runs do
-		local pass, rows = matrixRun(opts, cfg, if runs > 1 then ("r%d "):format(r) else "")
-		for _, l in rows do table.insert(all, l) end
-		allPass += pass
-		local line = ("hitMatrix run %d: %d/%d PASS (Heartbeat %.0f Hz%s)"):format(r, pass, total, hz.rate,
-			if opts.isolate == false then ", real traffic" else ", isolated")
-		print(line)
-		table.insert(perRun, line)
+	local okRun, err = pcall(function()
+		for r = 1, runs do
+			local pass, rows = matrixRun(opts, cfg, if runs > 1 then ("r%d "):format(r) else "", out)
+			for _, l in rows do table.insert(all, l) end
+			allPass += pass
+			local line = ("hitMatrix run %d: %d/%d PASS (Heartbeat %.0f Hz%s)"):format(r, pass, total, hz.rate,
+				if opts.isolate == false then ", real traffic" else ", isolated")
+			print(line)
+			table.insert(perRun, line)
+			if out then table.insert(out, line) end
+		end
+	end)
+	player:SetAttribute("TK_HitTarget", nil)
+	if not okRun then
+		error(err, 0)
 	end
 	local summary = ("hitMatrix: %d/%d PASS over %d run%s%s"):format(allPass, total * runs, runs,
 		if runs > 1 then "s" else "", if allPass == total * runs then " - REPEATABLE" else "")
 	print(summary)
+	if out then table.insert(out, summary) end
 	return summary, all, perRun
+end
+
+-- TK.hitMatrixStart(opts?) -> handle   the same matrix in the background, driven by a Heartbeat connection (it keeps
+-- running after the Studio execute snippet returns). handle:poll() -> "running 7 lines" / the summary;
+-- handle.lines (every line so far), handle.done, handle.summary, handle:stop(). Also TK.handles.matrix.
+function TK.hitMatrixStart(opts)
+	local h = {lines = {}, done = false, summary = nil :: string?, error = nil :: string?}
+	local co = coroutine.create(function()
+		local ok, summary = pcall(TK.hitMatrix, opts, h.lines)
+		h.summary = if ok then summary else nil
+		h.error = if ok then nil else tostring(summary)
+		h.done = true
+	end)
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if coroutine.status(co) ~= "suspended" then
+			conn:Disconnect()
+			h.done = true
+			return
+		end
+		runnerCo = co
+		local ok, err = coroutine.resume(co)
+		runnerCo = nil
+		if not ok then
+			h.error, h.done = tostring(err), true
+			conn:Disconnect()
+			player:SetAttribute("TK_HitTarget", nil)
+		end
+	end)
+	function h:poll(): string
+		if self.error then return "error: " .. self.error end
+		if self.done then return self.summary or "done" end
+		return ("running, %d lines: %s"):format(#self.lines, self.lines[#self.lines] or "-")
+	end
+	function h:stop(reason: string?)
+		conn:Disconnect()
+		self.done = true
+		self.error = self.error or ("stopped" .. (if reason then " (" .. reason .. ")" else ""))
+		player:SetAttribute("TK_HitTarget", nil)
+	end
+	TK.handles.matrix = h
+	return h
 end
 
 function TK.stopAll()
 	for _, h in TK.handles do
 		if type(h) == "table" and h.stop then h:stop("stopAll") end
 	end
+	player:SetAttribute("TK_HitTarget", nil) -- the hitTest isolation hook never outlives a stop
 end
 
 -- frame counters for the report (render is throttled to ~15/s when Studio is not the focused window)

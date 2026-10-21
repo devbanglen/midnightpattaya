@@ -483,8 +483,18 @@ function R.spinProfile(yawDeg: number, control: number): (number, number)
 	return T, 2 * math.rad(yawDeg) / T
 end
 
--- deterministic traffic (same formula as PattayaTraffic.client.luau) ------------------------------------------------
--- routesData = require(ReplicatedStorage.PattayaTraffic); ox, oz = PattayaBuilder.ORIGIN X / Z.
+-- deterministic traffic: ONE implementation for PattayaTraffic.client (what is drawn and hit), TestKit and the
+-- server's TrafficHit check ---------------------------------------------------------------------------------------
+-- Studio rounds 3-5 (2026-10-21): the client computed the loops with Vector3 maths. Roblox Vector3 components are
+-- 32-bit floats, so its loop lengths differed from these double-precision ones by up to ~0.01 studs, and a car's
+-- arc s = phase + t * speed (t = epoch seconds, ~1.8e9) wraps ~9 million times: the same car key was drawn
+-- ~700 studs (median) from where TestKit / the server computed it. Now PattayaTraffic uses these functions too, so
+-- key, position and heading agree by construction (tools/qa/tests/test_recovery.py TrafficKeys).
+R.TRAFFIC_ORIGIN_X, R.TRAFFIC_ORIGIN_Z = 20000, 0 -- PattayaBuilder.ORIGIN
+R.TRAFFIC_ROAD_Y = 1
+
+-- routesData = require(ReplicatedStorage.PattayaTraffic); ox, oz = PattayaBuilder.ORIGIN X / Z (R.TRAFFIC_ORIGIN_*).
+-- Route i of the result is route i of the data (the key of its car k is R.trafficKey(i, k)).
 function R.buildTrafficRoutes(routesData, ox: number, oz: number)
 	local out = {}
 	for _, r in routesData do
@@ -531,36 +541,69 @@ function R.routeTangent(r, s: number): (number, number)
 	return dx / m, dz / m
 end
 
--- traffic cars within radius of (cx, cz) at server time t: {x, z, lx, lz (unit heading), speed, kind, dist,
--- route, s (arc length on the route at time t, not wrapped), t}. The car is at R.routePoint(route, s + speed * dt)
--- dt seconds later.
-function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number)
-	local out = {}
+-- the key of car k on route ri (PattayaTraffic's `active` table, its models' TrafficKey attribute, TK_HitTarget)
+function R.trafficKey(ri: number, k: number): number
+	return ri * 1000 + k
+end
+
+-- car k of route r at server time t: x, z and its arc s (not wrapped)
+function R.trafficCarAt(r, k: number, t: number): (number, number, number)
+	local s = r.phase + (k - 1) * r.length / #r.kinds + t * r.speed
+	local x, z = routePoint(r, s)
+	return x, z, s
+end
+
+-- the heading a traffic car is drawn with at arc s: towards the point 6 studs on (unit; (0, -1) if degenerate)
+function R.trafficHeading(r, s: number): (number, number)
+	local x, z = routePoint(r, s)
+	local x2, z2 = routePoint(r, s + 6)
+	local lx, lz = x2 - x, z2 - z
+	local m = math.sqrt(lx * lx + lz * lz)
+	if m > 0.01 then
+		return lx / m, lz / m
+	end
+	return 0, -1
+end
+
+-- every traffic car within radius of (cx, cz) at server time t, in route then car order:
+-- fn(key, x, z, d2, r, k, ri, s). PattayaTraffic draws its cars through this, R.trafficNear lists them.
+function R.forEachTrafficCar(routes, t: number, cx: number, cz: number, radius: number, fn)
+	local r2 = radius * radius
 	for ri, r in routes do
 		if r.length <= 0 or cx < r.minX - radius or cx > r.maxX + radius or cz < r.minZ - radius or cz > r.maxZ + radius then
 			continue
 		end
-		local n = #r.kinds
-		for k = 1, n do
-			local s = r.phase + (k - 1) * r.length / n + t * r.speed
-			local x, z = routePoint(r, s)
-			local d = math.sqrt((x - cx) ^ 2 + (z - cz) ^ 2)
-			if d <= radius then
-				local x2, z2 = routePoint(r, s + 6)
-				local lx, lz = x2 - x, z2 - z
-				local m = math.sqrt(lx * lx + lz * lz)
-				if m > 1e-6 then
-					lx, lz = lx / m, lz / m
-				else
-					lx, lz = 0, -1
-				end
-				table.insert(out, {x = x, z = z, lx = lx, lz = lz, speed = r.speed, kind = r.kinds[k], dist = d,
-					route = r, s = s, t = t, ri = ri, k = k, key = ri * 1000 + k})
+		for k = 1, #r.kinds do
+			local x, z, s = R.trafficCarAt(r, k, t)
+			local dx, dz = x - cx, z - cz
+			local d2 = dx * dx + dz * dz
+			if d2 <= r2 then
+				fn(R.trafficKey(ri, k), x, z, d2, r, k, ri, s)
 			end
 		end
 	end
+end
+
+-- traffic cars within radius of (cx, cz) at server time t, nearest first: {key, ri, k, x, z, lx, lz (unit heading),
+-- speed, kind, dist, route, s (arc length on the route at time t, not wrapped), t}. The car is at
+-- R.routePoint(route, s + speed * dt) dt seconds later.
+function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number)
+	local out = {}
+	R.forEachTrafficCar(routes, t, cx, cz, radius, function(key, x, z, d2, r, k, ri, s)
+		local lx, lz = R.trafficHeading(r, s)
+		table.insert(out, {x = x, z = z, lx = lx, lz = lz, speed = r.speed, kind = r.kinds[k], dist = math.sqrt(d2),
+			route = r, s = s, t = t, ri = ri, k = k, key = key})
+	end)
 	table.sort(out, function(a, b) return a.dist < b.dist end)
 	return out
+end
+
+-- TestKit entry (TK.trafficNear) from a trafficNear entry: every field TestKit needs, the key included (round 5
+-- crashed on a nil key: the old copy dropped it). shapes = R.TRAFFIC_SHAPES.
+function R.tkTrafficEntry(e)
+	local sh = R.TRAFFIC_SHAPES[e.kind] or R.TRAFFIC_SHAPES[0]
+	return {x = e.x, z = e.z, lx = e.lx, lz = e.lz, speed = e.speed, halfLen = sh.len / 2, halfWid = sh.wid / 2,
+		kind = e.kind, dist = e.dist, route = e.route, s = e.s, t = e.t, key = e.key, ri = e.ri, k = e.k}
 end
 
 -- Staged hit for TK.hitTest (and its offline tests): where my car must be at server time t to meet a traffic car

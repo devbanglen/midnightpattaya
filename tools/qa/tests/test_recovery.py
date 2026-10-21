@@ -619,6 +619,356 @@ class StagedHits(unittest.TestCase):
         self.assertGreaterEqual(out.count('PASS '), 1500, out[-2000:])
 
 
+# --- Studio round 5 (2026-10-21): TestKit keys / positions vs PattayaTraffic ---------------------------------------
+
+# synthetic traffic data in the generated module's format (used when build/ is missing; the real data is tested too)
+SYNTH_DATA = r'''
+local out = {}
+for ri = 1, 12 do
+	local pts = {}
+	local cx, cz, rad = 300 * ri - 1800, 150 * ri + 700, 400 + 37 * ri
+	for i = 0, 96 do
+		local a = i / 96 * 2 * math.pi
+		-- one decimal like the generator, irregular so float32 rounding differs point to point
+		table.insert(pts, math.floor((cx + rad * math.cos(a) + 0.37 * math.sin(7 * a)) * 10 + 0.5) / 10)
+		table.insert(pts, math.floor((cz + rad * math.sin(a) * 0.8) * 10 + 0.5) / 10)
+	end
+	local kinds = {}
+	for k = 1, 6 + ri % 5 do table.insert(kinds, (k + ri) % 3) end
+	table.insert(out, {length = 0, speed = 38 + ri % 4 * 5.5, phase = 13.7 * ri, kinds = kinds, pts = pts})
+end
+return out
+'''
+
+KEYS = r'''
+local R = require("./PattayaRecovery")
+local data = require("./traffic")
+local fails, passes = 0, 0
+local function check(name, cond, detail)
+	if cond then passes += 1 print("PASS " .. name)
+	else fails += 1 print("FAIL " .. name .. (if detail then " :: " .. tostring(detail) else "")) end
+end
+local T = 1792540800.25 -- workspace:GetServerTimeNow() on 2026-10-21 (epoch seconds)
+
+-- 1. the OLD client maths, op for op, with the native float32 vector type (= Roblox Vector3): round 3-5 root cause
+local OX, OZ, RY = R.TRAFFIC_ORIGIN_X, R.TRAFFIC_ORIGIN_Z, R.TRAFFIC_ROAD_Y
+local legacy = {}
+for _, r in data do
+	local pts, cum = {}, {0}
+	for i = 1, #r.pts, 2 do
+		table.insert(pts, vector.create(r.pts[i] + OX, RY, r.pts[i + 1] + OZ))
+	end
+	for i = 2, #pts do
+		cum[i] = cum[i - 1] + vector.magnitude(pts[i] - pts[i - 1])
+	end
+	table.insert(legacy, {pts = pts, cum = cum, length = cum[#cum], speed = r.speed, phase = r.phase, kinds = r.kinds})
+end
+local function legacyAt(r, s)
+	s %= r.length
+	local cum = r.cum
+	local lo, hi = 1, #cum
+	while hi - lo > 1 do
+		local mid = (lo + hi) // 2
+		if cum[mid] <= s then lo = mid else hi = mid end
+	end
+	local seg = cum[hi] - cum[lo]
+	local a, b = r.pts[lo], r.pts[hi]
+	return a + (b - a) * (if seg > 0 then (s - cum[lo]) / seg else 0)
+end
+local routes = R.buildTrafficRoutes(data, OX, OZ)
+local diffs = {}
+for ri, r in legacy do
+	for k = 1, #r.kinds do
+		local p = legacyAt(r, r.phase + (k - 1) * r.length / #r.kinds + T * r.speed)
+		local x, z = R.trafficCarAt(routes[ri], k, T)
+		table.insert(diffs, math.sqrt((p.x - x) ^ 2 + (p.z - z) ^ 2))
+	end
+end
+table.sort(diffs)
+local median = diffs[#diffs // 2 + 1]
+print(("INFO old client maths vs shared maths at t = %d: %d cars, median %.0f studs, max %.0f"):format(T, #diffs,
+	median, diffs[#diffs]))
+check("round 3-5 root cause reproduced: the old Vector3 (float32) loops put the same key far from the shared spot",
+	median > 50, median)
+
+-- 2. keys: route order = data order, key = route * 1000 + car, unique
+local seenKeys, unique, count = {}, true, 0
+for ri, r in routes do
+	for k = 1, #r.kinds do
+		local key = R.trafficKey(ri, k)
+		if seenKeys[key] then unique = false end
+		seenKeys[key] = true
+		count += 1
+	end
+end
+check("keys are unique (" .. count .. " cars)", unique)
+check("route i of the build is route i of the data", #routes == #data and routes[1].speed == data[1].speed
+	and routes[#routes].phase == data[#data].phase)
+
+-- 3. PattayaTraffic's draw loop (R.forEachTrafficCar with its RADIUS) and TestKit's list (R.trafficNear ->
+-- R.tkTrafficEntry) at many spots and times: every car TestKit lists is drawn with the same key, place and heading
+local mismatch, compared = 0, 0
+local spots = {}
+for _, r in routes do
+	local i = 1 + (#r.xs // 3)
+	table.insert(spots, {r.xs[i], r.zs[i]})
+end
+for si, spot in spots do
+	local t = T + si * 7.31
+	local drawn = {}
+	R.forEachTrafficCar(routes, t, spot[1], spot[2], 650, function(key, x, z, d2, r, k, ri, s)
+		local lx, lz = R.trafficHeading(r, s)
+		drawn[key] = {x = x, z = z, lx = lx, lz = lz}
+	end)
+	for _, e in R.trafficNear(routes, t, spot[1], spot[2], 300) do
+		local te = R.tkTrafficEntry(e)
+		compared += 1
+		local d = drawn[te.key]
+		if not (d and d.x == te.x and d.z == te.z and d.lx == te.lx and d.lz == te.lz and te.route ~= nil
+			and te.s ~= nil and te.t == t and te.key == R.trafficKey(te.ri, te.k)) then
+			mismatch += 1
+		end
+	end
+end
+check(("PattayaTraffic draw loop == TestKit list: %d cars compared, identical key / x / z / heading"):format(compared),
+	compared > 20 and mismatch == 0, mismatch)
+
+-- 4. a second copy of the data module (the Studio execute context gets its own module copies) gives the same numbers
+local function deepCopy(v)
+	if type(v) ~= "table" then return v end
+	local o = {}
+	for k, x in v do o[k] = deepCopy(x) end
+	return o
+end
+local routes2 = R.buildTrafficRoutes(deepCopy(data), OX, OZ)
+local same = true
+for ri, r in routes do
+	for k = 1, #r.kinds do
+		local x1, z1 = R.trafficCarAt(r, k, T)
+		local x2, z2 = R.trafficCarAt(routes2[ri], k, T)
+		if x1 ~= x2 or z1 ~= z2 then same = false end
+	end
+end
+check("a separate copy of the traffic module gives identical keys and positions", same)
+
+-- 5. precision of the shared maths itself at the epoch clock: one 60 Hz frame advances a car's arc by speed / 60
+local r = routes[1]
+local _, _, s0 = R.trafficCarAt(r, 1, T)
+local _, _, s1 = R.trafficCarAt(r, 1, T + 1 / 60)
+check(("one 60 Hz frame advances the arc by speed / 60 (%.6f vs %.6f)"):format(s1 - s0, r.speed / 60),
+	math.abs((s1 - s0) - r.speed / 60) < 1e-4, s1 - s0)
+
+print(("%d passed, %d failed"):format(passes, fails))
+print("FAILS", fails)
+'''
+
+# TestKit loaded in a mocked Roblox client: TK.trafficNear keeps the key (round 5 crash), TK.selfCheck compares the
+# keys with the models PattayaTraffic shows, hitTest clears TK_HitTarget on every path.
+TK_MOCK = r'''
+local RealR = require("./PattayaRecovery")
+local DATA = require("./traffic")
+local T = 1792540800.25
+
+local waits = 0
+local function signal()
+	return {Connect = function() return {Disconnect = function() end} end, Wait = function()
+		waits += 1
+		if waits > 20000 then error("mock: endless wait") end -- a test must fail, never hang
+		return 0
+	end}
+end
+local function attrs(obj)
+	obj._attr = obj._attr or {}
+	obj.GetAttribute = function(self, k) return self._attr[k] end
+	obj.SetAttribute = function(self, k, v) self._attr[k] = v end
+	return obj
+end
+local player = attrs({Name = "Tester", Character = nil})
+local RECOVERY_MODULE, TRAFFIC_MODULE = {Name = "PattayaRecovery"}, {Name = "PattayaTraffic"}
+local services = {
+	Players = {LocalPlayer = player},
+	RunService = {IsStudio = function() return true end, Heartbeat = signal(), RenderStepped = signal(),
+		PreSimulation = signal(), Stepped = signal()},
+	ReplicatedStorage = {FindFirstChild = function(_, n)
+		if n == "PattayaRecovery" then return RECOVERY_MODULE elseif n == "PattayaTraffic" then return TRAFFIC_MODULE end
+		return nil
+	end, WaitForChild = function() return nil end},
+}
+game = {GetService = function(_, n) return services[n] or {} end}
+
+-- the traffic folder PattayaTraffic would show: models placed by a draw function, tagged (or not) with TrafficKey
+local folder = attrs({Name = "PattayaTraffic", _children = {}})
+folder.GetChildren = function(self) return self._children end
+local function model(key, x, z)
+	local m = attrs({Name = "Traffic", PrimaryPart = {Position = Vector3.new(x, 2.6, z), LocalTransparencyModifier = 0}})
+	m.IsA = function(_, c) return c == "Model" end
+	if key ~= nil then m._attr.TrafficKey = key end
+	return m
+end
+workspace = attrs({CurrentCamera = nil})
+workspace.GetServerTimeNow = function() return T end
+workspace.FindFirstChild = function(_, n) if n == "PattayaTraffic" then return folder end return nil end
+
+local realRequire = require
+local require = function(m)
+	if m == RECOVERY_MODULE then return RealR elseif m == TRAFFIC_MODULE then return DATA end
+	return realRequire(m)
+end
+local _G = {} -- the CLI's _G is read-only; TestKit stores itself as _G.TK
+local TK = (function()
+__TESTKIT__
+end)()
+
+local fails, passes = 0, 0
+local function check(name, cond, detail)
+	if cond then passes += 1 print("PASS " .. name)
+	else fails += 1 print("FAIL " .. name .. (if detail then " :: " .. tostring(detail) else "")) end
+end
+
+-- a spot on the first route, and the cars PattayaTraffic draws there (shared maths, 70-model pool)
+local routes = RealR.buildTrafficRoutes(DATA, RealR.TRAFFIC_ORIGIN_X, RealR.TRAFFIC_ORIGIN_Z)
+local r1 = routes[1]
+local spot = Vector3.new(r1.xs[1 + #r1.xs // 3], 1, r1.zs[1 + #r1.xs // 3])
+local function drawShared(tag)
+	folder._children = {}
+	RealR.forEachTrafficCar(routes, T, spot.X, spot.Z, 650, function(key, x, z)
+		if #folder._children < 70 then table.insert(folder._children, model(if tag then key else nil, x, z)) end
+	end)
+	folder._attr.Positions = "shared"
+end
+
+-- TK.trafficNear: every entry keeps key / route / s / t (round 5: the key was dropped -> "table index is nil")
+local list = TK.trafficNear(300, spot)
+local okFields = #list > 0
+for _, e in list do
+	if e.key == nil or e.route == nil or e.s == nil or e.t == nil or e.ri == nil or e.k == nil or e.pos == nil then
+		okFields = false
+	end
+end
+check(("TK.trafficNear entries carry key, route, s, t (%d cars)"):format(#list), okFields)
+local ref = RealR.trafficNear(routes, T, spot.X, spot.Z, 300)
+local sameKeys = #ref == #list
+for i, e in ref do
+	if not list[i] or list[i].key ~= e.key or list[i].pos.X ~= e.x or list[i].pos.Z ~= e.z then sameKeys = false end
+end
+check("TK.trafficNear keys and spots == the shared PattayaRecovery list", sameKeys)
+
+-- TK.selfCheck against models drawn with the shared maths and tagged: every key matches
+drawShared(true)
+local ok, lines = TK.selfCheck(5, spot)
+check("TK.selfCheck passes when PattayaTraffic draws with the shared maths", ok, lines[#lines])
+-- ... and fails when the models are where the OLD float32 client maths put them
+folder._children = {}
+for ri, r in DATA do
+	local pts, cum = {}, {0}
+	for i = 1, #r.pts, 2 do table.insert(pts, vector.create(r.pts[i] + 20000, 1, r.pts[i + 1])) end
+	for i = 2, #pts do cum[i] = cum[i - 1] + vector.magnitude(pts[i] - pts[i - 1]) end
+	local L = cum[#cum]
+	for k = 1, #r.kinds do
+		local s = (r.phase + (k - 1) * L / #r.kinds + T * r.speed) % L
+		local lo = 1
+		while lo < #cum - 1 and cum[lo + 1] <= s do lo += 1 end
+		local a, b = pts[lo], pts[lo + 1]
+		local seg = cum[lo + 1] - cum[lo]
+		local p = a + (b - a) * (if seg > 0 then (s - cum[lo]) / seg else 0)
+		if (p.x - spot.X) ^ 2 + (p.z - spot.Z) ^ 2 < 650 * 650 and #folder._children < 70 then
+			table.insert(folder._children, model(RealR.trafficKey(ri, k), p.x, p.z))
+		end
+	end
+end
+folder._attr.Positions = "shared" -- even if it claimed "shared", the keys give it away
+ok, lines = TK.selfCheck(5, spot)
+check("TK.selfCheck FAILS against the old client positions (what rounds 3-5 ran into)", not ok, lines[#lines])
+-- untagged models (an old PattayaTraffic): reported
+drawShared(false)
+ok, lines = TK.selfCheck(5, spot)
+check("TK.selfCheck reports models without TrafficKey", not ok and lines[#lines]:find("no TrafficKey", 1, true) ~= nil,
+	lines[#lines])
+-- a leftover TK_HitTarget is reported
+drawShared(true)
+player:SetAttribute("TK_HitTarget", 1001)
+ok, lines = TK.selfCheck(5, spot)
+check("TK.selfCheck fails and reports a TK_HitTarget left set", not ok and lines[#lines]:find("still set", 1, true) ~= nil,
+	lines[#lines])
+player:SetAttribute("TK_HitTarget", nil)
+
+-- TK.hitTest: the isolation hook is cleared even when the run errors half way
+local chassis = {Position = spot, CFrame = CFrame.lookAt(spot, spot + Vector3.new(1, 0, 0)), AssemblyLinearVelocity = Vector3.zero,
+	AssemblyAngularVelocity = Vector3.zero}
+local carModel = attrs({PrimaryPart = chassis, GetDescendants = function() return {} end})
+carModel._attr.RaceCar = true
+local seat = {Parent = carModel, IsA = function(_, c) return c == "VehicleSeat" end}
+local hum = {SeatPart = seat}
+player.Character = {FindFirstChildOfClass = function(_, c) if c == "Humanoid" then return hum end end,
+	GetDescendants = function() return {} end}
+workspace._attr.CollisionModel = "arcade"
+local badTarget = table.clone(list[1])
+badTarget.s = nil -- the plan maths errors right after the hook was set
+local okRun, err = pcall(TK.hitTest, "rear", 100, {target = badTarget, isolate = true})
+check("hitTest error path clears TK_HitTarget", not okRun and player:GetAttribute("TK_HitTarget") == nil, err)
+-- a target the hook was set for, and the hook set during the run: TK.stopAll clears it too
+player:SetAttribute("TK_HitTarget", 5)
+TK.stopAll()
+check("TK.stopAll clears TK_HitTarget", player:GetAttribute("TK_HitTarget") == nil)
+
+print(("%d passed, %d failed"):format(passes, fails))
+print("FAILS", fails)
+'''
+
+
+class TrafficKeys(unittest.TestCase):
+    """Round 5: TestKit, PattayaTraffic and the server must agree on every traffic car's key and position."""
+
+    def _data(self):
+        path = None
+        if _qa.BUILD:
+            cand = os.path.join(_qa.BUILD, 'pattaya_wide', 'roblox', 'traffic.luau')
+            if os.path.exists(cand):
+                path = cand
+        return [('synthetic', SYNTH_DATA)] + ([('pattaya_wide', _qa.read(path))] if path else [])
+
+    def _run(self, main, data):
+        prelude = _qa.read(os.path.join(_qa.HERE, 'luau', 'prelude.luau'))
+        code, out = _qa.run_luau(prelude + '\n' + main, {'PattayaRecovery.luau': src(MOD), 'traffic.luau': data})
+        self.assertEqual(code, 0, out[-3000:])
+        fails = [line for line in out.splitlines() if line.startswith('FAIL ')]
+        self.assertEqual(fails, [], out[-3000:])
+        self.assertIn('FAILS\t0', out, out[-3000:])
+        return out
+
+    def test_shared_keys_and_positions(self):
+        for name, data in self._data():
+            with self.subTest(data=name):
+                out = self._run(KEYS, data)
+                self.assertGreaterEqual(out.count('PASS '), 6, out[-1500:])
+
+    def test_testkit_traffic_near_and_self_check(self):
+        tk = src(os.path.join('ReplicatedStorage', 'PattayaTestKit.luau'))
+        main = TK_MOCK.replace('__TESTKIT__', tk)
+        for name, data in self._data():
+            with self.subTest(data=name):
+                out = self._run(main, data)
+                self.assertGreaterEqual(out.count('PASS '), 8, out[-1500:])
+
+    def test_one_implementation(self):
+        """PattayaTraffic draws through the shared functions (no own Vector3 loop maths when the module is there),
+        tags its models with TrafficKey; TestKit and the server build the loops with the shared origin."""
+        traffic = _qa.strip_comments(src(TRAFFIC))
+        self.assertIn('Recovery.buildTrafficRoutes(routesData, Recovery.TRAFFIC_ORIGIN_X, Recovery.TRAFFIC_ORIGIN_Z)',
+                      traffic)
+        self.assertIn('Recovery.forEachTrafficCar(routes, t, focus.X, focus.Z, RADIUS, placeCar)', traffic)
+        self.assertIn('Recovery.trafficHeading(r, s)', traffic)
+        self.assertIn('m:SetAttribute("TrafficKey", key)', traffic)
+        self.assertIn('if SHARED then', traffic)
+        tk = _qa.strip_comments(src(os.path.join('ReplicatedStorage', 'PattayaTestKit.luau')))
+        self.assertIn('Rec.buildTrafficRoutes(require(data :: ModuleScript), Rec.TRAFFIC_ORIGIN_X, Rec.TRAFFIC_ORIGIN_Z)',
+                      tk)
+        self.assertIn('Rec.tkTrafficEntry(e)', tk)
+        server = _qa.strip_comments(src(SERVER))
+        self.assertIn('Recovery.TRAFFIC_ORIGIN_X, Recovery.TRAFFIC_ORIGIN_Z', server)
+        self.assertIn('Recovery.buildTrafficRoutes(data, TRAFFIC_ORIGIN_X, TRAFFIC_ORIGIN_Z)', server)
+
+
 class RecoveryWiring(unittest.TestCase):
     """Static checks: the switches, remotes and rollback paths the doc promises are in the code."""
 
