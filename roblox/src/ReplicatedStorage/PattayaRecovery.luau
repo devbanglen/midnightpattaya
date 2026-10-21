@@ -72,8 +72,16 @@ R.DEFAULTS = {
 	Arcade_HeadOnYaw = 10,
 	Arcade_HeadOnControl = 1.0,
 	Arcade_HeadOnBounce = 10,       -- studs/s back
-	Arcade_HitGhost = 1.5,          -- s a traffic car stays ghosted after hitting it (no double hit)
+	Arcade_HitGhost = 1.5,          -- s a traffic car stays ghosted after hitting it (no double hit); it also stays
+	                                -- ghosted while it still overlaps my car (no repeat hit while passing through it)
 	Arcade_MaxPush = 2,             -- studs of push-out
+	-- anti-roll, part of the arcade hit response only (never the base car physics): from the touch until the scripted
+	-- window (+ Arcade_AntiRollExtra) ends, the chassis keeps the up axis it had at the touch; yaw stays free
+	Arcade_AntiRoll = true,
+	Arcade_AntiRollExtra = 0.25,    -- s after the hit window
+	Arcade_AntiRollTorque = 1000000, -- AlignOrientation.MaxTorque
+	Arcade_AntiRollResponse = 120,  -- AlignOrientation.Responsiveness
+	Arcade_AntiRollSnapDeg = 3,     -- per step: put the up axis back when it drifted more than this
 	-- server check of the TrafficHit report (jobs bump)
 	Arcade_HitReportGap = 1,        -- s between two reports
 	Arcade_HitMinSpeed = 40,        -- studs/s the server must have seen just before the hit
@@ -114,6 +122,9 @@ function R.config(): {[string]: any}
 	end
 	return c
 end
+
+-- near miss (PattayaTraffic): side clearance and minimum speed, and the shortest gap between two awards
+R.NEAR_GAP, R.NEAR_SPEED, R.NEAR_INTERVAL = 7, 70, 0.6
 
 -- road part names (same list as PattayaTestKit.ROAD_NAMES)
 R.ROAD_NAMES = {Road = true, Junction = true, Dash = true, Centre = true, Asphalt = true, PitLane = true,
@@ -476,6 +487,73 @@ function R.hitFromWorld(me, tr, prevX: number?, prevZ: number?)
 		side = if otherX >= 0 then 1 else -1, front = otherFwd > 0, nx = nx, nz = nz, depth = depth}, relX, relZ
 end
 
+-- do my car and a traffic car overlap, with `margin` studs added to both boxes? (same frame maths as hitFromWorld;
+-- PattayaTraffic keeps a hit traffic car ghosted while this holds, so a car driving through it is not hit again)
+function R.carsOverlap(me, tr, margin: number): boolean
+	local rx, rz = -tr.lz, tr.lx
+	local dx, dz = me.x - tr.x, me.z - tr.z
+	local relX = dx * rx + dz * rz
+	local relZ = -(dx * tr.lx + dz * tr.lz)
+	local fx = me.lx * rx + me.lz * rz
+	local fz = -(me.lx * tr.lx + me.lz * tr.lz)
+	local fm = math.sqrt(fx * fx + fz * fz)
+	if fm < 1e-6 then
+		fx, fz = 0, -1
+	else
+		fx, fz = fx / fm, fz / fm
+	end
+	local hit = R.obbOverlap(relX, relZ, fx, fz, R.CAR_HALF_WID + margin, R.CAR_HALF_LEN + margin, 0, 0, 0, -1,
+		tr.halfWid + margin, tr.halfLen + margin)
+	return hit
+end
+
+-- yaw only (arcade hit anti-roll): the chassis look (lx, ly, lz) turned into the plane normal to the held up axis
+-- (ux, uy, uz), as a unit vector; nil when the look is (nearly) parallel to that axis
+function R.yawOnlyLook(lx: number, ly: number, lz: number, ux: number, uy: number, uz: number): (number?, number?, number?)
+	local d = lx * ux + ly * uy + lz * uz
+	local px, py, pz = lx - ux * d, ly - uy * d, lz - uz * d
+	local m = math.sqrt(px * px + py * py + pz * pz)
+	if m < 1e-4 then
+		return nil, nil, nil
+	end
+	return px / m, py / m, pz / m
+end
+
+-- the angular velocity (ax, ay, az) with only its part about the held up axis kept (yaw)
+function R.yawOnlyRate(ax: number, ay: number, az: number, ux: number, uy: number, uz: number): (number, number, number)
+	local d = ax * ux + ay * uy + az * uz
+	return ux * d, uy * d, uz * d
+end
+
+-- the angle (degrees) between the current up axis and the held one
+function R.tiltFrom(ux: number, uy: number, uz: number, hx: number, hy: number, hz: number): number
+	return math.deg(math.acos(clamp(ux * hx + uy * hy + uz * hz, -1, 1)))
+end
+
+-- Near miss, one traffic car per frame (PattayaTraffic): my car's centre (relX, relZ) in that car's frame
+-- (forward = -Z). st = {side, near} kept per traffic car; ghost = the car is a ghost this frame. Returns true when
+-- this frame completes a near miss: my car went from one end of it to the other within R.NEAR_GAP studs of its
+-- side, never touching it, faster than R.NEAR_SPEED, at least R.NEAR_INTERVAL s after the last one.
+function R.nearMissStep(st, relX: number, relZ: number, halfWid: number, halfLen: number, ghost: boolean,
+	carSpeed: number, t: number, lastNearAt: number): boolean
+	local lateral = math.abs(relX) - halfWid - R.CAR_HALF_WID
+	local side = if relZ < -halfLen then -1 elseif relZ > halfLen then 1 else 0
+	local fire = false
+	if side ~= 0 then
+		if st.side and st.side ~= 0 and side ~= st.side and st.near and carSpeed > R.NEAR_SPEED
+			and t - lastNearAt > R.NEAR_INTERVAL then
+			fire = true
+		end
+		st.side = side
+		st.near = nil
+	elseif lateral > 0 and lateral < R.NEAR_GAP and not ghost then
+		st.near = if st.near == nil then true else st.near
+	elseif lateral <= 0 then
+		st.near = false -- touched / overlapping: not a near miss
+	end
+	return fire
+end
+
 -- yaw-rate profile of the scripted spin: omega(t) = w0 * (1 - t / T) for t < T integrates to the kick angle.
 -- Returns T (s) and w0 (rad/s, + = left).
 function R.spinProfile(yawDeg: number, control: number): (number, number)
@@ -493,17 +571,175 @@ end
 R.TRAFFIC_ORIGIN_X, R.TRAFFIC_ORIGIN_Z = 20000, 0 -- PattayaBuilder.ORIGIN
 R.TRAFFIC_ROAD_Y = 1
 
+-- Lane polyline cleanup (round 6, route 26): the generated loops are lane offsets of the road centrelines, and at
+-- most corners the inner offset overshoots and comes back ("swallowtail": forward, a few studs BACK, forward again;
+-- 333 of them in pattaya_wide). A car on such a stretch drives backwards for a moment and is drawn facing backwards,
+-- so a rear-end there was classified head-on (rear 70: vc 110) and the arc distance overstated the real gap (hit
+-- 0.38 s early). A short reversed segment B-C between A-B and C-D that leave in roughly the same direction is
+-- replaced by the crossing point of A-B and C-D, or by C projected onto A-B when that is within R.LANE_CLEAN.proj
+-- studs. Genuine U-turns (C-D heads back) and ordinary corners are kept.
+R.LANE_CLEAN = {maxSeg = 30, turnDeg = 100, fwdDot = -0.5, proj = 10}
+-- TestKit's staged hits: the whole approach within R.STAGE_BEND_DEG of one direction, and for side hits the target's
+-- heading around the touch within R.SIDE_STEADY_DEG (stagePlan's third and fourth results)
+R.STAGE_BEND_DEG, R.SIDE_STEADY_DEG = 15, 1
+
+local function segCross(ax: number, az: number, bx: number, bz: number, cx: number, cz: number, dx: number,
+	dz: number): (number?, number?)
+	local rx, rz = bx - ax, bz - az
+	local sx, sz = dx - cx, dz - cz
+	local den = rx * sz - rz * sx
+	if math.abs(den) < 1e-9 then
+		return nil, nil
+	end
+	local qx, qz = cx - ax, cz - az
+	local t = (qx * sz - qz * sx) / den
+	local u = (qx * rz - qz * rx) / den
+	if t >= 0 and t <= 1 and u >= 0 and u <= 1 then
+		return ax + t * rx, az + t * rz
+	end
+	return nil, nil
+end
+
+-- the turn angle at b (degrees, 0 = straight on, 180 = straight back)
+local function turnDeg(ax: number, az: number, bx: number, bz: number, cx: number, cz: number): number
+	local ux, uz = bx - ax, bz - az
+	local vx, vz = cx - bx, cz - bz
+	local lu, lv = math.sqrt(ux * ux + uz * uz), math.sqrt(vx * vx + vz * vz)
+	if lu < 1e-9 or lv < 1e-9 then
+		return 0
+	end
+	return math.deg(math.acos(clamp((ux * vx + uz * vz) / (lu * lv), -1, 1)))
+end
+R.turnDeg = turnDeg
+
+-- xs, zs: one lane polyline (a closed loop keeps its first and last point). Returns cleaned copies and the number
+-- of swallowtails removed.
+function R.cleanLanePolyline(xs: {number}, zs: {number}): ({number}, {number}, number)
+	local c = R.LANE_CLEAN
+	local removed = 0
+	for _ = 1, 8 do
+		local ox, oz = {xs[1]}, {zs[1]}
+		local n = #xs
+		local i = 2
+		while i <= n - 1 do
+			local cut = false
+			if i + 2 <= n then
+				local ax, az = ox[#ox], oz[#oz]
+				local bx, bz, cx, cz, dx, dz = xs[i], zs[i], xs[i + 1], zs[i + 1], xs[i + 2], zs[i + 2]
+				local bc = math.sqrt((cx - bx) ^ 2 + (cz - bz) ^ 2)
+				if bc <= c.maxSeg and turnDeg(ax, az, bx, bz, cx, cz) > c.turnDeg then
+					local l1 = math.sqrt((bx - ax) ^ 2 + (bz - az) ^ 2)
+					local l2 = math.sqrt((dx - cx) ^ 2 + (dz - cz) ^ 2)
+					if l1 > 1e-9 and l2 > 1e-9
+						and ((bx - ax) * (dx - cx) + (bz - az) * (dz - cz)) / (l1 * l2) > c.fwdDot then
+						local x, z = segCross(ax, az, bx, bz, cx, cz, dx, dz)
+						if not x then
+							-- no crossing: C projected on A-B when it lies close to it
+							local abx, abz = bx - ax, bz - az
+							local t = ((cx - ax) * abx + (cz - az) * abz) / (l1 * l1)
+							if t >= 0 and t <= 1 then
+								local px, pz = ax + t * abx, az + t * abz
+								if math.sqrt((px - cx) ^ 2 + (pz - cz) ^ 2) <= c.proj then
+									x, z = px, pz
+								end
+							end
+						end
+						if x then
+							table.insert(ox, x)
+							table.insert(oz, z :: number)
+							i += 2
+							cut = true
+							removed += 1
+						end
+					end
+				end
+			end
+			if not cut then
+				table.insert(ox, xs[i])
+				table.insert(oz, zs[i])
+				i += 1
+			end
+		end
+		table.insert(ox, xs[n])
+		table.insert(oz, zs[n])
+		local done = #ox == #xs
+		xs, zs = ox, oz
+		if done then
+			break
+		end
+	end
+	return xs, zs, removed
+end
+
+-- A closed loop (first point = last point within 1 stud: every generated loop) is cleaned across its seam as well:
+-- 59 of the 84 loops start on a corner, and a swallowtail there (routes 7 and 8) was out of reach of the open
+-- polyline cleanup, whose first and last points stay fixed. The loop is opened at the middle of its longest segment
+-- (a straight stretch) for the cleanup, then turned back to start where it started (the old first point, or the
+-- cleaned point nearest it when that point was cut) and closed exactly on it: arc 0 is where it was, the seam has no
+-- gap (the data closes its loops within 0.45 studs), and a car crossing it, R.trafficHeading's point 6 studs on and
+-- R.routeStraight all see one continuous lane. Open polylines are cleaned as before.
+function R.cleanLaneLoop(xs: {number}, zs: {number}): ({number}, {number}, number)
+	local n = #xs
+	if n < 4 or math.sqrt((xs[1] - xs[n]) ^ 2 + (zs[1] - zs[n]) ^ 2) > 1 then
+		return R.cleanLanePolyline(xs, zs)
+	end
+	-- unique points 1 .. n - 1 (point n repeats point 1); segment i runs from point i to point i + 1 (n - 1 -> 1)
+	local m = n - 1
+	local best, bi = -1, 1
+	for i = 1, m do
+		local j = i % m + 1
+		local l = (xs[j] - xs[i]) ^ 2 + (zs[j] - zs[i]) ^ 2
+		if l > best then
+			best, bi = l, i
+		end
+	end
+	local bj = bi % m + 1
+	local mx, mz = (xs[bi] + xs[bj]) / 2, (zs[bi] + zs[bj]) / 2
+	local rx, rz = {mx}, {mz}
+	for j = 1, m do
+		local i = (bi + j - 1) % m + 1
+		table.insert(rx, xs[i])
+		table.insert(rz, zs[i])
+	end
+	table.insert(rx, mx)
+	table.insert(rz, mz)
+	local cx, cz, removed = R.cleanLanePolyline(rx, rz)
+	local k = #cx - 1 -- unique points (the last repeats the first)
+	local bestD, q = math.huge, 1
+	for i = 1, k do
+		local d = (cx[i] - xs[1]) ^ 2 + (cz[i] - zs[1]) ^ 2
+		if d < bestD then
+			bestD, q = d, i
+		end
+	end
+	local ox, oz = {}, {}
+	for j = 0, k - 1 do
+		local i = (q - 1 + j) % k + 1
+		table.insert(ox, cx[i])
+		table.insert(oz, cz[i])
+	end
+	table.insert(ox, cx[q])
+	table.insert(oz, cz[q])
+	return ox, oz, removed
+end
+
 -- routesData = require(ReplicatedStorage.PattayaTraffic); ox, oz = PattayaBuilder.ORIGIN X / Z (R.TRAFFIC_ORIGIN_*).
--- Route i of the result is route i of the data (the key of its car k is R.trafficKey(i, k)).
-function R.buildTrafficRoutes(routesData, ox: number, oz: number)
+-- Route i of the result is route i of the data (the key of its car k is R.trafficKey(i, k)). The lanes are cleaned
+-- (R.cleanLaneLoop) unless raw = true (tests).
+function R.buildTrafficRoutes(routesData, ox: number, oz: number, raw: boolean?)
 	local out = {}
 	for _, r in routesData do
 		local xs, zs, cum = {}, {}, {0}
 		local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
 		for i = 1, #r.pts, 2 do
-			local x, z = r.pts[i] + ox, r.pts[i + 1] + oz
-			table.insert(xs, x)
-			table.insert(zs, z)
+			table.insert(xs, r.pts[i] + ox)
+			table.insert(zs, r.pts[i + 1] + oz)
+		end
+		if not raw then
+			xs, zs = R.cleanLaneLoop(xs, zs)
+		end
+		for i = 1, #xs do
+			local x, z = xs[i], zs[i]
 			minX, maxX, minZ, maxZ = math.min(minX, x), math.max(maxX, x), math.min(minZ, z), math.max(maxZ, z)
 		end
 		for i = 2, #xs do
@@ -539,6 +775,21 @@ function R.routeTangent(r, s: number): (number, number)
 		return 0, -1
 	end
 	return dx / m, dz / m
+end
+
+-- is the route between arcs s1 and s2 (s1 < s2, not wrapped) within maxDeg of one direction? Returns ok and the
+-- largest heading change seen (sampled every `step` studs; TestKit stages hits only on straight stretches)
+function R.routeStraight(r, s1: number, s2: number, maxDeg: number, step: number?): (boolean, number)
+	local mx, mz = R.routeTangent(r, (s1 + s2) / 2)
+	local worst = 0
+	local s = s1
+	while s <= s2 do
+		local tx, tz = R.routeTangent(r, s)
+		local a = math.deg(math.acos(clamp(tx * mx + tz * mz, -1, 1)))
+		if a > worst then worst = a end
+		s += step or 4
+	end
+	return worst <= maxDeg, worst
 end
 
 -- the key of car k on route ri (PattayaTraffic's `active` table, its models' TrafficKey attribute, TK_HitTarget)
@@ -608,11 +859,15 @@ end
 
 -- Staged hit for TK.hitTest (and its offline tests): where my car must be at server time t to meet a traffic car
 -- on its own lane. p = {route, s0, t0 (the traffic car is at arc s0 at server time t0), vT (its speed), halfWid,
--- halfLen, speed (mine), mode = "rear" | "head" | "side", lead (studs, rear / head), offset (studs to its right,
--- rear / head), angle (degrees, side)}. Returns plan(t) -> x, z, dirX, dirZ, gap (studs before the boxes meet along
--- the approach; <= 0 = touching), and the server time the boxes are due to meet.
+-- halfLen, speed (mine), mode = "rear" | "head" | "side" | "pass", lead (studs, rear / head / pass), offset (studs to
+-- its right, rear / head), angle (degrees, side), gap (studs between the sides, pass)}. Returns plan(t) -> x, z, dirX,
+-- dirZ, gap (studs before the boxes meet along the approach; <= 0 = touching; pass: studs left to drive), the server
+-- time the boxes are due to meet (pass: level with it), the arc span {s1, s2} of the route both cars use from the
+-- start to just after the touch (TestKit stages only where R.routeStraight(route, s1, s2, R.STAGE_BEND_DEG) holds),
+-- and the arc span around the target at the touch (side hits: its heading steady within R.SIDE_STEADY_DEG there).
 --   rear: on the lane behind it, along the route.   head: on its lane ahead of it, against the route.
---   side: from its right (the overtaking side) at `angle`, level with it when they meet.
+--   side: from its right (the overtaking side), a straight run at `angle` to its heading at the touch, my front
+--   corner on the middle of its side.   pass: overtaking it on its right, `gap` studs beside it (near-miss test).
 function R.stagePlan(p)
 	local r, s0, t0, vT = p.route, p.s0, p.t0, p.vT
 	local speed = p.speed
@@ -623,14 +878,28 @@ function R.stagePlan(p)
 		local rx, rz = -tz, tx
 		return x + rx * lat, z + rz * lat, tx, tz, rx, rz
 	end
+	if p.mode == "pass" then
+		-- near-miss test: my car overtakes it on its right with p.gap (5) studs between the sides, from p.lead (60)
+		-- studs behind to 30 studs ahead, never touching
+		local lead = p.lead or 60
+		local lat = p.halfWid + R.CAR_HALF_WID + (p.gap or 5)
+		local level = t0 + lead / math.max(speed - vT, 1e-3)
+		return function(t)
+			local sc = s0 - lead + speed * (t - t0)
+			local x, z, tx, tz = lane(sc, lat)
+			return x, z, tx, tz, (s0 + vT * (t - t0)) + p.halfLen + R.CAR_HALF_LEN + 30 - sc
+		end, level, {s0 - lead - R.CAR_HALF_LEN, s0 + vT * (level + 2 - t0) + p.halfLen + 40},
+			{s0 + vT * (level - t0) - p.halfLen - 6, s0 + vT * (level - t0) + p.halfLen + 6}
+	end
 	if p.mode == "head" then
 		local lead = p.lead or 120
 		local meet = t0 + math.max(lead - contact, 0) / (speed + vT)
+		local sT = s0 + vT * (meet - t0)
 		return function(t)
 			local sc = s0 + lead - speed * (t - t0)
 			local x, z, tx, tz = lane(sc, p.offset or 0)
 			return x, z, -tx, -tz, sc - (s0 + vT * (t - t0)) - contact
-		end, meet
+		end, meet, {s0 - p.halfLen - 10, s0 + lead + R.CAR_HALF_LEN}, {sT - p.halfLen - 6, sT + contact + 6}
 	elseif p.mode == "side" then
 		local a = math.rad(p.angle or 20)
 		local vs, u = speed * math.sin(a), speed * math.cos(a)
@@ -646,21 +915,43 @@ function R.stagePlan(p)
 		-- keeps the old alignment (tests only).
 		local cornerAhead = if p.alignCorner == false then 0
 			else R.CAR_HALF_LEN * math.cos(a) - R.CAR_HALF_WID * math.sin(a)
+		-- A straight run at `angle` to the target's heading AT THE TOUCH (its shared position and heading at tc), no
+		-- longer along the lane (round 6 review, offline scan of the real routes): on a lane that bends a few degrees
+		-- at a polyline point, the lane direction where my car was differed from the target's heading at the touch by
+		-- up to 5 degrees, and side 150 a5 / a20 and side 100 a10 sit within 1-3 degrees of a tier threshold.
+		-- p.laneRun = true keeps the old lane-following run (tests only).
+		local sT = s0 + vT * (tc - t0)
+		local touch = {sT - p.halfLen - 6, sT + vT * 0.3 + p.halfLen + 6}
+		local span = {sT - cornerAhead - u * run - R.CAR_HALF_LEN, sT + vT * 0.3 + p.halfLen + 10}
+		if p.laneRun then
+			return function(t)
+				local lat = latC + vs * (tc - t)
+				local sc = s0 + vT * (tc - t0) - cornerAhead - u * (tc - t)
+				local x, z, tx, tz, rx, rz = lane(sc, lat)
+				local dx, dz = tx * math.cos(a) - rx * math.sin(a), tz * math.cos(a) - rz * math.sin(a)
+				return x, z, dx, dz, lat - latC
+			end, tc, span, touch
+		end
+		local xT, zT = routePoint(r, sT)
+		local hx, hz = R.trafficHeading(r, sT)
+		local gx, gz = -hz, hx -- its right
+		local ca, sa = math.cos(a), math.sin(a)
+		local dx, dz = hx * ca - gx * sa, hz * ca - gz * sa
+		-- my centre at the touch: latC out on its right, cornerAhead behind the middle of its side
+		local cx, cz = xT + gx * latC - hx * cornerAhead, zT + gz * latC - hz * cornerAhead
 		return function(t)
-			local lat = latC + vs * (tc - t)
-			local sc = s0 + vT * (tc - t0) - cornerAhead - u * (tc - t)
-			local x, z, tx, tz, rx, rz = lane(sc, lat)
-			local dx, dz = tx * math.cos(a) - rx * math.sin(a), tz * math.cos(a) - rz * math.sin(a)
-			return x, z, dx, dz, lat - latC
-		end, tc
+			local back = speed * (tc - t)
+			return cx - dx * back, cz - dz * back, dx, dz, vs * (tc - t)
+		end, tc, span, touch
 	end
 	local lead = p.lead or 120
 	local meet = t0 + math.max(lead - contact, 0) / math.max(speed - vT, 1e-3)
+	local sT = s0 + vT * (meet - t0)
 	return function(t)
 		local sc = s0 - lead + speed * (t - t0)
 		local x, z, tx, tz = lane(sc, p.offset or 0)
 		return x, z, tx, tz, (s0 + vT * (t - t0)) - sc - contact
-	end, meet
+	end, meet, {s0 - lead - R.CAR_HALF_LEN, sT + vT * 0.3 + p.halfLen + 10}, {sT - contact - 6, sT + p.halfLen + 6}
 end
 
 -- Staged hit helpers (TK.hitTest / TK.hitMatrix, tested offline) ----------------------------------------------------
@@ -694,15 +985,39 @@ function R.acceptStagedHit(h): (boolean, string?)
 	elseif math.abs(h.hitT - h.meet) > slack then
 		table.insert(why, ("%.2f s from the planned meeting"):format(h.hitT - h.meet))
 	end
-	-- every reason is reported: round 4's "head 100 -0.50 s" did not say whether it was also another car
-	local d = math.sqrt((h.hitX - h.targetX) ^ 2 + (h.hitZ - h.targetZ) ^ 2)
-	if d > 6 + 60 * (h.frameDt or 1 / 60) then
-		table.insert(why, ("another car (%.0f studs from the target)"):format(d))
+	-- every reason is reported: round 4's "head 100 -0.50 s" did not say whether it was also another car.
+	-- Identity: the key of the car the hit event names (round 6 review: never where a model happens to be drawn);
+	-- the position form remains for callers without keys.
+	if h.targetKey ~= nil then
+		if h.hitKey ~= h.targetKey then
+			table.insert(why, ("another car (hit %s, target %s)"):format(tostring(h.hitKey), tostring(h.targetKey)))
+		end
+	else
+		local d = math.sqrt((h.hitX - h.targetX) ^ 2 + (h.hitZ - h.targetZ) ^ 2)
+		if d > 6 + 60 * (h.frameDt or 1 / 60) then
+			table.insert(why, ("another car (%.0f studs from the target)"):format(d))
+		end
 	end
 	if #why > 0 then
 		return false, table.concat(why, ", ")
 	end
 	return true, nil
+end
+
+-- the ghost a traffic car gets after an arcade hit (PattayaTraffic): Arcade_HitGhost seconds, then for as long as it
+-- still overlaps my car. st = {ghostUntil, hitHold}; overlapping = R.carsOverlap(me, it, 1) this frame.
+function R.hitGhostStart(st, t: number, cfg)
+	st.ghostUntil = t + cfg.Arcade_HitGhost
+	st.hitHold = true
+end
+function R.hitGhostStep(st, t: number, overlapping: boolean)
+	if st.hitHold and t >= st.ghostUntil then
+		if overlapping then
+			st.ghostUntil = t + 0.2
+		else
+			st.hitHold = nil
+		end
+	end
 end
 
 -- What the owner's table says a staged hit must give: the hit as the geometry makes it (rear: vc = speed - vT,
