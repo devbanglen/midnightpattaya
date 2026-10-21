@@ -120,3 +120,21 @@ TK.nearMissTest (arcade on): @110 gap 5 -> 1 near miss paid, 0 hits PASS; @110 g
 TK.cleanup(): nothing left over (TK_HitTarget nil, TrafficGhostAll nil); CollisionModel set back to physical on the server.
 NOT RUN yet: Taxi/Delivery economy with arcade hits (needs hand driving during a job: TK.jobWatch), 2-player check
 (Test > Clients and Servers), 60 fps level. Arcade stays OFF (default physical) until those pass and the owner accepts.
+
+ROUND 7, 60 fps level (2026-10-22 ~00:30, leader; place = owner backup SaveNew-V3 state, team18/arcade-fix-5 installed)
+Arcade on in Play only; restored to physical on the server, Edit CollisionModel = nil after Stop.
+TK.selfCheck(): 5/5 keys match their models at DrawT. TK.hitMatrixStart({runs = 3, fps = {60}}), isolated rows.
+Studio was focused (render 60 fps) only for run 1 rows 1-11; the Remote Desktop window took focus from row 12 on
+(render 14-16 fps), so run 2, run 3 and r1 row 12 do NOT count as a 60 fps level (Heartbeat stayed 57-60 Hz).
+ run 1 rows 1-11 (focused, Heartbeat 55-60 Hz, render 60 fps): 10/11 PASS
+   FAIL r1 row 2 rear @100: target 26013 hit 26013 | impact 100 traffic 45 closing 54 (planned 55) | heavy -48% (table 48%)
+        | yaw 34 (scripted 53) | minUp 0.82 at +1.43 s, off road on a Sidewalk; braking from +1.22 s, after the 0.67 s
+        hit window (+0.25 s anti-roll)
+ run 2 (unfocused): 12/12 PASS; rear @100 with target 26003 passed
+ run 3 (unfocused, stopped after row 5 because focus was lost): rear @100 FAIL again, identical: target 26017, yaw 36
+        (scripted 53), minUp 0.82 at +1.43 s off road Sidewalk
+ => 60 fps level NOT certified. Hit identification, tier and loss were right in every row. At Heartbeat 60 Hz the
+    post-hit yaw comes out ~35 deg instead of the scripted 53, and on route 26 the car drifts onto the sidewalk and
+    tilts to 0.82 when braking starts (owner limit 0.85). At the 15 / 30 fps levels every rear @100 row passed.
+    Sent to team18 (branch team18/arcade-econ) for an arcade-only fix; the pass rule stays as the owner set it.
+TK.cleanup(): nothing left over. Arcade stays OFF (default physical).

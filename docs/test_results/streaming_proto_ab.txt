@@ -100,3 +100,18 @@ ReplicatedStorage, ServerStorage, ServerScriptService and StarterPlayer found no
 was deleted from ServerStorage too. PattayaWorld was never modified (copy only).
 Harness note for team16: the builder's drive path (slab centres) crossed ground and buildings; replace drivePath()
 with a road-graph route (as done by hand here) before C/D.
+
+== C and D: hard checks (2026-10-22 ~00:10, leader; place = owner backup SaveNew-V3 state) ==
+Done with Studio unfocused: none of these checks depend on frame timing. The timed sessions (A/B re-measure, then C, D:
+3 cold + 3 teleport each) still need a focused Studio.
+ParityText: A, B, C and D each copy 14,795 parts / 24,791 instances (ShoulderChunks 1,871) -> PARITY OK
+Fixed drive path for every variant: pathFrom (1800, 1700) -> pathTo (4500, 1800), map-local; 51 points, 4,209 studs,
+1,054 samples, 100% on proto road (the same route as the A/B runs above)
+C: 459 containers (Atomic 10,209, Client 2,520, Default 12,062); largest Atomic 835; road in decor 0;
+   client layer templates: ReplicatedStorage.StreamingProtoDetail 99 cells / 2,619 instances; CollisionAudit: empty
+   server check (Play): client-only collision parts 0; path on road (server) 1027/1027 = 100.0%;
+   colliding parts: building 2305, detail 440, ground 4, road 8665
+D: 360 containers (Atomic 10,209, AtomicLOD 11,622, Default 2,960); largest Atomic 835; road in decor 0; CollisionAudit: empty
+   server check (Play): client-only collision parts 0; path on road (server) 1027/1027 = 100.0%;
+   colliding parts: building 2305, detail 440, ground 4, road 8665 (identical to C)
+Remove(): 25,163 instances removed, "leftovers: none"; Leftovers() = "" ; PattayaWorld untouched; CollisionModel nil.
