@@ -28,14 +28,15 @@ QA.REMOTES = {
 	ChallengeRequest = "RemoteEvent", CircuitMsg = "RemoteEvent", CircuitRequest = "RemoteEvent",
 	EventJoin = "RemoteEvent", GPSRequest = "RemoteEvent", GPSUpdate = "RemoteEvent", GarageRequest = "RemoteFunction",
 	JobUpdate = "RemoteEvent", NearMiss = "RemoteEvent", NitroBonus = "RemoteEvent", RequestJob = "RemoteEvent",
-	RequestSprint = "RemoteEvent", RoadFightRequest = "RemoteEvent", SprintUpdate = "RemoteEvent",
+	RequestRescue = "RemoteEvent", RequestSprint = "RemoteEvent", RescueUpdate = "RemoteEvent",
+	RoadFightRequest = "RemoteEvent", SprintUpdate = "RemoteEvent", TrafficHit = "RemoteEvent",
 }
 -- directly under ReplicatedStorage
 QA.ROOT_REMOTES = {PerfTelemetry = "RemoteEvent"}
 -- roblox/src/ServerScriptService/*.server.luau
 QA.SERVER_SCRIPTS = {"CircuitServer", "PattayaChallengeServer", "PattayaEventsServer", "PattayaGarageServer",
-	"PattayaGPSServer", "PattayaJobsServer", "PattayaPerfTelemetry", "PattayaRaceServer", "PattayaSprintServer",
-	"PattayaTimeServer", "RaceCarServer"}
+	"PattayaGPSServer", "PattayaJobsServer", "PattayaPerfTelemetry", "PattayaRaceServer", "PattayaRecoveryServer",
+	"PattayaSprintServer", "PattayaTimeServer", "RaceCarServer"}
 -- roblox/src/StarterPlayer/StarterPlayerScripts/*.client.luau
 QA.CLIENT_SCRIPTS = {"CarController", "CircuitRaceClient", "MidnightActivity", "MidnightCamera", "MidnightHUD",
 	"MidnightSpeedo", "PattayaChallengeClient", "PattayaEventsClient", "PattayaGarageClient", "PattayaGPSClient",
