@@ -30,6 +30,15 @@
 --                                                     (the server has every part, streaming does not matter)
 --   S.startEvent(kind, lead)  S.setTime(clock|nil)    Night Run / Survival start, Lighting TimeLock
 --   S.report(plr?) -> string
+-- team18/arcade-econ (offline only, not run in Studio yet):
+--   S.arcadeLease(holder, seconds) -> ok, msg         workspace CollisionModel = "arcade" while a test holds a lease
+--   S.arcadeRelease(holder) -> ok, msg                (TK.jobDriveTest, S.mpCheck); the value from before comes back
+--                                                     when the last holder gives it back, its time runs out (max
+--                                                     1800 s) or its player leaves ("physical" if it was "arcade")
+--   S.speedProbe(plr, "start" | "get" | "stop", fromT?, toT?) -> text   the jobs speed-drop detector's view of the
+--                                                     car (diagnostic for TK.jobDriveTest, never a gate)
+--   S.mpCheckStart(opts?) -> handle, S.mpCheckPoll()  the 2-player check in the background (handle:poll(), .lines)
+--   S.mpCheck(opts?) -> summary, lines                the same, blocking (needs 2 players: Test > Clients and Servers)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -550,7 +559,614 @@ local function allowed(plr: Player): boolean
 	return false
 end
 
+-- team18/arcade-econ (offline only) ------------------------------------------------------------------------------------
+-- State shared by every copy of this module (the Studio execute context can get its own copy of a ModuleScript).
+local live = if type(_G.TKS_LIVE) == "table" then _G.TKS_LIVE else {}
+_G.TKS_LIVE = live
+live.probes = live.probes or {}
+live.handles = live.handles or {}
+live.agents = live.agents or {}
+live.results = live.results or {}
+live.nextId = live.nextId or 0
+
+-- CollisionModel lease. Arcade stays OFF by default (owner rule: PattayaRecovery.DEFAULTS and the saved place say
+-- "physical"). A test that needs it takes a lease: CollisionModel = "arcade" until the last holder gives it back, a
+-- holder's time runs out (at most 1800 s; checked twice a second) or its player leaves. Then the value from before the
+-- first lease comes back, or "physical" when that was "arcade" too. Changes made in Play are never saved anyway.
+local NONE = "<none>"
+local function leaseRestore(why: string): string
+	local L = live.lease
+	if not L then
+		return "no lease held (CollisionModel = " .. tostring(workspace:GetAttribute("CollisionModel")) .. ")"
+	end
+	live.lease = nil
+	if L.conn then
+		L.conn:Disconnect()
+	end
+	local back = if L.prev == NONE then nil elseif L.prev == "arcade" then "physical" else L.prev
+	workspace:SetAttribute("CollisionModel", back)
+	local msg = ("CollisionModel back to %s (%s)"):format(if back == nil then "nil (= physical)" else tostring(back), why)
+	print("[TestKit] " .. msg)
+	return msg
+end
+
+function S.arcadeLease(holder: string, seconds: number?): (boolean, string)
+	local secs = math.clamp(tonumber(seconds) or 600, 5, 1800)
+	local L = live.lease
+	if not L then
+		local cur = workspace:GetAttribute("CollisionModel")
+		L = {prev = if cur == nil then NONE else cur, holders = {}, nextCheck = 0}
+		live.lease = L
+		L.conn = RunService.Heartbeat:Connect(function()
+			local now = os.clock()
+			if now < L.nextCheck then
+				return
+			end
+			L.nextCheck = now + 0.5
+			for h, untilT in L.holders do
+				if now > untilT then
+					L.holders[h] = nil
+					print(("[TestKit] the arcade lease of %s ran out"):format(h))
+				end
+			end
+			if next(L.holders) == nil and live.lease == L then
+				leaseRestore("lease ran out")
+			end
+		end)
+	end
+	L.holders[tostring(holder)] = os.clock() + secs
+	workspace:SetAttribute("CollisionModel", "arcade")
+	return true, ("CollisionModel = arcade for this test only (lease %s, %d s; it was %s)"):format(tostring(holder), secs,
+		if L.prev == NONE then "nil" else tostring(L.prev))
+end
+
+function S.arcadeRelease(holder: string): (boolean, string)
+	local L = live.lease
+	if not L then
+		return true, leaseRestore("")
+	end
+	L.holders[tostring(holder)] = nil
+	if next(L.holders) ~= nil then
+		return true, ("lease of %s given back; still held by another test"):format(tostring(holder))
+	end
+	return true, leaseRestore("given back by " .. tostring(holder))
+end
+
+-- Speed probe (diagnostic, never a gate): the jobs server's speed-drop detector as it sees this car (PattayaJobsServer:
+-- ground speed from positions every SAMPLE_DT 0.1 s; more than BUMP_DROP 55 studs/s below the peak of the last
+-- BUMP_WINDOW 0.35 s for two samples in a row = a bump). TK.jobDriveTest prints where that condition held.
+local PROBE_DT, PROBE_DROP, PROBE_WINDOW = 0.1, 55, 0.35
+function S.speedProbe(plr: Player, cmd: string?, fromT: number?, toT: number?): string
+	plr = S.player(plr) :: Player
+	local P = live.probes[plr.UserId]
+	if cmd == "start" then
+		if P and P.conn then
+			P.conn:Disconnect()
+		end
+		P = {samples = {}, fires = {}, history = {}, low = 0, at = nil :: number?, pos = nil :: Vector3?}
+		live.probes[plr.UserId] = P
+		P.conn = RunService.Heartbeat:Connect(function()
+			local chassis = carOf(plr)
+			if not chassis or not plr.Parent then
+				return
+			end
+			local now = workspace:GetServerTimeNow()
+			local pos = chassis.Position
+			if not P.at then
+				P.at, P.pos = now, pos
+				return
+			end
+			if now - P.at < PROBE_DT then
+				return
+			end
+			local v = flat(pos - (P.pos :: Vector3)).Magnitude / (now - P.at)
+			P.at, P.pos = now, pos
+			local peak = 0
+			for _, e in P.history do
+				if now - e[1] <= PROBE_WINDOW then
+					peak = math.max(peak, e[2])
+				end
+			end
+			P.low = if peak - v > PROBE_DROP then P.low + 1 else 0
+			table.insert(P.history, {now, v})
+			if #P.history > 8 then
+				table.remove(P.history, 1)
+			end
+			table.insert(P.samples, {now, v, peak - v})
+			if #P.samples > 4000 then
+				table.remove(P.samples, 1)
+			end
+			if P.low >= 2 then
+				table.insert(P.fires, {now, peak, v})
+				P.low = 0
+				table.clear(P.history)
+			end
+		end)
+		return "speed probe on"
+	elseif cmd == "get" then
+		if not P then
+			return "speed probe not started"
+		end
+		local a, b = fromT or -math.huge, toT or math.huge
+		local n, top, worst, worstT = 0, 0, 0, a
+		for _, s in P.samples do
+			if s[1] >= a and s[1] <= b then
+				n += 1
+				top = math.max(top, s[2])
+				if s[3] > worst then
+					worst, worstT = s[3], s[1]
+				end
+			end
+		end
+		local fires = {}
+		for _, f in P.fires do
+			if f[1] >= a and f[1] <= b then
+				table.insert(fires, ("+%.2f s (%.0f -> %.0f)"):format(f[1] - a, f[2], f[3]))
+			end
+		end
+		return ("%d samples, top %.0f studs/s, largest drop in 0.35 s %.0f at +%.2f s; the bump condition held %d time(s)%s"):format(
+			n, top, worst, worstT - a, #fires, if #fires > 0 then ": " .. table.concat(fires, ", ") else "")
+	elseif cmd == "stop" then
+		if P and P.conn then
+			P.conn:Disconnect()
+		end
+		live.probes[plr.UserId] = nil
+		return "speed probe off"
+	end
+	return "speedProbe: start | get (fromT, toT) | stop"
+end
+
+-- 2-player check --------------------------------------------------------------------------------------------------------
+-- S.mpCheck(opts?) -> summary, lines   with 2 players (Studio: Test > Clients and Servers, 2 players), run on the
+-- server only: the server sets workspace TK_ClientAgent = true, and PattayaTraffic's TestKit hook starts the agent on
+-- every client (TK.startAgent, ReplicatedStorage.PattayaTestKitAgent), so nothing is typed into a client. Then:
+--   1. CollisionModel (a lease, as TK.jobDriveTest) reaches both clients as "arcade";
+--   2. each player in turn makes an isolated staged rear-end at 100 (heavy) on its own client while the other one
+--      watches its own client: the hitter's car takes the hit and its own anti-roll; the server accepts it (its
+--      TrafficHits +1); the watcher's car does not move, never gets the anti-roll, its client has no TestKit hook
+--      on, its traffic is not ghosted by the hitter's isolation and the car that was hit is not ghosted there;
+--      the watcher's Recovery_* / TrafficHits / NearMissAt (client and server) do not change;
+--   3. player 1 takes a job and holds it while player 2 makes an accepted heavy hit: player 1's job runs on with 0
+--      bumps (then it is cancelled);
+--   4. cleanup: each client's TK.cleanup says "nothing left over", both see CollisionModel back as it was, no
+--      TestKit attribute or job is left, the agents stop.
+-- opts: carId (a ServerStorage.CarBodies id for a player without a car; default the first one), agentWait (20 s),
+-- leaseSeconds (300). From the Studio execute tool use S.mpCheckStart() and poll S.mpCheckPoll() (about 60-90 s).
+local AGENT = "PattayaTestKitAgent"
+local function agentRemote(): RemoteEvent
+	local ev = ReplicatedStorage:FindFirstChild(AGENT)
+	if not (ev and ev:IsA("RemoteEvent")) then
+		ev = Instance.new("RemoteEvent")
+		ev.Name = AGENT
+		ev.Parent = ReplicatedStorage
+	end
+	if live.agentRemote ~= ev then
+		if live.agentConn then
+			live.agentConn:Disconnect()
+		end
+		live.agentRemote = ev
+		live.agentConn = (ev :: RemoteEvent).OnServerEvent:Connect(function(plr: Player, kind, a, b, c)
+			if not allowed(plr) then
+				return
+			end
+			if kind == "hello" then
+				live.agents[plr.UserId] = {at = os.clock(), state = a}
+			elseif kind == "result" and type(a) == "number" then
+				live.results[a] = {userId = plr.UserId, ok = b == true, res = c}
+			end
+		end)
+	end
+	return ev :: RemoteEvent
+end
+
+-- the mpCheck runner: a coroutine resumed from Heartbeat (it outlives the Studio execute snippet), so calls that wait
+-- in the engine (task.wait: teleport, seat, spawnCar) run in their own thread while it waits frames
+local mpCo: thread? = nil
+local function sWait()
+	if mpCo ~= nil and coroutine.running() == mpCo then
+		coroutine.yield()
+	else
+		RunService.Heartbeat:Wait()
+	end
+end
+local function sWaitSeconds(sec: number)
+	local t0 = os.clock()
+	repeat
+		sWait()
+	until os.clock() - t0 >= sec
+end
+local function spawnWait(timeout: number, f, ...)
+	if not (mpCo ~= nil and coroutine.running() == mpCo) then
+		return f(...)
+	end
+	local args = table.pack(...)
+	local box = {done = false, res = nil :: any}
+	task.spawn(function()
+		box.res = table.pack(pcall(f, table.unpack(args, 1, args.n)))
+		box.done = true
+	end)
+	local t0 = os.clock()
+	while not box.done do
+		if os.clock() - t0 > timeout then
+			error(("a server call did not return within %d s"):format(timeout), 0)
+		end
+		sWait()
+	end
+	if not box.res[1] then
+		error(box.res[2], 0)
+	end
+	return table.unpack(box.res, 2, box.res.n)
+end
+local function agentCall(plr: Player, timeout: number, cmd: string, ...): (boolean, any)
+	live.nextId += 1
+	local id = live.nextId
+	agentRemote():FireClient(plr, "cmd", id, cmd, ...)
+	local t0 = os.clock()
+	while live.results[id] == nil do
+		if os.clock() - t0 > timeout then
+			return false, ("%s's client did not answer %s within %d s"):format(plr.Name, cmd, timeout)
+		end
+		sWait()
+	end
+	local r = live.results[id]
+	live.results[id] = nil
+	return r.ok, r.res
+end
+
+-- a spot beside a long straight traffic lane near `around` (the shared traffic maths, as the clients draw it)
+local function trafficSpot(around: Vector3)
+	local rm = ReplicatedStorage:FindFirstChild("PattayaRecovery")
+	local dm = ReplicatedStorage:FindFirstChild("PattayaTraffic")
+	if not (rm and dm) then
+		return nil
+	end
+	local okR, R = pcall(require, rm)
+	local okD, data = pcall(require, dm)
+	if not (okR and okD) then
+		return nil
+	end
+	live.trafficRoutes = live.trafficRoutes or (R :: any).buildTrafficRoutes(data, R.TRAFFIC_ORIGIN_X, R.TRAFFIC_ORIGIN_Z)
+	for _, e in (R :: any).trafficNear(live.trafficRoutes, workspace:GetServerTimeNow(), around.X, around.Z, 1500) do
+		if (R :: any).routeStraight(e.route, e.s - 450, e.s + 250, 10) then
+			return {R = R, route = e.route, s = e.s}
+		end
+	end
+	return nil
+end
+local function lanePoint(spot, ds: number, lat: number): (Vector3, Vector3)
+	local x, z = spot.R.routePoint(spot.route, spot.s + ds)
+	local tx, tz = spot.R.routeTangent(spot.route, spot.s + ds)
+	return Vector3.new(x - tz * lat, 3.8, z + tx * lat), Vector3.new(tx, 0, tz)
+end
+
+local function standsNear(pos: Vector3)
+	local world = workspace:FindFirstChild("PattayaWorld")
+	local folder = world and world:FindFirstChild("JobStands")
+	local out = {}
+	if folder then
+		for _, m in folder:GetChildren() do
+			local ring = m:FindFirstChild("Ring")
+			if ring and ring:IsA("BasePart") then
+				table.insert(out, {id = m.Name, pos = ring.Position, d = flat(ring.Position - pos).Magnitude})
+			end
+		end
+	end
+	table.sort(out, function(a, b)
+		return a.d < b.d
+	end)
+	return out
+end
+
+local SERVER_ATTRS = {"TrafficHits", "TrafficHitAt", "TrafficHitTier", "NearMissAt", "NearMissCombo", "JobActive"}
+local function serverAttrs(plr: Player)
+	local t = {}
+	for _, a in SERVER_ATTRS do
+		t[a] = plr:GetAttribute(a)
+	end
+	return t
+end
+local function attrsDiff(a, b): {string}
+	local out = {}
+	for _, k in SERVER_ATTRS do
+		if a[k] ~= b[k] then
+			table.insert(out, ("%s: %s -> %s"):format(k, tostring(a[k]), tostring(b[k])))
+		end
+	end
+	return out
+end
+
+-- gives back everything a stopped or failed check holds (no waiting: fire and forget)
+function S.mpCleanup(): string
+	local st = live.mp
+	if st then
+		if st.leased then
+			st.leased = false
+			S.arcadeRelease("mpCheck")
+		end
+		for _, plr in st.players or {} do
+			if plr.Parent and live.agents[plr.UserId] then
+				agentRemote():FireClient(plr, "cmd", -1, "jobCancel")
+				agentRemote():FireClient(plr, "cmd", -1, "cleanup")
+			end
+		end
+	end
+	workspace:SetAttribute("TK_ClientAgent", nil)
+	return "mpCheck cleaned up"
+end
+
+function S.mpCheck(opts, out: {string}?)
+	opts = type(opts) == "table" and opts or {}
+	local lines = out or {}
+	local passN, failN = 0, 0
+	local function emit(s: string)
+		print("[mpCheck] " .. s)
+		table.insert(lines, s)
+	end
+	local function check(name: string, cond: boolean, detail: any?): boolean
+		if cond then
+			passN += 1
+			emit("PASS " .. name)
+		else
+			failN += 1
+			emit("FAIL " .. name .. (if detail ~= nil then " :: " .. tostring(detail) else ""))
+		end
+		return cond
+	end
+	local players = Players:GetPlayers()
+	if #players < 2 then
+		local msg = "mpCheck: NOT RUN - needs 2 players. Owner: Studio > Test tab > Clients and Servers > 2 players > Start, then run it on the server again."
+		emit(msg)
+		return msg, lines
+	end
+	local P = {players[1], players[2]}
+	local st = {players = P, leased = false}
+	live.mp = st
+	local okBody, err = pcall(function()
+		-- 1. the client agents: PattayaTraffic's TestKit hook starts them when TK_ClientAgent is set
+		agentRemote()
+		for _, plr in P do
+			live.agents[plr.UserId] = nil
+		end
+		workspace:SetAttribute("TK_ClientAgent", true)
+		local t0 = os.clock()
+		while os.clock() - t0 < (opts.agentWait or 20) and not (live.agents[P[1].UserId] and live.agents[P[2].UserId]) do
+			sWait()
+		end
+		for _, plr in P do
+			if not live.agents[plr.UserId] then
+				error(("%s's client started no TestKit agent within %d s: install PattayaTraffic and PattayaTestKit from team18/arcade-econ, or run require(game.ReplicatedStorage.PattayaTestKit).startAgent() in that client")
+					:format(plr.Name, opts.agentWait or 20), 0)
+			end
+		end
+		emit(("agents running on %s and %s"):format(P[1].Name, P[2].Name))
+		-- 2. both players in a car
+		for _, plr in P do
+			if not carOf(plr) then
+				local ok, msg = spawnWait(20, S.seat, plr)
+				if not carOf(plr) then
+					local bodies = ServerStorage:FindFirstChild("CarBodies")
+					local first = bodies and bodies:GetChildren()[1]
+					local id = opts.carId or (first and first.Name)
+					if id then
+						ok, msg = spawnWait(40, S.spawnCar, plr, id)
+					end
+				end
+				if not carOf(plr) then
+					error(("%s is not in a car and none could be given (%s): seat both players first"):format(plr.Name,
+						tostring(msg)), 0)
+				end
+			end
+		end
+		-- 3. a long straight lane: player 1 beside it, player 2 400 studs back along it (both within the 650-stud
+		-- traffic draw radius of each other's hits, too far apart to touch)
+		local spot = trafficSpot((carOf(P[1]) :: BasePart).Position)
+		if not spot then
+			error("no straight traffic lane within 1500 studs of " .. P[1].Name .. "'s car", 0)
+		end
+		local p1, dir = lanePoint(spot, 0, 12)
+		local p2 = lanePoint(spot, -400, 12)
+		for i, plr in P do
+			local ok, msg = spawnWait(45, S.teleport, plr, if i == 1 then p1 else p2, {look = dir})
+			if not ok then
+				error(("teleport of %s failed: %s"):format(plr.Name, tostring(msg)), 0)
+			end
+		end
+		sWaitSeconds(1.5)
+		-- 4. arcade for this check only
+		local _, leaseMsg = S.arcadeLease("mpCheck", opts.leaseSeconds or 300)
+		st.leased = true
+		emit(leaseMsg)
+		sWaitSeconds(1)
+		local seen = {}
+		for _, plr in P do
+			local ok, s = agentCall(plr, 10, "ping")
+			seen[plr.Name] = if ok and type(s) == "table" then s.collisionModel else tostring(s)
+		end
+		check(("CollisionModel replicates the same to both clients (%s: %s, %s: %s)"):format(P[1].Name,
+			tostring(seen[P[1].Name]), P[2].Name, tostring(seen[P[2].Name])),
+			seen[P[1].Name] == "arcade" and seen[P[2].Name] == "arcade")
+		-- 5. each player's staged hit affects only that player
+		for round = 1, 2 do
+			local hitter, watcher = P[round], P[3 - round]
+			local srv0 = serverAttrs(watcher)
+			local hits0 = hitter:GetAttribute("TrafficHits") or 0
+			local okW, w0 = agentCall(watcher, 10, "watchStart")
+			if not okW then
+				check(watcher.Name .. "'s watch started", false, w0)
+			end
+			local hc = carOf(hitter)
+			local okH, r = agentCall(hitter, 45, "hitTest", "rear", 100,
+				{around = hc and hc.Position, radius = 150, isolate = true})
+			sWaitSeconds(1.0)
+			local hitT = if okH and type(r) == "table" and type(r.hitT) == "number" then r.hitT else nil
+			local okS, ws = agentCall(watcher, 10, "watchStop", okH and type(r) == "table" and r.hitKey or nil,
+				if hitT then hitT - 0.2 else nil, if hitT then hitT + 1.6 else nil)
+			check(("%s: the staged rear @100 hit its own car as planned (heavy, hit key = target)"):format(hitter.Name),
+				okH and type(r) == "table" and r.touched and r.tier == "heavy" and r.keyMatch,
+				if okH and type(r) == "table" then r.text else r)
+			if okH and type(r) == "table" and r.touched then
+				check(("%s: its own car got the anti-roll during the hit"):format(hitter.Name), r.antiRoll == true,
+					"ArcadeAntiRoll was never enabled on its car")
+			end
+			check(("%s: the server accepted the hit (TrafficHits +1)"):format(hitter.Name),
+				(hitter:GetAttribute("TrafficHits") or 0) == hits0 + 1,
+				("%d -> %s"):format(hits0, tostring(hitter:GetAttribute("TrafficHits"))))
+			if okS and type(ws) == "table" then
+				check(("%s: its car did not move while %s was hit (max %.2f studs, %.1f studs/s)"):format(watcher.Name,
+					hitter.Name, ws.maxMove or -1, ws.maxSpeed or -1), (ws.maxMove or 99) < 0.5 and (ws.maxSpeed or 99) < 2)
+				check(("%s: its car never got the anti-roll"):format(watcher.Name), ws.antiRoll == false)
+				check(("%s: no TestKit hook (TK_HitTarget / TrafficGhostAll) on its client"):format(watcher.Name),
+					ws.tkSet == false)
+				check(("%s: its traffic was not isolated by %s's test (at most %d%% of %d models ghosted)"):format(
+					watcher.Name, hitter.Name, math.floor((ws.ghostMax or 1) * 100 + 0.5), ws.models or 0),
+					(ws.ghostMax or 1) < 0.5)
+				if type(ws.key) == "table" and ws.key.seen then
+					check(("%s: the car %s hit (key %s) was not ghosted on its client"):format(watcher.Name, hitter.Name,
+						tostring(r and r.hitKey)), ws.key.ghosted == false)
+				else
+					emit(("note: the car %s hit was not drawn on %s's client (too far): its ghost check is skipped"):format(
+						hitter.Name, watcher.Name))
+				end
+				check(("%s: its own Recovery_* / TrafficHits / NearMissAt did not change on its client"):format(watcher.Name),
+					type(ws.changed) == "table" and #ws.changed == 0,
+					if type(ws.changed) == "table" then table.concat(ws.changed, "; ") else ws.changed)
+			else
+				check(watcher.Name .. "'s watch report", false, ws)
+			end
+			local diff = attrsDiff(srv0, serverAttrs(watcher))
+			check(("%s: its server-side TrafficHits / NearMissAt / JobActive did not change"):format(watcher.Name),
+				#diff == 0, table.concat(diff, "; "))
+			sWaitSeconds(0.5)
+		end
+		-- 6. player 1's job is not changed by player 2's hits
+		local got = nil
+		for _, stand in standsNear((carOf(P[1]) :: BasePart).Position) do
+			local ok, msg = spawnWait(45, S.teleport, P[1], stand.pos, {})
+			if ok then
+				sWaitSeconds(1.5)
+				local okJ, j = agentCall(P[1], 12, "jobStart", stand.id)
+				if okJ and type(j) == "table" and j.started then
+					got = {stand = stand.id, to = j.to, timeLimit = j.timeLimit}
+					break
+				end
+				emit(("note: no job at %s (%s)"):format(stand.id, if okJ and type(j) == "table" then tostring(j.reason) else tostring(j)))
+			else
+				emit(("note: teleport to %s failed: %s"):format(stand.id, tostring(msg)))
+			end
+			if #lines > 200 then
+				break
+			end
+		end
+		if check(("%s has a job (%s)"):format(P[1].Name, if got then got.stand .. " -> " .. tostring(got.to) else "none"),
+			got ~= nil) then
+			local hits0 = P[2]:GetAttribute("TrafficHits") or 0
+			local c2 = carOf(P[2])
+			local okH, r = agentCall(P[2], 45, "hitTest", "rear", 100, {around = c2 and c2.Position, radius = 150,
+				isolate = true})
+			sWaitSeconds(1.5)
+			check(("%s: an accepted heavy hit during %s's job"):format(P[2].Name, P[1].Name), okH and type(r) == "table"
+				and r.touched and (P[2]:GetAttribute("TrafficHits") or 0) == hits0 + 1,
+				if okH and type(r) == "table" then r.text else r)
+			local okJS, js = agentCall(P[1], 10, "jobState")
+			check(("%s's job is not changed by %s's hit: still running, 0 bumps"):format(P[1].Name, P[2].Name),
+				okJS and type(js) == "table" and js.active == true and js.bumps == 0,
+				if okJS and type(js) == "table" then table.concat(js.events, "; ") else js)
+			local okC, jc = agentCall(P[1], 10, "jobCancel")
+			check(P[1].Name .. "'s job cancelled", okC and type(jc) == "table" and jc.active == false, jc)
+		end
+	end)
+	if not okBody then
+		failN += 1
+		emit("FAIL mpCheck stopped: " .. tostring(err))
+	end
+	-- 7. cleanup, on every path
+	for _, plr in P do
+		if plr.Parent and live.agents[plr.UserId] then
+			if plr:GetAttribute("JobActive") == true then
+				agentCall(plr, 10, "jobCancel")
+			end
+			local okc, txt = agentCall(plr, 10, "cleanup")
+			check(("%s's client: TK.cleanup leaves nothing over"):format(plr.Name), okc and type(txt) == "string"
+				and txt:find("nothing left over", 1, true) ~= nil, txt)
+		end
+	end
+	if st.leased then
+		st.leased = false
+		local _, msgR = S.arcadeRelease("mpCheck")
+		emit(msgR)
+	end
+	sWaitSeconds(1)
+	local want = tostring(workspace:GetAttribute("CollisionModel"))
+	for _, plr in P do
+		if plr.Parent and live.agents[plr.UserId] then
+			local ok, s = agentCall(plr, 10, "ping")
+			local attrs = if ok and type(s) == "table" and type(s.attrs) == "table" then s.attrs else {}
+			check(("%s's client: CollisionModel back to %s, no TestKit attribute, no job left"):format(plr.Name, want),
+				ok and type(s) == "table" and s.collisionModel == want and attrs.TK_HitTarget == nil
+					and attrs.TrafficGhostAll == nil and attrs.TK_FpsLimit == nil and attrs.JobActive ~= true
+					and plr:GetAttribute("JobActive") ~= true, if ok and type(s) == "table" then s.collisionModel else s)
+		end
+	end
+	workspace:SetAttribute("TK_ClientAgent", nil)
+	local summary = ("mpCheck: %d PASS, %d FAIL%s"):format(passN, failN, if failN == 0 and okBody then " - ALL PASS" else "")
+	emit(summary)
+	return summary, lines
+end
+
+function S.mpCheckStart(opts)
+	local running = live.handles.mp
+	assert(not (running and not running.done), "mpCheck is already running: S.mpCheckPoll(), or _G.TKS_LIVE.handles.mp:stop()")
+	local h = {lines = {}, done = false, summary = nil :: string?, error = nil :: string?}
+	local co = coroutine.create(function()
+		local ok, s = pcall(S.mpCheck, opts, h.lines)
+		if ok then
+			h.summary = s
+		else
+			h.error = tostring(s)
+		end
+		h.done = true
+	end)
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if coroutine.status(co) ~= "suspended" then
+			conn:Disconnect()
+			h.done = true
+			return
+		end
+		local prev = mpCo
+		mpCo = co
+		local ok, err = coroutine.resume(co)
+		mpCo = prev
+		if not ok then
+			h.error, h.done = tostring(err), true
+			conn:Disconnect()
+			S.mpCleanup()
+		end
+	end)
+	function h:poll(): string
+		if self.error then return "error: " .. self.error end
+		if self.done then return self.summary or "done" end
+		return ("running, %d lines: %s"):format(#self.lines, self.lines[#self.lines] or "-")
+	end
+	function h:stop()
+		conn:Disconnect()
+		self.done = true
+		self.error = self.error or "stopped"
+		S.mpCleanup()
+	end
+	live.handles.mp = h
+	return h
+end
+
+function S.mpCheckPoll(): string
+	local h = live.handles.mp
+	return if h then h:poll() else "no mpCheck started (S.mpCheckStart())"
+end
+
 local ACTIONS = {
+	arcadeLease = function(plr, seconds) return S.arcadeLease("player:" .. plr.UserId, seconds) end,
+	arcadeRelease = function(plr) return S.arcadeRelease("player:" .. plr.UserId) end,
+	speedProbe = function(plr, cmd, a, b) return S.speedProbe(plr, cmd, a, b) end,
 	seat = function(plr, carName, at) return S.seat(plr, carName, at) end,
 	spawnCar = function(plr, carId, opts) return S.spawnCar(plr, carId, opts) end,
 	teleport = function(plr, target, opts) return S.teleport(plr, target, opts) end,
@@ -589,6 +1205,23 @@ function S.start()
 		end
 		return table.unpack(res, 2, res.n)
 	end
+	agentRemote() -- the 2-player check's channel (TK.startAgent looks for it)
+	Players.PlayerRemoving:Connect(function(plr: Player)
+		local L = live.lease
+		local key = "player:" .. plr.UserId
+		if L and L.holders[key] then
+			L.holders[key] = nil
+			if next(L.holders) == nil then
+				leaseRestore(plr.Name .. " left")
+			end
+		end
+		local P = live.probes[plr.UserId]
+		if P and P.conn then
+			P.conn:Disconnect()
+		end
+		live.probes[plr.UserId] = nil
+		live.agents[plr.UserId] = nil
+	end)
 	print("[TestKit] server kit started")
 	return S
 end

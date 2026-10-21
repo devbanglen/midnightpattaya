@@ -87,6 +87,17 @@
 -- TK.nearMissTest(opts?) -> result           a staged overtake 5 studs beside a traffic car: one near miss paid, no hit
 -- TK.jobWatch() -> watcher, TK.jobPayout(start, finish, nearMisses) -> ok, text   Taxi / Delivery bump and pay-out
 --   check with arcade on (watcher:report())
+-- Taxi / Delivery economy, automated (team18/arcade-econ; offline only so far, see the block before TK.stopAll):
+-- TK.jobDriveTestStart(opts?) -> handle      the whole test in the background: warp to a stand, request the job as
+--   the E key does, drive the server's route (autopilot <= 100 studs/s on the route, staged runs <= the frame-rate
+--   cap), stage a head-on (crash), a light rear-end, a scrape and a near miss on the way (hitMatrix isolation), stop
+--   in the destination ring, check every bump and the pay-out. opts: kinds, runs (2), fps (15 / 30 / 60 or a list),
+--   stands, heavy (a heavy rear-end too), verbose. handle:poll(), handle.lines, handle:stop(); TK.jobDrivePoll()
+--   from any copy of this module. CollisionModel is "arcade" only while it runs (a server kit lease).
+-- TK.jobDriveTest(opts?, out?) -> summary, runs   the same, blocking; TK.jobStands(kind?) -> the stands this client sees
+-- TK.jobMath                                 its pure maths (Hermite lead-ins, curve checks, caps, event specs, bumps)
+-- TK.startAgent() / TK.stopAgent()           the client half of the server kit's 2-player check (S.mpCheck): started
+--   by PattayaTraffic's TestKit hook when the server sets workspace TK_ClientAgent = true (Studio / DevTest only)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -2343,8 +2354,8 @@ end
 function TK.jobWatch()
 	local w = {events = {}, start = nil :: any, finish = nil :: any, conns = {} :: {RBXScriptConnection}}
 	local function now(): number return workspace:GetServerTimeNow() end
-	local function add(kind: string, data)
-		table.insert(w.events, {t = now(), kind = kind, data = data})
+	local function add(kind: string, data, key: number?)
+		table.insert(w.events, {t = now(), kind = kind, data = data, key = key})
 	end
 	local remotes = ReplicatedStorage:FindFirstChild("PattayaRemotes")
 	local ju = remotes and remotes:FindFirstChild("JobUpdate")
@@ -2360,7 +2371,7 @@ function TK.jobWatch()
 		end))
 	end
 	table.insert(w.conns, player:GetAttributeChangedSignal("Recovery_HitCount"):Connect(function()
-		add("hit", player:GetAttribute("Recovery_LastHitTier"))
+		add("hit", player:GetAttribute("Recovery_LastHitTier"), player:GetAttribute("Recovery_LastHitKey"))
 	end))
 	table.insert(w.conns, player:GetAttributeChangedSignal("TrafficHits"):Connect(function()
 		add("accepted", player:GetAttribute("TrafficHitTier"))
@@ -2375,10 +2386,15 @@ function TK.jobWatch()
 	function w:report(): (string, boolean)
 		local lines, ok = {}, true
 		local bumps, accepted, near = {}, {}, 0
+		-- near misses count for the tip only while the job runs: up to its finish (0.3 s of replication slack)
+		local finishT = nil
+		for _, e in self.events do
+			if e.kind == "job finish" then finishT = e.t end
+		end
 		for _, e in self.events do
 			if e.kind == "job bump" then table.insert(bumps, e) end
 			if e.kind == "accepted" then table.insert(accepted, e) end
-			if e.kind == "near" then near += 1 end
+			if e.kind == "near" and (finishT == nil or e.t <= finishT + 0.3) then near += 1 end
 		end
 		local used = {}
 		for _, a in accepted do
@@ -2441,6 +2457,1804 @@ function TK.jobWatch()
 	end
 	TK.handles.jobWatch = w
 	return w
+end
+
+-- Taxi / Delivery economy, automated (team18/arcade-econ) -----------------------------------------------------------
+-- Written and run offline only (tools/qa/tests/test_jobdrive.py drives it against the real PattayaJobsServer,
+-- PattayaRecoveryServer and PattayaTestKitServer in a simulated client-server session); not yet run in Studio.
+--
+-- TK.jobDriveTestStart(opts) -> handle   the whole test in the background (one job takes 30-70 s): handle:poll(),
+--   handle.lines (every line so far), handle.done, handle.summary, handle:stop() (cancels the job, runs TK.cleanup).
+--   Also TK.handles.jobDrive, and TK.jobDrivePoll() (works from another copy of this module).
+-- TK.jobDriveTest(opts, out?) -> summary, runs   the same, blocking (inside a runner, or a thread that may wait).
+-- One run, no human input:
+--   1. the server kit warps the car to a job stand of the kind BEFORE the job (the 260 studs/s check is not running
+--      yet); the car stops in the ring and requests the job as the E key does (RequestJob);
+--   2. an autopilot drives the route the server sent (JobUpdate "start"): CFrame mode, at most opts.cruise (100)
+--      studs/s and the frame-rate cap (JM.capFor: 76 at 15 fps), braking at 70 studs/s2 (the speed-drop detector
+--      needs 55 in 0.35 s). Every phase is a continuous curve (Hermite lead-ins and rejoins): never a position jump;
+--   3. on the way it stages traffic hits with the hitMatrix isolation (TK_HitTarget, shared keys; between events
+--      TK_HitTarget = 0 ghosts every car, so nothing else can hit the car or pay a near miss): a head-on (a heavy
+--      rear-end when no oncoming car comes), a light rear-end, a scrape and a near miss, each on a traffic car whose
+--      lane runs along the route (PattayaRecovery.stagePlan, the hitMatrix geometry; JM.passOncomingPlan for a near
+--      miss past an oncoming car). At the touch the car is handed to CarController: the impact is its real arcade
+--      response. Then a gentle stop (heavy / head-on) and a curve back onto the route;
+--   4. it stops in the destination ring and the server finishes the job;
+--   5. TK.jobWatch records the whole job. Checks: every applied heavy / head-on hit was accepted by the server and
+--      gave exactly one bump; light / scrape hits gave none; no two bumps within 1 s; no bump without a hit (the
+--      autopilot never trips the detector); each staged hit had the planned tier and the target's key; the near
+--      miss was paid once; the pay-out = TK.jobPayout (fare cut + time tip + 5 per near miss); Money went up by it.
+--      A run is PASS, FAIL, or INCOMPLETE (every check passed but an event found no traffic car along that route).
+-- opts: kinds ({"taxi", "delivery"}), runs (2 per kind), fps (nil = the client rate; 15 / 30 / 60 or a list: the
+--   TestKit FPS cap), stands (ids: a list, or {taxi = {...}, delivery = {...}}; default JM.STANDS: the stands with the
+--   most traffic along their routes, offline analysis), cruise (100), heavy (false; true = a heavy rear-end is needed
+--   as well), detour (30: studs from the route a staged run may use), keepProgress (true: Money / EXP / Level are set
+--   back at the end), verbose (the per-run jobWatch report and the server speed probe).
+-- Never changes saved state: CollisionModel is "arcade" only while the test runs (a server kit lease: given back at
+-- the end, on any error or stop, and it expires by itself), the job of a failed run is cancelled, progress is set
+-- back, and TK.cleanup leaves nothing over.
+do
+	local JM = {}
+	TK.jobMath = JM -- the pure maths (tools/qa/tests/test_jobdrive.py)
+
+	JM.Y = 1 + 2.8 -- staged runs: road + chassis ride height (as hitBody)
+	JM.ACCEL, JM.BRAKE = 60, 70 -- autopilot, studs/s2 (braking well under the jobs detector's 55 in 0.35 s)
+	JM.HIT_BRAKE = 60 -- the gentle stop after a heavy / head-on hit
+	JM.MAX_DROP = 25 -- studs/s a planned curve may lose within 0.35 s
+	JM.GROUPS = {crash = {"headon", "heavy"}, heavy = {"heavy"}, light = {"light"}, scrape = {"scrape"},
+		near = {"nearOncoming", "near"}}
+	JM.EVENTS = {"crash", "light", "scrape", "near"}
+	JM.STANDS = {taxi = {"police_station", "central_festival", "terminal21", "walking_street"},
+		delivery = {"night_plaza", "bua_khao", "naklua_fresh", "windy_plaza"}}
+
+	-- the autopilot's top speed at a client frame rate. The server measures speed from positions every 0.1 s; at 15 fps
+	-- a sample holds one client frame or two, so a steady v reads 0.57 v .. 1.33 v (a 0.76 v "drop" from aliasing
+	-- alone; the detector wants 55): 76 keeps it near the limit only in a sequence that cannot come twice in a row.
+	function JM.capFor(hz: number?): number
+		local f = hz or 60
+		if f <= 17 then
+			return 76
+		elseif f <= 24 then
+			return 100
+		elseif f <= 34 then
+			return 110
+		end
+		return 120
+	end
+
+	-- cubic Hermite in time: from (x0, z0) moving at (vx0, vz0) to (x1, z1) moving at (vx1, vz1) T seconds later.
+	-- f(u) -> x, z, vx, vz for u = seconds since the start (clamped to [0, T]). Position and velocity are continuous at
+	-- both ends, so a lead-in or a rejoin never jumps.
+	function JM.hermite(x0: number, z0: number, vx0: number, vz0: number, x1: number, z1: number, vx1: number,
+		vz1: number, T: number)
+		return function(u: number): (number, number, number, number)
+			local s = math.clamp(u / T, 0, 1)
+			local s2, s3 = s * s, s * s * s
+			local h00, h10, h01, h11 = 2 * s3 - 3 * s2 + 1, s3 - 2 * s2 + s, -2 * s3 + 3 * s2, s3 - s2
+			local d00, d10, d01, d11 = 6 * s2 - 6 * s, 3 * s2 - 4 * s + 1, -6 * s2 + 6 * s, 3 * s2 - 2 * s
+			local x = h00 * x0 + h10 * T * vx0 + h01 * x1 + h11 * T * vx1
+			local z = h00 * z0 + h10 * T * vz0 + h01 * z1 + h11 * T * vz1
+			local vx = (d00 * x0 + d10 * T * vx0 + d01 * x1 + d11 * T * vx1) / T
+			local vz = (d00 * z0 + d10 * T * vz0 + d01 * z1 + d11 * T * vz1) / T
+			return x, z, vx, vz
+		end
+	end
+
+	-- a curve f over T seconds: top speed, the lowest velocity along (cx, cz) (< 0 = it would turn back), the largest
+	-- acceleration, and the largest speed loss within the jobs detector's 0.35 s window
+	function JM.curveStats(f, T: number, cx: number, cz: number)
+		local n = math.max(8, math.ceil(T / 0.05))
+		local dt = T / n
+		local maxV, minAlong, maxA, maxDrop = 0, math.huge, 0, 0
+		local speeds = table.create(n + 1)
+		local pvx, pvz = nil, nil
+		for i = 0, n do
+			local _, _, vx, vz = f(i * dt)
+			local sp = math.sqrt(vx * vx + vz * vz)
+			speeds[i + 1] = sp
+			maxV = math.max(maxV, sp)
+			minAlong = math.min(minAlong, vx * cx + vz * cz)
+			if pvx then
+				maxA = math.max(maxA, math.sqrt((vx - pvx) ^ 2 + (vz - (pvz :: number)) ^ 2) / dt)
+			end
+			pvx, pvz = vx, vz
+		end
+		local w = math.max(1, math.floor(0.35 / dt + 0.5))
+		for i = 1, #speeds do
+			local peak = 0
+			for j = math.max(1, i - w), i do
+				peak = math.max(peak, speeds[j])
+			end
+			maxDrop = math.max(maxDrop, peak - speeds[i])
+		end
+		return {maxV = maxV, minAlong = minAlong, maxA = maxA, maxDrop = maxDrop}
+	end
+
+	-- the staged event a traffic car of speed vT allows with the autopilot capped at `cap`: {name, mode, speed,
+	-- angle, gap, approach (s from the run's start to the touch / level), want (tier, or "near")}, or nil. Hits are
+	-- checked against the owner's table (PattayaRecovery.expectedStaged) with margin: head-on vc >= 110, heavy
+	-- rear-end vc 60, light vc 20-30, scrape at 7 degrees (vc ~9), near misses at NEAR_SPEED + 5 or more.
+	function JM.eventSpec(name: string, vT: number, cap: number, cfg): {[string]: any}?
+		local spec
+		if name == "headon" then
+			spec = {mode = "head", speed = math.min(cap, math.max(70, 115 - vT)), approach = 1.0, want = "headon"}
+		elseif name == "heavy" then
+			spec = {mode = "rear", speed = vT + 60, approach = 1.2, want = "heavy"}
+		elseif name == "light" then
+			spec = {mode = "rear", speed = vT + math.clamp(cap - vT, 0, 30), approach = 1.4, want = "light"}
+		elseif name == "scrape" then
+			spec = {mode = "side", speed = math.min(cap, 80), angle = 7, want = "scrape"}
+		elseif name == "near" then
+			spec = {mode = "pass", speed = math.min(cap, math.max(Rec.NEAR_SPEED + 8, vT + 30)), gap = 5, approach = 1.2,
+				want = "near"}
+		elseif name == "nearOncoming" then
+			spec = {mode = "passOncoming", speed = math.min(cap, 85), gap = 5, approach = 0.9, want = "near"}
+		else
+			return nil
+		end
+		if spec.speed > cap + 1e-6 then
+			return nil
+		end
+		if spec.mode == "rear" and spec.speed - vT < (if name == "light" then 20 else 55) then
+			return nil
+		end
+		if spec.mode == "side" and spec.speed * math.cos(math.rad(spec.angle)) < vT + 15 then
+			return nil
+		end
+		if spec.want == "near" then
+			if spec.speed < Rec.NEAR_SPEED + 5 or (spec.mode == "pass" and spec.speed < vT + 20) then
+				return nil
+			end
+		else
+			local res = Rec.expectedStaged(spec.mode, spec.speed, spec.angle, vT, cfg)
+			if res.tier ~= spec.want then
+				return nil
+			end
+			spec.loss = res.loss
+		end
+		spec.name = name
+		return spec
+	end
+
+	-- near miss past an ONCOMING traffic car (its lane runs against mine): my car drives the other way along its
+	-- route, gap studs off its right side (the road-centre side), from `lead` studs ahead of it to 30 studs behind it.
+	-- p = {route, s0, t0, vT, halfWid, halfLen, speed, lead, gap}. Same interface as PattayaRecovery.stagePlan's
+	-- "pass": plan(t) -> x, z, dirX, dirZ, studs left to drive; the level time; the arc span both cars use; and the
+	-- span around the target while level (positions and directions from PattayaRecovery's shared route maths).
+	function JM.passOncomingPlan(p)
+		local r, s0, t0, vT, speed = p.route, p.s0, p.t0, p.vT, p.speed
+		local lead = p.lead or 100
+		local lat = p.halfWid + Rec.CAR_HALF_WID + (p.gap or 5)
+		local past = p.halfLen + Rec.CAR_HALF_LEN + 30
+		local closing = math.max(speed + vT, 1e-3)
+		local level = t0 + lead / closing
+		local tEnd = t0 + (lead + past) / closing
+		local plan = function(t: number)
+			local sc = s0 + lead - speed * (t - t0)
+			local x, z = Rec.routePoint(r, sc)
+			local tx, tz = Rec.routeTangent(r, sc)
+			return x - tz * lat, z + tx * lat, -tx, -tz, sc - (s0 + vT * (t - t0) - past)
+		end
+		local sEnd = s0 + lead - speed * (tEnd - t0)
+		local sT = s0 + vT * (level - t0)
+		return plan, level, {sEnd - Rec.CAR_HALF_LEN - 10, s0 + lead + Rec.CAR_HALF_LEN + 10},
+			{sT - p.halfLen - 6, sT + p.halfLen + 6}
+	end
+
+	-- The bookkeeping of one job from TK.jobWatch's events ({t, kind, data, key}) as plain data, the owner's rules:
+	-- every applied heavy / head-on hit was accepted by the server (opts.requireAccepted, default on) and every accepted
+	-- hit gave exactly one bump (from 0.5 s before to 1.5 s after it); a light / scrape hit gave no bump; no two bumps
+	-- within 1 s; a bump without an accepted hit ("stray": the speed-drop detector: kerbs, walls, or a bad autopilot)
+	-- fails with opts.noStray. Near misses count from the job's start to its finish (+0.3 s). Returns
+	-- {ok, lines, accepted, bumps, hits, heavy, unaccepted, light, lightBumped, doubles, stray, near, perAccepted}.
+	function JM.matchBumps(events, opts)
+		opts = opts or {}
+		local lines, ok = {}, true
+		local hits, accepted, bumps = {}, {}, {}
+		local t0, tf = nil, nil
+		for _, e in events do
+			if e.kind == "job start" then
+				t0 = t0 or e.t
+			elseif e.kind == "job finish" then
+				tf = e.t
+			elseif e.kind == "hit" then
+				table.insert(hits, e)
+			elseif e.kind == "accepted" then
+				table.insert(accepted, e)
+			elseif e.kind == "job bump" then
+				table.insert(bumps, e)
+			end
+		end
+		local ref = t0 or (events[1] and events[1].t) or 0
+		local near = 0
+		for _, e in events do
+			if e.kind == "near" and (t0 == nil or e.t >= t0 - 0.05) and (tf == nil or e.t <= tf + 0.3) then
+				near += 1
+			end
+		end
+		local res = {accepted = #accepted, bumps = #bumps, hits = #hits, near = near, heavy = 0, unaccepted = 0,
+			light = 0, lightBumped = 0, doubles = 0, stray = 0, perAccepted = {}}
+		local used = {}
+		for _, a in accepted do
+			local n = 0
+			for i, b in bumps do
+				if b.t >= a.t - 0.5 and b.t <= a.t + 1.5 then
+					n += 1
+					used[i] = true
+				end
+			end
+			table.insert(res.perAccepted, n)
+			if n ~= 1 then
+				ok = false
+				table.insert(lines, ("accepted %s hit at %+.2f s: %d bump(s), expected 1 - FAIL"):format(tostring(a.data),
+					a.t - ref, n))
+			end
+		end
+		for _, h in hits do
+			if h.data == "heavy" or h.data == "headon" then
+				res.heavy += 1
+				local found = false
+				for _, a in accepted do
+					if a.t >= h.t - 0.3 and a.t <= h.t + 1.0 then
+						found = true
+					end
+				end
+				if not found then
+					res.unaccepted += 1
+					if opts.requireAccepted ~= false then
+						ok = false
+						table.insert(lines, ("%s hit at %+.2f s (key %s) was not accepted by the server (TrafficHits) - FAIL")
+							:format(tostring(h.data), h.t - ref, tostring(h.key)))
+					end
+				end
+			elseif h.data == "light" or h.data == "scrape" then
+				res.light += 1
+				for i, b in bumps do
+					if b.t >= h.t - 0.2 and b.t <= h.t + 1.5 and not used[i] then
+						ok = false
+						res.lightBumped += 1
+						table.insert(lines, ("%s hit at %+.2f s (key %s) was followed by a bump - FAIL"):format(h.data,
+							h.t - ref, tostring(h.key)))
+					end
+				end
+			end
+		end
+		for i = 2, #bumps do
+			if bumps[i].t - bumps[i - 1].t <= 1 then
+				ok = false
+				res.doubles += 1
+				table.insert(lines, ("two bumps %.2f s apart - FAIL (one crash counted twice)"):format(bumps[i].t - bumps[i - 1].t))
+			end
+		end
+		for i in bumps do
+			if not used[i] then
+				res.stray += 1
+			end
+		end
+		if res.stray > 0 then
+			if opts.noStray then
+				ok = false
+			end
+			table.insert(lines, ("%d bump(s) without an accepted traffic hit (the speed-drop detector)%s"):format(res.stray,
+				if opts.noStray then " - FAIL (the autopilot must never trip it)" else ""))
+		end
+		res.ok, res.lines = ok, lines
+		return res
+	end
+
+	-- the job stands this client knows (JobStands models are Persistent): {id, kind, label, pos (ring centre), road}
+	local function standList(kind: string?)
+		local world = workspace:FindFirstChild("PattayaWorld")
+		local folder = world and world:FindFirstChild("JobStands")
+		local out = {}
+		if folder then
+			for _, m in folder:GetChildren() do
+				local ring = m:FindFirstChild("Ring")
+				if ring and ring:IsA("BasePart") and (kind == nil or m:GetAttribute("Kind") == kind) then
+					local pole = m:FindFirstChild("Pole")
+					local road = nil
+					if pole and pole:IsA("BasePart") then
+						local k = flat(pole.Position - ring.Position)
+						road = if k.Magnitude > 0.1 then Vector3.new(-k.Z, 0, k.X).Unit else nil
+					end
+					table.insert(out, {id = m.Name, kind = m:GetAttribute("Kind"), label = m:GetAttribute("Label"),
+						pos = ring.Position, road = road})
+				end
+			end
+		end
+		return out
+	end
+	TK.jobStands = standList
+
+	-- A server kit call that is safe inside a background runner: the runner is a coroutine resumed from Heartbeat, so it
+	-- must never yield to the engine itself (InvokeServer would be resumed early); the call runs in its own thread and
+	-- the runner waits frames for it. Elsewhere it is a plain TK.server call.
+	local function serverCall(timeout: number, action: string, ...)
+		local args = table.pack(...)
+		if not (runnerCo ~= nil and coroutine.running() == runnerCo) then
+			return TK.server(action, table.unpack(args, 1, args.n))
+		end
+		local box = {done = false, res = nil :: any}
+		task.spawn(function()
+			box.res = table.pack(pcall(TK.server, action, table.unpack(args, 1, args.n)))
+			box.done = true
+		end)
+		local t0 = os.clock()
+		while not box.done do
+			if os.clock() - t0 > timeout then
+				error(("server kit call %s did not return within %d s"):format(action, timeout), 0)
+			end
+			waitFrame()
+		end
+		if not box.res[1] then
+			error(box.res[2], 0)
+		end
+		return table.unpack(box.res, 2, box.res.n)
+	end
+	-- fire and forget (cleanup paths: they must not wait)
+	local function serverSend(action: string, ...)
+		local args = table.pack(...)
+		task.spawn(function()
+			pcall(TK.server, action, table.unpack(args, 1, args.n))
+		end)
+	end
+
+	-- the job route as an autopilot path: resampled every 4 studs, corner speeds (bot grip 150), the cruise cap, a stop
+	-- at the destination at JM.BRAKE, and the nominal time to go from every point
+	local function buildPath(route, cruise: number, from: Vector3?)
+		local src = {}
+		if from and flat(from - route[1]).Magnitude > 1 then
+			table.insert(src, Vector3.new(from.X, route[1].Y, from.Z)) -- join where the car stands
+		end
+		for i = 1, #route do
+			local p = route[i]
+			if #src == 0 or flat(p - src[#src]).Magnitude > 0.05 then
+				table.insert(src, p)
+			end
+		end
+		assert(#src >= 2, "jobDriveTest: the job route has fewer than 2 points")
+		local pts, _, cum = resample(src, nil)
+		local prof = profile(pts, {}, 150, JM.BRAKE)
+		for i = 1, #prof do
+			prof[i] = math.min(prof[i], cruise)
+		end
+		prof[#prof] = 0
+		for i = #pts - 1, 1, -1 do
+			prof[i] = math.min(prof[i], math.sqrt(prof[i + 1] ^ 2 + 2 * JM.BRAKE * (cum[i + 1] - cum[i])))
+		end
+		local tGo = table.create(#pts, 0)
+		for i = #pts - 1, 1, -1 do
+			tGo[i] = tGo[i + 1] + (cum[i + 1] - cum[i]) / math.max((prof[i] + prof[i + 1]) / 2, 6)
+		end
+		return {pts = pts, cum = cum, prof = prof, tGo = tGo, total = cum[#cum], hintIdx = 1}
+	end
+
+	local function pathIndex(path, s: number): number
+		local cum = path.cum
+		local lo, hi = 1, #cum
+		if s <= 0 then
+			return 1
+		elseif s >= cum[hi] then
+			return math.max(1, hi - 1)
+		end
+		while hi - lo > 1 do
+			local mid = (lo + hi) // 2
+			if cum[mid] <= s then lo = mid else hi = mid end
+		end
+		return lo
+	end
+	-- x, z and the unit direction of the path at arc s
+	local function pathPoint(path, s: number): (number, number, number, number)
+		local i = pathIndex(path, s)
+		local pts, cum = path.pts, path.cum
+		local j = math.min(i + 1, #pts)
+		local seg = cum[j] - cum[i]
+		local f = if seg > 1e-6 then math.clamp((s - cum[i]) / seg, 0, 1) else 0
+		local a, b = pts[i], pts[j]
+		local dx, dz = b.X - a.X, b.Z - a.Z
+		local m = math.sqrt(dx * dx + dz * dz)
+		if m < 1e-6 then
+			dx, dz, m = 0, -1, 1
+		end
+		return a.X + (b.X - a.X) * f, a.Z + (b.Z - a.Z) * f, dx / m, dz / m
+	end
+	-- speed limit and nominal time to go at arc s (interpolated; 0 at the end)
+	local function profAt(path, s: number): number
+		if s >= path.total - 1e-3 then
+			return 0
+		end
+		local i = pathIndex(path, s)
+		local seg = path.cum[i + 1] - path.cum[i]
+		local f = if seg > 1e-6 then math.clamp((s - path.cum[i]) / seg, 0, 1) else 0
+		return path.prof[i] + (path.prof[i + 1] - path.prof[i]) * f
+	end
+	local function timeToGo(path, s: number): number
+		local i = pathIndex(path, s)
+		local seg = path.cum[i + 1] - path.cum[i]
+		local f = if seg > 1e-6 then math.clamp((s - path.cum[i]) / seg, 0, 1) else 0
+		return path.tGo[i] + (path.tGo[i + 1] - path.tGo[i]) * f
+	end
+	-- the point of the path nearest (x, z) among arcs [s0, s0 + span]: arc, distance
+	local function pathProject(path, x: number, z: number, s0: number, span: number): (number?, number)
+		local pts, cum = path.pts, path.cum
+		local i = pathIndex(path, math.max(s0, 0))
+		local best, bestS = math.huge, nil
+		while i < #pts and cum[i] <= s0 + span do
+			local a, b = pts[i], pts[i + 1]
+			local abx, abz = b.X - a.X, b.Z - a.Z
+			local l2 = abx * abx + abz * abz
+			local t = if l2 > 1e-9 then math.clamp(((x - a.X) * abx + (z - a.Z) * abz) / l2, 0, 1) else 0
+			local d = math.sqrt((x - a.X - abx * t) ^ 2 + (z - a.Z - abz * t) ^ 2)
+			if d < best then
+				best, bestS = d, cum[i] + t * (cum[i + 1] - cum[i])
+			end
+			i += 1
+		end
+		return bestS, best
+	end
+	JM.buildPath, JM.pathPoint, JM.pathProject, JM.profAt, JM.timeToGo = buildPath, pathPoint, pathProject, profAt, timeToGo
+
+	-- where the autopilot will be over the next `horizon` s if it just keeps driving the route: {t, x, z}
+	local function nominalAhead(path, s: number, v: number, cruise: number, horizon: number)
+		local out = {}
+		local t = 0
+		while t <= horizon + 1e-6 do
+			local x, z = pathPoint(path, s)
+			table.insert(out, {t = t, x = x, z = z})
+			for _ = 1, 5 do
+				local vw = math.min(cruise, profAt(path, s))
+				v = if vw > v then math.min(vw, v + JM.ACCEL * 0.05) else math.max(vw, v - JM.BRAKE * 0.05)
+				s = math.min(path.total, s + v * 0.05)
+			end
+			t += 0.25
+		end
+		return out
+	end
+
+	-- the driver: ONE PreSimulation connection places the car every physics step for the whole job.
+	-- Modes: "hold" (still), "route" (the job route), "curve" (a Hermite lead-in to a staged run, or a rejoin onto the
+	-- route), "stage" (the staged run itself, hitBody's placement: exactly on the plan at Heartbeat), "free" (no
+	-- placement: CarController's arcade hit response). Every placed frame puts the car one physics step short of where
+	-- it must be at Heartbeat (as hitBody), with that velocity, so at Heartbeat it is exactly on the curve.
+	local Driver = {}
+	Driver.__index = Driver
+
+	local function newDriver(chassis: BasePart, model: Model, cap: number)
+		local p = chassis.Position
+		local l = flat(chassis.CFrame.LookVector)
+		local D = setmetatable({chassis = chassis, model = model, mode = "hold", path = nil :: any, s = 0, v = 0,
+			cruise = cap, cap = cap, lastPos = p, lastVel = Vector3.zero, lastT = workspace:GetServerTimeNow(),
+			look = if l.Magnitude > 0.1 then l.Unit else Vector3.new(0, 0, -1), ride = 2.8, y = p.Y,
+			colliders = carColliders(model), saved = {}, collOff = false, st = nil :: any, curve = nil :: any,
+			arrived = false, lost = false, dead = false, maxSpeed = 0, params = RaycastParams.new()}, Driver)
+		for _, part in D.colliders do
+			D.saved[part] = part.CanCollide
+		end
+		D.params.FilterType = Enum.RaycastFilterType.Exclude
+		D.conn = onPreSim(function(stepDt: number)
+			D:step(stepDt)
+		end)
+		return D
+	end
+
+	-- the car's Y over the ground at (x, z) (ride height kept), nil when nothing is below
+	function Driver:groundY(x: number, z: number, fromY: number): number?
+		self.params.FilterDescendantsInstances = excludeList(self.model)
+		local hit = workspace:Raycast(Vector3.new(x, fromY + 12, z), Vector3.new(0, -60, 0), self.params)
+		if hit and not carModelOf(hit.Instance) then
+			return hit.Position.Y + self.ride
+		end
+		return nil
+	end
+
+	function Driver:noCollide()
+		for _, part in self.colliders do
+			if part.Parent and part.CanCollide then
+				part.CanCollide = false
+			end
+		end
+		self.collOff = true
+	end
+
+	-- collisions back as they were (the end of a run: D:stop)
+	function Driver:restoreCollisions()
+		if not self.collOff then
+			return
+		end
+		for part, c in self.saved do
+			if part.Parent then
+				part.CanCollide = c
+			end
+		end
+		self.collOff = false
+	end
+
+	function Driver:place(x: number, y: number, z: number, vx: number, vz: number, lx: number, lz: number, dt: number,
+		t: number)
+		local p = Vector3.new(x - vx * dt, y, z - vz * dt)
+		local look = Vector3.new(lx, 0, lz)
+		look = if look.Magnitude > 1e-3 then look.Unit else self.look
+		self.chassis.CFrame = CFrame.lookAt(p, p + look)
+		self.chassis.AssemblyLinearVelocity = Vector3.new(vx, 0, vz)
+		self.chassis.AssemblyAngularVelocity = Vector3.zero
+		self.lastPos, self.lastVel, self.lastT, self.look = Vector3.new(x, y, z), Vector3.new(vx, 0, vz), t, look
+		self.maxSpeed = math.max(self.maxSpeed, math.sqrt(vx * vx + vz * vz))
+	end
+
+	-- the look turns towards the velocity at most 4 rad/s
+	function Driver:turnTowards(vx: number, vz: number, dt: number): (number, number)
+		local cur = self.look
+		local sp = math.sqrt(vx * vx + vz * vz)
+		if sp < 2 then
+			return cur.X, cur.Z
+		end
+		local wx, wz = vx / sp, vz / sp
+		local ang = math.atan2(cur.X * wz - cur.Z * wx, cur.X * wx + cur.Z * wz)
+		local maxStep = 4 * dt
+		if math.abs(ang) <= maxStep then
+			return wx, wz
+		end
+		local a = if ang > 0 then maxStep else -maxStep
+		local c, s = math.cos(a), math.sin(a)
+		return cur.X * c - cur.Z * s, cur.X * s + cur.Z * c
+	end
+
+	-- straight on at the last velocity (a staged run that ended, until the runner hands over to a rejoin)
+	function Driver:coast(t: number, dt: number)
+		local v = self.lastVel
+		local u = t - self.lastT
+		local p = self.lastPos + v * u
+		self:place(p.X, self.lastPos.Y, p.Z, v.X, v.Z, self.look.X, self.look.Z, dt, t)
+	end
+
+	function Driver:routeStep(t: number, dt: number)
+		local path = self.path
+		local vWant = math.min(self.cruise, profAt(path, self.s))
+		if vWant > self.v then
+			self.v = math.min(vWant, self.v + JM.ACCEL * dt)
+		else
+			self.v = math.max(vWant, self.v - JM.BRAKE * dt)
+		end
+		self.s = math.min(path.total, self.s + self.v * dt)
+		local p, dir = at(path, self.s)
+		local p2 = at(path, math.min(path.total, self.s + 6))
+		local d = flat(p2 - p)
+		if d.Magnitude > 0.1 then
+			dir = d.Unit
+		end
+		local y = self:groundY(p.X, p.Z, self.y) or self.y
+		self.y = y
+		self:place(p.X, y, p.Z, dir.X * self.v, dir.Z * self.v, dir.X, dir.Z, dt, t)
+		if self.s >= path.total - 0.05 and self.v < 0.5 then
+			self.arrived = true
+		end
+	end
+
+	function Driver:curveStep(t: number, dt: number)
+		local c = self.curve
+		local u = t - c.tA
+		if c.kind == "leadin" then
+			local st = self.st
+			local count = player:GetAttribute("Recovery_HitCount") or 0
+			if st.hitsBefore ~= nil and count ~= st.hitsBefore then
+				-- a hit before the staged run began: not the staged one (the target is the only real car)
+				st.snap, st.handOff, st.done, st.reason = snapshotHit(), t, true, "hit during the lead-in"
+				self.mode = "free"
+				return
+			end
+			st.hitsBefore = count
+			st.touchesBefore = player:GetAttribute("Traffic_Touches") or 0
+			if t >= c.tEnd then
+				self.mode = "stage"
+				self:stageStep(t, dt)
+				return
+			end
+		elseif u >= c.T then
+			-- back on the route: continue from where the curve ends, at its end speed
+			self.mode = "route"
+			self.s, self.v = math.max(c.sJ + c.vJ * (u - c.T) - c.vJ * dt, 0), c.vJ
+			self.path.hintIdx = pathIndex(self.path, self.s)
+			self.y = c.y1
+			self:routeStep(t, dt)
+			return
+		end
+		local x, z, vx, vz = c.f(u)
+		local k = math.clamp(u / c.T, 0, 1)
+		local y = c.y0 + (c.y1 - c.y0) * (k * k * (3 - 2 * k))
+		local lx, lz = self:turnTowards(vx, vz, dt)
+		self:place(x, y, z, vx, vz, lx, lz, dt, t)
+	end
+
+	-- the staged run: hitBody's per-step logic, from a flying start (the lead-in ends exactly on the plan, moving at its
+	-- speed). The hit is counted by CarController (Recovery_HitCount); from that frame on the car is not placed again.
+	function Driver:stageStep(t: number, dt: number)
+		local st = self.st
+		if st.done then
+			self:coast(t, dt)
+			return
+		end
+		local count = player:GetAttribute("Recovery_HitCount") or 0
+		if not st.started then
+			st.started = true
+			st.startClock = os.clock()
+			-- the target must have a real model under its key (the isolation hook ghosts every OTHER car)
+			local m = trafficModels()[st.key]
+			local why = if not m then "no model under its key" elseif ghosted(m) then "its model is ghosted" else nil
+			if why then
+				st.done, st.reason, st.abort = true, "target check: " .. why, "target"
+				self:coast(t, dt)
+				return
+			end
+		end
+		st.frames += 1
+		if st.hitsBefore and count ~= st.hitsBefore then
+			local snap = snapshotHit()
+			st.snap, st.handOff, st.done = snap, t, true
+			if st.pass then
+				st.reason = "hit during the pass"
+			else
+				local ok, why = Rec.acceptStagedHit({hitT = if type(snap.t) == "number" then snap.t else t,
+					approachT = st.approachT, meet = st.meet, frameDt = 1 / math.max(rates.hb, 1), hitKey = snap.key,
+					targetKey = st.key})
+				st.reason = if ok then "hit" else "rejected: " .. tostring(why)
+			end
+			self.mode = "free"
+			return
+		end
+		local touches = player:GetAttribute("Traffic_Touches") or 0
+		if st.touchesBefore and touches ~= st.touchesBefore and not st.touch then
+			st.touch = {t = t, key = player:GetAttribute("Traffic_TouchKey")}
+		end
+		local x, z, dx, dz, gap = st.plan(t)
+		if st.pass then
+			if gap <= 0 or t - st.approachT > 15 then
+				st.done, st.reason = true, "passed"
+			end
+		elseif st.prevGap and st.prevGap < -4 then
+			st.done, st.reason = true, "no hit registered (overlapping)"
+		elseif t > st.meet + 2 or t - st.approachT > 10 then
+			st.done, st.reason = true, "timeout"
+		end
+		local dir = Vector3.new(dx, 0, dz).Unit
+		st.dir, st.prevGap = dir, gap
+		self:place(x, JM.Y, z, dir.X * st.speed, dir.Z * st.speed, dir.X, dir.Z, dt, t)
+	end
+
+	function Driver:step(stepDt: number)
+		if self.dead then
+			return
+		end
+		local chassis = self.chassis
+		if not chassis.Parent or TK.car() ~= chassis then
+			self.lost = true
+			return
+		end
+		if chassis.Anchored then
+			return
+		end
+		-- the car ignores scenery for the whole job (re-applied every step: the Humanoid may switch body parts back),
+		-- also while CarController moves it after a hit ("free"); D:stop() gives the collisions back
+		self:noCollide()
+		if self.mode == "free" then
+			return
+		end
+		local t = workspace:GetServerTimeNow()
+		local dt = math.clamp(stepDt or 1 / 60, 1 / 240, 0.1)
+		if self.mode == "hold" then
+			local p = self.lastPos
+			self:place(p.X, p.Y, p.Z, 0, 0, self.look.X, self.look.Z, dt, t)
+		elseif self.mode == "route" then
+			self:routeStep(t, dt)
+		elseif self.mode == "curve" then
+			self:curveStep(t, dt)
+		elseif self.mode == "stage" then
+			self:stageStep(t, dt)
+		end
+	end
+
+	-- back onto the route: a Hermite from where the car is (and its velocity) to a point L studs further along the
+	-- route than both its projection and sFloor, arriving at the route's speed there
+	function Driver:startRejoin(sFloor: number, fromRest: boolean?)
+		local path = self.path
+		local chassis = self.chassis
+		local pos, vel, t
+		if self.mode == "free" then
+			pos = chassis.Position
+			local v = chassis.AssemblyLinearVelocity
+			vel = Vector3.new(v.X, 0, v.Z)
+			t = workspace:GetServerTimeNow()
+			local l = flat(chassis.CFrame.LookVector)
+			if l.Magnitude > 0.1 then
+				self.look = l.Unit
+			end
+		else
+			pos, vel, t = self.lastPos, self.lastVel, self.lastT
+		end
+		if fromRest and vel.Magnitude < 16 then
+			vel = Vector3.zero
+		end
+		local sp = vel.Magnitude
+		local sP = pathProject(path, pos.X, pos.Z, math.max(sFloor - 60, 0), 800) or sFloor
+		local sJ = math.min(path.total, math.max(sP, sFloor) + math.clamp(25 + 1.2 * sp, 30, 120))
+		local jx, jz, tx, tz = pathPoint(path, sJ)
+		local vJ = if sJ >= path.total - 0.5 then 0 else math.min(self.cruise, profAt(path, sJ), math.max(sp + 40, 35))
+		local dist = math.sqrt((jx - pos.X) ^ 2 + (jz - pos.Z) ^ 2)
+		local cx, cz = if dist > 1e-3 then (jx - pos.X) / dist else tx, if dist > 1e-3 then (jz - pos.Z) / dist else tz
+		local T = math.clamp(2 * dist / math.max(sp + vJ, 10), 0.8, 6)
+		local f = JM.hermite(pos.X, pos.Z, vel.X, vel.Z, jx, jz, tx * vJ, tz * vJ, T)
+		for _ = 1, 6 do
+			local s = JM.curveStats(f, T, cx, cz)
+			if s.maxV <= self.cap + 5 and s.maxDrop <= JM.MAX_DROP then
+				break
+			end
+			T *= 1.3
+			f = JM.hermite(pos.X, pos.Z, vel.X, vel.Z, jx, jz, tx * vJ, tz * vJ, T)
+		end
+		local y1 = self:groundY(jx, jz, pos.Y) or (1 + self.ride)
+		self.curve = {kind = "rejoin", f = f, tA = t, T = T, sJ = sJ, vJ = vJ, y0 = pos.Y, y1 = y1}
+		self.arrived = false
+		self.mode = "curve"
+	end
+
+	function Driver:stop()
+		if self.dead then
+			return
+		end
+		self.dead = true
+		if self.conn then
+			self.conn:Disconnect()
+		end
+		local c = self.chassis
+		if c.Parent and not c.Anchored then
+			c.AssemblyLinearVelocity = Vector3.new(0, math.min(c.AssemblyLinearVelocity.Y, 0), 0)
+			c.AssemblyAngularVelocity = Vector3.zero
+		end
+		self:restoreCollisions()
+	end
+
+	-- the staged run for event spec on target e (a trafficNear entry) starting at approachT: plan, meet, span, touch
+	local function planFor(e, spec, approachT: number)
+		local probe = table.clone(e)
+		probe.s, probe.t = e.s + e.speed * (approachT - e.t), approachT
+		local contact = e.halfLen + Rec.CAR_HALF_LEN
+		local lead = nil
+		if spec.mode == "rear" then
+			lead = contact + (spec.speed - e.speed) * spec.approach
+		elseif spec.mode == "head" then
+			lead = contact + (spec.speed + e.speed) * spec.approach
+		elseif spec.mode == "pass" then
+			lead = (spec.speed - e.speed) * spec.approach
+		elseif spec.mode == "passOncoming" then
+			return JM.passOncomingPlan({route = e.route, s0 = probe.s, t0 = approachT, vT = e.speed, halfWid = e.halfWid,
+				halfLen = e.halfLen, speed = spec.speed, lead = (spec.speed + e.speed) * spec.approach, gap = spec.gap})
+		end
+		return stage(probe, spec.mode, spec.speed, {lead = lead, angle = spec.angle, gap = spec.gap})
+	end
+
+	-- can event spec be staged on car e with a lead-in of Tl s from where the autopilot is now? Returns the candidate
+	-- or nil: the target's lane straight over the run (and steady around a side touch, as pickTarget); the run's
+	-- start and end within ctx.maxLat studs of the route ahead and heading along it; a lead-in that stays near the
+	-- route, never touches the target, never goes over the cap, never turns back and never loses more than
+	-- JM.MAX_DROP within 0.35 s; and the job still finishes in time (ctx.deadline).
+	local function tryCandidate(job, D, e, spec, Tl: number, ctx)
+		local path = job.path
+		local approachT = D.lastT + Tl
+		local plan, meet, span, touch = planFor(e, spec, approachT)
+		if not plan then
+			return nil
+		end
+		if span and not Rec.routeStraight(e.route, span[1], span[2], Rec.STAGE_BEND_DEG or 15) then
+			return nil
+		end
+		if spec.mode == "side" and touch and not Rec.routeStraight(e.route, touch[1], touch[2], Rec.SIDE_STEADY_DEG or 1, 2) then
+			return nil
+		end
+		local x1, z1, dx1, dz1 = plan(approachT)
+		local s1, lat1 = pathProject(path, x1, z1, D.s - 5, 500)
+		if not s1 or lat1 > ctx.maxLat or s1 < D.s + 5 then
+			return nil
+		end
+		local _, _, tx, tz = pathPoint(path, s1)
+		if dx1 * tx + dz1 * tz < 0.9 then
+			return nil
+		end
+		local tEnd = meet
+		if spec.mode == "pass" then
+			tEnd = meet + (e.halfLen + Rec.CAR_HALF_LEN + 30) / math.max(spec.speed - e.speed, 1)
+		elseif spec.mode == "passOncoming" then
+			tEnd = meet + (e.halfLen + Rec.CAR_HALF_LEN + 30) / (spec.speed + e.speed)
+		end
+		local x2, z2 = plan(tEnd)
+		local s2, lat2 = pathProject(path, x2, z2, s1 - 5, 600)
+		if not s2 or lat2 > ctx.maxLat + 10 or s2 < s1 then
+			return nil
+		end
+		local x0, z0 = D.lastPos.X, D.lastPos.Z
+		local dist = math.sqrt((x1 - x0) ^ 2 + (z1 - z0) ^ 2)
+		if dist < 8 then
+			return nil
+		end
+		local f = JM.hermite(x0, z0, D.lastVel.X, D.lastVel.Z, x1, z1, dx1 * spec.speed, dz1 * spec.speed, Tl)
+		local cs = JM.curveStats(f, Tl, (x1 - x0) / dist, (z1 - z0) / dist)
+		if cs.maxV > ctx.cap + 4 or cs.minAlong < 3 or cs.maxDrop > JM.MAX_DROP or cs.maxA > 160 then
+			return nil
+		end
+		local sRun = D.s
+		for k = 1, 8 do
+			local u = Tl * k / 9
+			local x, z, vx, vz = f(u)
+			local sk, latk = pathProject(path, x, z, sRun - 5, 300)
+			if not sk or latk > ctx.maxLat + 8 then
+				return nil
+			end
+			sRun = sk
+			local tx2, tz2, tlx, tlz = carAt(e, D.lastT + u)
+			local m = math.sqrt(vx * vx + vz * vz)
+			local lx, lz = if m > 1 then vx / m else dx1, if m > 1 then vz / m else dz1
+			if Rec.carsOverlap({x = x, z = z, lx = lx, lz = lz}, {x = tx2, z = tz2, lx = tlx, lz = tlz,
+				halfWid = e.halfWid, halfLen = e.halfLen}, 3) then
+				return nil
+			end
+		end
+		-- the time the event costs after its run (offline session: head-on ~2.9 s = the watched hit window near
+		-- standstill + the rejoin from rest; light / scrape ~0.7 s; near miss ~0.3 s), with margin
+		local post = if spec.want == "headon" or spec.want == "heavy" then 3.5 elseif spec.want == "near" then 0.5 else 1.0
+		local eta = tEnd + post + timeToGo(path, s2)
+		if eta > ctx.deadline then
+			return nil
+		end
+		return {e = e, spec = spec, plan = plan, meet = meet, approachT = approachT, f = f, T = Tl, tA = D.lastT,
+			eta = eta, s1 = s1, s2 = s2, tEnd = tEnd}
+	end
+
+	-- the best staged event to start now (the earliest finish of the job), or nil
+	local function planNext(job, D, ctx)
+		local now = D.lastT
+		local nominal = nominalAhead(job.path, D.s, D.v, D.cruise, 4.5)
+		local models = trafficModels()
+		local best = nil
+		for _, e in TK.trafficNear(450, Vector3.new(D.lastPos.X, 0, D.lastPos.Z), now) do
+			if job.used[e.key] or not models[e.key] then
+				continue
+			end
+			local close = false
+			for _, n in nominal do
+				local ex, ez = carAt(e, now + n.t)
+				if (ex - n.x) ^ 2 + (ez - n.z) ^ 2 < 140 * 140 then
+					close = true
+					break
+				end
+			end
+			if not close then
+				continue
+			end
+			for _, group in job.pending do
+				for _, name in JM.GROUPS[group] do
+					local spec = JM.eventSpec(name, e.speed, ctx.cap, ctx.cfg)
+					if not spec then
+						continue
+					end
+					local Tl = 1.0
+					while Tl <= 3.0 + 1e-6 do
+						local c = tryCandidate(job, D, e, spec, Tl, ctx)
+						if c then
+							c.group = group
+							-- the crash first (the bump check's core, and the event that costs the most time); same-
+							-- direction cars are scarce (one-way loops): a near miss prefers an oncoming car, the crash a
+							-- head-on
+							c.score = c.eta + (if group == "crash" then -4 else 0)
+								+ (if name == "near" then 4 elseif name == "heavy" and group == "crash" then 2 else 0)
+							if not best or c.score < best.score then
+								best = c
+							end
+							break
+						end
+						Tl += 0.25
+					end
+				end
+			end
+		end
+		return best
+	end
+
+	-- the watch after a staged hit: CarController's hit window + the anti-roll extra + 0.3 s untouched (its arcade
+	-- response), then (heavy / head-on) a gentle stop. Unlike hitBody the car keeps ignoring scenery (Driver:step): a
+	-- kerb or wall it slid into would trip the jobs speed-drop detector, a bump that is not the traffic hit's.
+	local function afterHit(D, ev, cfg, job)
+		local chassis = D.chassis
+		local snap = D.st.snap
+		local window = if snap and type(snap.control) == "number" then snap.control else 0
+		local respond = window + (cfg.Arcade_AntiRollExtra or 0) + 0.3
+		local minUp = 1
+		local t1 = os.clock()
+		while os.clock() - t1 < respond and not job.ended and not D.lost do
+			waitFrame()
+			minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
+		end
+		if ev.tier == "heavy" or ev.tier == "headon" then
+			local t2 = os.clock()
+			while os.clock() - t2 < 3 and flat(chassis.AssemblyLinearVelocity).Magnitude > 15 and not job.ended do
+				waitFrame()
+				minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
+				local vv = chassis.AssemblyLinearVelocity
+				local sp = flat(vv).Magnitude
+				if sp > 0.5 then
+					local k = math.max(sp - JM.HIT_BRAKE / math.max(rates.hb, 15), 0) / sp
+					chassis.AssemblyLinearVelocity = Vector3.new(vv.X * k, vv.Y, vv.Z * k)
+				end
+			end
+		end
+		ev.minUp, ev.respond = minUp, respond
+	end
+
+	-- one staged event: lead-in, run, CarController's response, rejoin. Returns the event record.
+	local function runEvent(job, D, cand, cfg)
+		local e, spec = cand.e, cand.spec
+		local ev = {group = cand.group, name = spec.name, mode = spec.mode, speed = spec.speed, angle = spec.angle,
+			key = e.key, vT = e.speed, want = spec.want, approachT = cand.approachT, meet = cand.meet, tEnd = cand.tEnd,
+			leadIn = cand.T, s1 = cand.s1, at = cand.tA - job.start, eta = cand.eta - job.start}
+		job.used[e.key] = true
+		player:SetAttribute("TK_HitTarget", e.key) -- only the target is real now (it un-ghosts within 0.25 s)
+		D.st = {key = e.key, plan = cand.plan, meet = cand.meet, approachT = cand.approachT, speed = spec.speed,
+			pass = spec.want == "near", frames = 0, done = false, hitsBefore = nil :: number?}
+		D.curve = {kind = "leadin", f = cand.f, tA = cand.tA, T = cand.T, tEnd = cand.approachT, y0 = D.lastPos.Y,
+			y1 = JM.Y}
+		D.mode = "curve"
+		while not D.st.done and not job.ended and not D.lost do
+			waitFrame()
+		end
+		local st = D.st
+		ev.reason, ev.touch = st.reason, st.touch
+		if st.snap then
+			local snap = st.snap
+			ev.hit, ev.tier, ev.hitKey, ev.keyMatch = true, snap.tier, snap.key, snap.key == e.key
+			ev.before, ev.after, ev.vc, ev.hitT = snap.before, snap.after, snap.vc, snap.t
+			afterHit(D, ev, cfg, job)
+		end
+		player:SetAttribute("TK_HitTarget", 0) -- every car a ghost again
+		if not job.ended and not D.lost then
+			D:startRejoin(math.max(cand.s1, D.s), ev.tier == "heavy" or ev.tier == "headon")
+			while D.mode == "curve" and not job.ended and not D.lost do
+				waitFrame()
+			end
+		end
+		return ev
+	end
+
+	-- one event as a line; asRun = during the drive (before the checks: no verdict, no bump / pay-out counts yet)
+	local function eventLine(ev, asRun: boolean?): string
+		local what = ("%s %s @%d%s on key %d (%.0f studs/s) from +%.1f s (job finish planned at +%.1f s)"):format(ev.name,
+			ev.mode, ev.speed, if ev.angle then " a" .. ev.angle else "", ev.key, ev.vT, ev.at or 0, ev.eta or 0)
+		if ev.want == "near" then
+			if asRun then
+				return ("%s: %s"):format(what, tostring(ev.reason))
+			end
+			return ("%s: %s, %d near miss(es) paid, %d hit(s)%s"):format(what, tostring(ev.reason), ev.paid or 0,
+				ev.hitsDuring or 0, if ev.ok then "" else " - FAIL")
+		end
+		local hit = ("%s: %s, tier %s (planned %s), hit key %s%s, impact %s -> %s, vc %s"):format(what, tostring(ev.reason),
+			tostring(ev.tier or "-"), ev.want, tostring(ev.hitKey or "-"), if ev.keyMatch then " = target" else "",
+			int(ev.before), int(ev.after), int(ev.vc))
+		if asRun then
+			return hit
+		end
+		return hit .. (if ev.want == "heavy" or ev.want == "headon" then (", accepted %s, bumps %d"):format(
+			if ev.accepted then "yes" else "NO", ev.bumps or 0) else (", bumps %d"):format(ev.bumps or 0))
+			.. (if ev.ok then "" else " - FAIL")
+	end
+
+	local function leaderstat(name: string): number?
+		local ls = player:FindFirstChild("leaderstats")
+		local v = ls and ls:FindFirstChild(name)
+		return if v then (v :: any).Value else nil
+	end
+
+	-- ONE job: stand -> request -> drive with staged events -> finish -> checks. Never leaves a job running.
+	local function jobRun(kind: string, stand, opts, ctxBase, emit)
+		local res = {kind = kind, stand = stand.id, status = "FAIL", ok = false, events = {}, lines = {}, reason = nil}
+		local cleanup = {}
+		activeRuns[cleanup] = true
+		local okBody, err = pcall(function()
+			local chassis, model = TK.car()
+			assert(chassis and model, "jobDriveTest: get in a car first (TK.seatIn)")
+			if player:GetAttribute("JobActive") == true then
+				TK.fire("CancelJob")
+				local t0 = os.clock()
+				while player:GetAttribute("JobActive") == true and os.clock() - t0 < 3 do
+					waitFrame()
+				end
+			end
+			-- 1. to the stand BEFORE the job (the server kit moves the car in anchored hops), then still in the ring
+			local okTp, msg = serverCall(45, "teleport", stand.pos, {look = stand.road})
+			assert(okTp, "teleport to the stand failed: " .. tostring(msg))
+			local t0 = os.clock()
+			repeat
+				waitFrame()
+			until not chassis.Anchored or os.clock() - t0 > 5
+			waitSeconds(0.4)
+			chassis, model = TK.car()
+			assert(chassis and model, "jobDriveTest: not in a car after the teleport")
+			local D = newDriver(chassis, model, ctxBase.cap)
+			table.insert(cleanup, function()
+				D:stop()
+			end)
+			local g = D:groundY(chassis.Position.X, chassis.Position.Z, chassis.Position.Y)
+			if g then
+				D.ride = math.clamp(chassis.Position.Y - (g - D.ride), 1.5, 6)
+			end
+			waitSeconds(0.5)
+			local inRing = flat(chassis.Position - stand.pos).Magnitude
+			assert(inRing < 14, ("the car is %.0f studs from the ring centre after the teleport"):format(inRing))
+			if ctxBase.needSelfCheck then
+				-- once per frame-rate level, before any hook is set: TestKit and PattayaTraffic agree on the keys
+				local okC, lines, info = TK.selfCheck(5)
+				for _, l in lines do
+					emit("    " .. l)
+				end
+				if not okC and info.compared > 0 then
+					error("TK.selfCheck failed: TestKit and PattayaTraffic disagree on the traffic keys (see the lines above)", 0)
+				end
+				ctxBase.needSelfCheck = info.compared == 0 -- no traffic model here to compare: try at the next stand
+			end
+			-- 2. the request, as the E key sends it, with TK.jobWatch on for the whole job
+			local w = TK.jobWatch()
+			table.insert(cleanup, function()
+				w:stop()
+			end)
+			table.insert(cleanup, function()
+				if player:GetAttribute("JobActive") == true then
+					TK.fire("CancelJob") -- a failed or stopped run never leaves a job running
+				end
+			end)
+			pcall(serverCall, 10, "speedProbe", "start")
+			local money0 = leaderstat("Money")
+			local function stopEvent()
+				for _, e in w.events do
+					if e.kind == "job stop" then
+						return e
+					end
+				end
+				return nil
+			end
+			TK.fire("RequestJob", stand.id)
+			local tReq = os.clock()
+			local refired = false
+			while not w.start and not stopEvent() and os.clock() - tReq < 5 do
+				waitFrame()
+				if not refired and os.clock() - tReq > 1.5 then
+					refired = true
+					TK.fire("RequestJob", stand.id) -- the server drops a request within 0.5 s of the last one
+				end
+			end
+			if not w.start then
+				local s = stopEvent()
+				res.status, res.reason = "NO JOB", if s then tostring(s.data) else "no answer to RequestJob in 5 s"
+				return
+			end
+			local start = w.start
+			res.to, res.fare, res.timeLimit, res.length = start.to, start.fare, start.timeLimit, start.length
+			-- 3. the drive
+			local path = buildPath(start.route, ctxBase.cruise, chassis.Position)
+			local job = {path = path, start = start.start, timeLimit = start.timeLimit, used = {}, pending = {},
+				ended = false, tries = {}}
+			for _, gname in ctxBase.events do
+				table.insert(job.pending, gname)
+			end
+			-- an event is staged only when the job still finishes 4 s before its time limit (the estimate errs on the
+			-- slow side: 0.5-1 s in the offline session)
+			local ctx = {cap = ctxBase.cap, cfg = ctxBase.cfg, maxLat = ctxBase.detour,
+				deadline = start.start + start.timeLimit - 4}
+			player:SetAttribute("TK_HitTarget", 0) -- every traffic car a ghost: only staged targets are ever real
+			table.insert(cleanup, function()
+				player:SetAttribute("TK_HitTarget", nil)
+			end)
+			D.path, D.s, D.v, D.cruise = path, 0, 0, ctxBase.cruise
+			D.mode = "route"
+			local nextPlan = 0
+			while true do
+				waitFrame()
+				if D.lost then
+					job.ended, job.why = true, "left the car"
+					break
+				end
+				if w.finish then
+					break
+				end
+				local s = stopEvent()
+				if s then
+					job.ended, job.why = true, tostring(s.data)
+					break
+				end
+				if D.mode == "route" and D.arrived then
+					break
+				end
+				if D.mode == "route" and #job.pending > 0 and os.clock() >= nextPlan and D.s < path.total - 60 then
+					nextPlan = os.clock() + 0.2
+					ctx.maxLat = if path.total - D.s < 400 then math.max(ctxBase.detour, 60) else ctxBase.detour
+					local cand = planNext(job, D, ctx)
+					if cand then
+						local ev = runEvent(job, D, cand, ctx.cfg)
+						table.insert(res.events, ev)
+						local achieved = if ev.want == "near" then ev.reason == "passed"
+							else (ev.reason == "hit" and ev.tier == ev.want and ev.keyMatch == true)
+						job.tries[cand.group] = (job.tries[cand.group] or 0) + 1
+						if achieved or job.tries[cand.group] >= 3 then
+							table.remove(job.pending, table.find(job.pending, cand.group) :: number)
+						end
+						if opts.verbose then
+							emit("    event (as run): " .. eventLine(ev, true))
+						end
+					end
+				end
+			end
+			-- 4. stopped in the destination ring: the server finishes the job
+			if not job.ended then
+				D.mode = "hold"
+				local t1 = os.clock()
+				while not w.finish and not stopEvent() and os.clock() - t1 < 6 do
+					waitFrame()
+				end
+				if not w.finish then
+					local s = stopEvent()
+					job.ended, job.why = true, if s then tostring(s.data) else "no finish 6 s after stopping in the ring"
+				end
+			end
+			D:stop()
+			waitSeconds(1.0) -- the last JobUpdate / attribute changes arrive
+			res.finish = w.finish
+			res.uncovered = job.pending
+			res.why = job.why
+			-- 5. checks
+			local evs = w.events
+			local mb = JM.matchBumps(evs, {noStray = true, requireAccepted = true})
+			res.match = mb
+			local problems = {}
+			if job.ended then
+				table.insert(problems, "job ended: " .. tostring(job.why))
+			end
+			for _, l in mb.lines do
+				if l:find("FAIL", 1, true) then
+					table.insert(problems, l)
+				end
+			end
+			if mb.stray > 0 and (ctxBase.hz or 60) <= 24 then
+				-- 15 fps with uneven frames (offline: frame times +-20 %): the jobs server reads speed from positions every 0.1 s and
+				-- a 15 fps car moves in steps, so two low readings in a row can come from the frame rate alone
+				table.insert(problems, ("at %.0f Hz a stray bump can be the frame rate (the server's 10 Hz speed reading of a car that moves in %.0f steps a second: see the server speed probe line); rerun at 30 or 60 fps"):format(
+					ctxBase.hz, ctxBase.hz))
+			end
+			for _, ev in res.events do
+				ev.ok = true
+				if ev.want == "near" then
+					local paid, hitsDuring = 0, 0
+					for _, x in evs do
+						if x.t >= ev.approachT - 0.2 and x.t <= ev.tEnd + 1.0 then
+							if x.kind == "near" then paid += 1 elseif x.kind == "hit" then hitsDuring += 1 end
+						end
+					end
+					ev.paid, ev.hitsDuring = paid, hitsDuring
+					ev.ok = ev.reason == "passed" and paid == 1 and hitsDuring == 0
+				else
+					ev.bumps = 0
+					local tH = ev.hitT or ev.meet
+					for _, x in evs do
+						if x.kind == "job bump" and x.t >= tH - 0.5 and x.t <= tH + 1.6 then
+							ev.bumps += 1
+						end
+						if x.kind == "accepted" and x.t >= tH - 0.3 and x.t <= tH + 1.0 then
+							ev.accepted = true
+						end
+					end
+					local crash = ev.want == "heavy" or ev.want == "headon"
+					ev.ok = ev.reason == "hit" and ev.tier == ev.want and ev.keyMatch == true
+						and (if crash then ev.accepted == true and ev.bumps == 1 else ev.bumps == 0)
+				end
+				if not ev.ok then
+					table.insert(problems, eventLine(ev))
+				end
+			end
+			if res.finish then
+				local pok, ptext = TK.jobPayout(start, res.finish, mb.near)
+				res.payout = ptext
+				if not pok then
+					table.insert(problems, ptext)
+				end
+				if (res.finish.bumps or 0) ~= mb.bumps then
+					table.insert(problems, ("finish says %d bump(s), %d bump events seen"):format(res.finish.bumps or 0, mb.bumps))
+				end
+				local money1 = leaderstat("Money")
+				if money0 and money1 and money1 - money0 ~= res.finish.money then
+					table.insert(problems, ("Money went up by %d, the finish paid %d"):format(money1 - money0, res.finish.money))
+				end
+				res.moneyDelta = if money0 and money1 then money1 - money0 else nil
+			end
+			local wtext, wok = w:report()
+			res.watch = wtext
+			if not wok then
+				table.insert(problems, "jobWatch: FAIL")
+			end
+			local okProbe, probe = pcall(serverCall, 10, "speedProbe", "get", start.start, workspace:GetServerTimeNow())
+			res.probe = if okProbe then probe else nil
+			res.problems = problems
+			if #problems > 0 then
+				res.status = "FAIL"
+			elseif #job.pending > 0 then
+				res.status = "INCOMPLETE"
+			else
+				res.status, res.ok = "PASS", true
+			end
+		end)
+		runCleanup(cleanup)
+		activeRuns[cleanup] = nil
+		if not okBody then
+			res.status, res.reason = "FAIL", "error: " .. tostring(err)
+		end
+		return res
+	end
+
+	local function runLine(res, label: string): string
+		if res.status == "NO JOB" or (res.status == "FAIL" and res.reason) then
+			return ("%s jobDrive %s%s at %s: %s"):format(res.status, label, res.kind, res.stand, tostring(res.reason))
+		end
+		local f = res.finish
+		local evs = {}
+		for _, ev in res.events do
+			table.insert(evs, ("%s %s"):format(ev.name, if ev.ok then "ok" else "FAIL"))
+		end
+		local mb = res.match or {}
+		return ("%s jobDrive %s%s %s -> %s: %d studs, limit %s s, fare %s%s [Heartbeat %.0f Hz, render %.0f fps%s] | events: %s%s | bumps %s (accepted hits %s, stray %s, doubles %s) | near misses %s | %s%s"):format(
+			res.status, label, res.kind, res.stand, tostring(res.to), math.floor(res.length or 0), tostring(res.timeLimit),
+			tostring(res.fare), if f then (", done in %.1f s"):format(f.time) else "", rates.hb, rates.render,
+			if TK.fpsLimitOn() then (", cap %d fps"):format(TK.fpsLimitOn() :: number) else "",
+			if #evs > 0 then table.concat(evs, ", ") else "none",
+			if res.uncovered and #res.uncovered > 0 then " | not covered: " .. table.concat(res.uncovered, ", ") .. " (no traffic car along the route in time)" else "",
+			tostring(mb.bumps or "-"), tostring(mb.accepted or "-"), tostring(mb.stray or "-"), tostring(mb.doubles or "-"),
+			tostring(mb.near or "-"), tostring(res.payout or "no pay-out"),
+			if res.problems and #res.problems > 0 then " | " .. table.concat(res.problems, "; ") else "")
+	end
+
+	-- the stands to use for a kind, in order (opts.stands, else JM.STANDS, else every stand of the kind, nearest first)
+	local function standsFor(kind: string, opts)
+		local all = standList(kind)
+		local byId = {}
+		for _, s in all do
+			byId[s.id] = s
+		end
+		local want = opts.stands
+		if type(want) == "table" and want[kind] then
+			want = want[kind]
+		end
+		if type(want) == "string" then
+			want = {want}
+		end
+		local out = {}
+		for _, id in (if type(want) == "table" and #want > 0 then want else JM.STANDS[kind] or {}) do
+			if byId[id] then
+				table.insert(out, byId[id])
+			end
+		end
+		if #out == 0 then
+			local here = TK.car()
+			local p = if here then here.Position else Vector3.zero
+			table.sort(all, function(a, b)
+				return flat(a.pos - p).Magnitude < flat(b.pos - p).Magnitude
+			end)
+			out = all
+		end
+		return out
+	end
+
+	function TK.jobDriveTest(opts, out: {string}?)
+		opts = table.clone(opts or {})
+		assert(Rec, "jobDriveTest: ReplicatedStorage.PattayaRecovery missing")
+		assert(TK.car(), "jobDriveTest: get in a car first (TK.seatIn)")
+		assert(ReplicatedStorage:FindFirstChild("PattayaTestKitRemote"),
+			"jobDriveTest: start the server kit first: require(game.ServerStorage.PattayaTestKitServer).start()")
+		local kinds = opts.kinds or {"taxi", "delivery"}
+		local runs = opts.runs or 2
+		local levels = if type(opts.fps) == "table" then table.clone(opts.fps)
+			elseif type(opts.fps) == "number" then {opts.fps} else {0}
+		local events = table.clone(opts.events or JM.EVENTS)
+		if opts.heavy and not table.find(events, "heavy") then
+			table.insert(events, "heavy")
+		end
+		local all, summaries = {}, {}
+		local function emit(s: string)
+			print(s)
+			table.insert(all, s)
+			if out then table.insert(out, s) end
+		end
+		local cleanup = {}
+		activeRuns[cleanup] = true
+		local progress0 = {Money = leaderstat("Money"), EXP = leaderstat("EXP"), Level = leaderstat("Level")}
+		local restoreProgress = opts.keepProgress ~= false and progress0.Money ~= nil
+		local leased = false
+		local leaseSeconds = math.min(1800, 120 + #levels * #kinds * runs * 100)
+		local results = {}
+		-- a stopped test (handle:stop / TK.cleanup) never returns here: these give the lease and the progress back then
+		table.insert(cleanup, function()
+			if leased then
+				leased = false
+				serverSend("arcadeRelease")
+			end
+			if restoreProgress then
+				restoreProgress = false
+				serverSend("setProgress", progress0)
+			end
+			serverSend("speedProbe", "stop")
+		end)
+		local okAll, err = pcall(function()
+			-- CollisionModel = "arcade" on the server for this test only (a lease: given back below, by TK.cleanup, and
+			-- it runs out by itself after leaseSeconds)
+			local okL, leaseMsg = serverCall(15, "arcadeLease", leaseSeconds)
+			assert(okL, "arcade lease refused: " .. tostring(leaseMsg))
+			leased = true
+			local t0 = os.clock()
+			while workspace:GetAttribute("CollisionModel") ~= "arcade" and os.clock() - t0 < 3 do
+				waitFrame()
+			end
+			assert(workspace:GetAttribute("CollisionModel") == "arcade", "CollisionModel did not reach this client as arcade")
+			emit("jobDriveTest: " .. tostring(leaseMsg))
+			for _, fps in levels do
+				local flabel = if fps > 0 then ("%dfps "):format(fps) else ""
+				TK.fpsLimit(if fps > 0 then fps else nil)
+				waitSeconds(1.2)
+				local hz = math.min(if fps > 0 then fps else 1000, if rates.hb > 0 then rates.hb else 60)
+				-- the route at the cruise speed; the staged runs (and their lead-ins) up to the frame-rate cap, so a heavy
+				-- rear-end at traffic speed + 60 fits at 30 and 60 fps
+				local cap = math.min(JM.capFor(hz), 120)
+				local cruise = math.min(opts.cruise or 100, cap)
+				local ctxBase = {cap = cap, cruise = cruise, cfg = Rec.config(), detour = opts.detour or 30, events = events,
+					needSelfCheck = opts.skipSelfCheck ~= true, hz = hz}
+				local lvlPass, lvlRuns = 0, 0
+				for _, kind in kinds do
+					local list = standsFor(kind, opts)
+					if #list == 0 then
+						emit(("FAIL jobDrive %s%s: no job stand of this kind in workspace.PattayaWorld.JobStands"):format(flabel, kind))
+						continue
+					end
+					local pick = 0
+					for r = 1, runs do
+						local res
+						for _ = 1, math.min(3, #list) do
+							pick = pick % #list + 1
+							res = jobRun(kind, list[pick], opts, ctxBase, emit)
+							if res.status ~= "NO JOB" then
+								break
+							end
+							emit(runLine(res, flabel))
+						end
+						res.level, res.cap = fps, cap
+						table.insert(results, res)
+						lvlRuns += 1
+						if res.ok then
+							lvlPass += 1
+						end
+						emit(runLine(res, flabel .. ("r%d "):format(r)))
+						if opts.verbose or not res.ok then
+							for _, ev in res.events do
+								emit("    " .. eventLine(ev))
+							end
+							if res.watch then
+								for l in string.gmatch(res.watch, "[^\n]+") do
+									emit("    " .. l)
+								end
+							end
+							if res.probe then
+								emit("    server speed probe: " .. tostring(res.probe))
+							end
+						end
+					end
+				end
+				table.insert(summaries, ("@%s: %d/%d runs PASS (autopilot: route <= %d, staged runs <= %d studs/s)"):format(
+					if fps > 0 then fps .. " fps" else "client rate", lvlPass, lvlRuns, cruise, cap))
+			end
+		end)
+		TK.fpsLimit(nil)
+		player:SetAttribute("TK_HitTarget", nil)
+		-- the lease back (CollisionModel as it was before the test, "physical" if it was already "arcade") and the
+		-- progress as it was, on every path that gets here
+		local relMsg = "no lease taken"
+		if leased then
+			leased = false
+			local okR, _, msg = pcall(serverCall, 15, "arcadeRelease")
+			relMsg = if okR then tostring(msg) else "lease release failed: " .. tostring(msg)
+			local t1 = os.clock()
+			while workspace:GetAttribute("CollisionModel") == "arcade" and os.clock() - t1 < 3 do
+				waitFrame()
+			end
+		end
+		if restoreProgress then
+			restoreProgress = false
+			pcall(serverCall, 15, "setProgress", progress0)
+		end
+		activeRuns[cleanup] = nil
+		pcall(serverCall, 10, "speedProbe", "stop")
+		if not okAll then
+			emit("jobDriveTest: error: " .. tostring(err))
+		end
+		-- coverage and totals
+		local count = {crash = 0, heavy = 0, light = 0, scrape = 0, near = 0}
+		local pass, total, incomplete = 0, 0, 0
+		for _, r in results do
+			total += 1
+			if r.ok then pass += 1 end
+			if r.status == "INCOMPLETE" then incomplete += 1 end
+			for _, ev in r.events do
+				if ev.ok then
+					count[ev.group] = (count[ev.group] or 0) + 1
+				end
+			end
+		end
+		local cov = {}
+		for _, g in events do
+			table.insert(cov, ("%s %d"):format(g, count[g] or 0))
+		end
+		local cleanText = TK.cleanup(true)
+		local summary = ("jobDriveTest: %d/%d runs PASS%s | %s | events ok: %s | %s | %s%s"):format(pass, total,
+			if incomplete > 0 then (" (%d INCOMPLETE)"):format(incomplete) else "", table.concat(summaries, " | "),
+			table.concat(cov, ", "), relMsg, cleanText, if pass == total and total > 0 and okAll then " - ALL PASS" else "")
+		emit(summary)
+		return summary, results
+	end
+
+	-- the background runner shared by the job test (a coroutine resumed from Heartbeat: it outlives the Studio execute
+	-- snippet that starts it, as TK.hitMatrixStart). The handle lives in _G.TK_LIVE too, so TK.jobDrivePoll() finds it
+	-- from another copy of this module.
+	local function background(name: string, body)
+		local h = {name = name, lines = {}, done = false, summary = nil :: string?, error = nil :: string?}
+		local co = coroutine.create(function()
+			local ok, summary = pcall(body, h)
+			if ok then
+				h.summary = summary
+			else
+				h.error = tostring(summary)
+			end
+			h.done = true
+		end)
+		local conn
+		conn = RunService.Heartbeat:Connect(function()
+			if coroutine.status(co) ~= "suspended" then
+				conn:Disconnect()
+				h.done = true
+				return
+			end
+			local prev = runnerCo
+			runnerCo = co
+			local ok, err = coroutine.resume(co)
+			runnerCo = prev
+			if not ok then
+				h.error, h.done = tostring(err), true
+				conn:Disconnect()
+				TK.cleanup(true)
+			end
+		end)
+		function h:poll(): string
+			if self.error then return "error: " .. self.error end
+			if self.done then return self.summary or "done" end
+			return ("running, %d lines: %s"):format(#self.lines, self.lines[#self.lines] or "-")
+		end
+		function h:stop(reason: string?)
+			conn:Disconnect()
+			self.done = true
+			self.error = self.error or ("stopped" .. (if reason then " (" .. reason .. ")" else ""))
+			TK.cleanup(true) -- the runs' cleanup lists: job cancelled, lease and progress given back, car free
+		end
+		TK.handles[name] = h
+		live.handles = live.handles or {}
+		live.handles[name] = h
+		return h
+	end
+
+	function TK.jobDriveTestStart(opts)
+		local running = live.handles and live.handles.jobDrive
+		assert(not (running and not running.done),
+			"a job test is already running: TK.jobDrivePoll(), or stop it with _G.TK_LIVE.handles.jobDrive:stop()")
+		return background("jobDrive", function(h)
+			return (TK.jobDriveTest(opts, h.lines))
+		end)
+	end
+
+	-- the poll line of the running (or last) job test, from any copy of this module
+	function TK.jobDrivePoll(): string
+		local h = live.handles and live.handles.jobDrive
+		return if h then h:poll() else "no job test started"
+	end
+end
+
+-- 2-player check, client half (team18/arcade-econ; offline only) -------------------------------------------------
+-- TK.startAgent() -> text   answers the server kit's S.mpCheck through ReplicatedStorage.PattayaTestKitAgent: each
+--   command runs on THIS player's own client (its car, its attributes, its traffic view) and reports back. In Studio /
+--   DevTest, PattayaTraffic starts it by itself when the server sets workspace attribute TK_ClientAgent = true, so
+--   nothing has to be typed into each client; it stops when that attribute is cleared. TK.stopAgent() stops it.
+-- Commands: ping, watchStart, watchStop(key, t1, t2), hitTest(mode, speed, opts), nearMiss(opts), park,
+--   jobStart(standId), jobState, jobCancel, cleanup.
+do
+	local AGENT_ATTRS = {"Recovery_HitCount", "Recovery_LastHitKey", "Recovery_LastHitT", "Recovery_LastHitTier",
+		"Recovery_LastHit", "Recovery_HitIgnored", "Recovery_Uprights", "TrafficHits", "TrafficHitAt", "TrafficHitTier",
+		"NearMissAt", "NearMissCombo", "TK_HitTarget", "TrafficGhostAll", "TK_FpsLimit", "JobActive"}
+
+	local function agentState()
+		local s = {name = player.Name, userId = player.UserId,
+			collisionModel = tostring(workspace:GetAttribute("CollisionModel")), attrs = {}, car = false}
+		for _, a in AGENT_ATTRS do
+			local v = player:GetAttribute(a)
+			if v ~= nil then
+				s.attrs[a] = if type(v) == "number" or type(v) == "boolean" or type(v) == "string" then v else tostring(v)
+			end
+		end
+		local chassis = TK.car()
+		if chassis then
+			s.car, s.pos = true, chassis.Position
+			s.speed = flat(chassis.AssemblyLinearVelocity).Magnitude
+			s.upY = chassis.CFrame.UpVector.Y
+			local ar = chassis:FindFirstChild("ArcadeAntiRoll")
+			s.antiRoll = ar ~= nil and (ar :: any).Enabled == true
+		end
+		local models, gh = 0, 0
+		for _, m in trafficModels() do
+			models += 1
+			if ghosted(m) then
+				gh += 1
+			end
+		end
+		s.models, s.ghosted = models, gh
+		return s
+	end
+
+	local CMDS = {}
+
+	function CMDS.ping()
+		return agentState()
+	end
+
+	-- watch this client while the other player tests: own car (moved? anti-roll?), own attributes, the traffic view
+	-- (how many models ghosted, and when each key was ghosted)
+	function CMDS.watchStart()
+		local A = live.agent
+		if A.watch then
+			A.watch.conn:Disconnect()
+		end
+		local chassis = TK.car()
+		local W = {t0 = workspace:GetServerTimeNow(), maxMove = 0, maxSpeed = 0, antiRoll = false, frames = 0,
+			ghostMax = 0, models = 0, keys = {}, before = agentState().attrs, tkSet = false,
+			p0 = chassis and chassis.Position}
+		W.conn = RunService.Heartbeat:Connect(function()
+			W.frames += 1
+			local c = TK.car()
+			if c and W.p0 then
+				W.maxMove = math.max(W.maxMove, flat(c.Position - W.p0).Magnitude)
+				W.maxSpeed = math.max(W.maxSpeed, flat(c.AssemblyLinearVelocity).Magnitude)
+				local ar = c:FindFirstChild("ArcadeAntiRoll")
+				if ar and (ar :: any).Enabled == true then
+					W.antiRoll = true
+				end
+			end
+			if player:GetAttribute("TK_HitTarget") ~= nil or player:GetAttribute("TrafficGhostAll") == true then
+				W.tkSet = true
+			end
+			local t = workspace:GetServerTimeNow()
+			local n, g = 0, 0
+			for key, m in trafficModels() do
+				n += 1
+				local gh = ghosted(m)
+				if gh then
+					g += 1
+				end
+				local k = W.keys[key]
+				if not k then
+					k = {first = t, last = t, ghost = {}, on = false}
+					W.keys[key] = k
+				end
+				k.last = t
+				if gh and not k.on then
+					table.insert(k.ghost, {t, math.huge})
+				elseif not gh and k.on then
+					k.ghost[#k.ghost][2] = t
+				end
+				k.on = gh
+			end
+			if n > 0 then
+				W.ghostMax = math.max(W.ghostMax, g / n)
+			end
+			W.models = math.max(W.models, n)
+		end)
+		A.watch = W
+		return {t0 = W.t0, car = chassis ~= nil}
+	end
+
+	-- what changed since watchStart; key / t1 / t2: was that traffic car drawn on this client then, and ghosted?
+	function CMDS.watchStop(key: number?, t1: number?, t2: number?)
+		local A = live.agent
+		local W = A.watch
+		assert(W, "watchStop without watchStart")
+		W.conn:Disconnect()
+		A.watch = nil
+		local after = agentState()
+		local changed = {}
+		for _, a in AGENT_ATTRS do
+			if W.before[a] ~= after.attrs[a] then
+				table.insert(changed, ("%s: %s -> %s"):format(a, tostring(W.before[a]), tostring(after.attrs[a])))
+			end
+		end
+		local keyInfo = nil
+		if type(key) == "number" then
+			local k = W.keys[key]
+			local a, b = t1 or W.t0, t2 or math.huge
+			keyInfo = {seen = k ~= nil and k.first <= b and k.last >= a, ghosted = false}
+			if k then
+				for _, iv in k.ghost do
+					if iv[1] <= b and iv[2] >= a then
+						keyInfo.ghosted = true
+					end
+				end
+			end
+		end
+		return {maxMove = W.maxMove, maxSpeed = W.maxSpeed, antiRoll = W.antiRoll, tkSet = W.tkSet,
+			ghostMax = W.ghostMax, models = W.models, frames = W.frames, changed = changed, key = keyInfo,
+			collisionModel = after.collisionModel}
+	end
+
+	-- a staged hit on THIS player's car (TK.hitTest, isolated), with the anti-roll watched on this car
+	function CMDS.hitTest(mode: string, speed: number, opts)
+		local o = if type(opts) == "table" then opts else {}
+		if o.isolate == nil then
+			o.isolate = true
+		end
+		local seen = false
+		local conn = RunService.Heartbeat:Connect(function()
+			local c = TK.car()
+			local ar = c and c:FindFirstChild("ArcadeAntiRoll")
+			if ar and (ar :: any).Enabled == true then
+				seen = true
+			end
+		end)
+		local ok, res = pcall(TK.hitTest, mode, speed, o)
+		conn:Disconnect()
+		if not ok then
+			error(res, 0)
+		end
+		return {touched = res.touched == true, tier = res.tier, hitKey = res.hitKey, targetKey = res.targetKey,
+			keyMatch = res.keyMatch == true, hitT = res.hitT, meet = res.meet, before = res.before, after = res.after,
+			minUp = res.minUp, reason = res.reason, text = res.text, antiRoll = seen}
+	end
+
+	function CMDS.nearMiss(opts)
+		local r = TK.nearMissTest(if type(opts) == "table" then opts else {})
+		return {ok = r.ok, awards = r.awards, hits = r.hits, targetKey = r.targetKey, text = r.text}
+	end
+
+	-- stop the car where it is (CarController's idle hold keeps it there)
+	function CMDS.park()
+		local c = TK.car()
+		if c then
+			c.AssemblyLinearVelocity = Vector3.zero
+			c.AssemblyAngularVelocity = Vector3.zero
+		end
+		return {car = c ~= nil}
+	end
+
+	-- a job requested the way the E key does (the server kit already put this car in the stand's ring)
+	function CMDS.jobStart(standId: string)
+		local A = live.agent
+		if A.job then
+			A.job:stop()
+		end
+		local w = TK.jobWatch()
+		A.job = w
+		TK.fire("RequestJob", standId)
+		local t0 = os.clock()
+		local refired = false
+		local stopped = nil
+		while not w.start and os.clock() - t0 < 5 do
+			RunService.Heartbeat:Wait()
+			for _, e in w.events do
+				if e.kind == "job stop" then
+					stopped = e.data
+				end
+			end
+			if stopped then
+				break
+			end
+			if not refired and os.clock() - t0 > 1.5 then
+				refired = true
+				TK.fire("RequestJob", standId)
+			end
+		end
+		return {started = w.start ~= nil, to = w.start and w.start.to, timeLimit = w.start and w.start.timeLimit,
+			reason = if stopped ~= nil then tostring(stopped) else nil}
+	end
+
+	function CMDS.jobState()
+		local w = live.agent.job
+		local out = {active = player:GetAttribute("JobActive") == true, bumps = 0, hits = 0, accepted = 0, events = {}}
+		if w then
+			for _, e in w.events do
+				if e.kind == "job bump" then
+					out.bumps += 1
+				elseif e.kind == "hit" then
+					out.hits += 1
+				elseif e.kind == "accepted" then
+					out.accepted += 1
+				end
+				if #out.events < 20 then
+					table.insert(out.events, ("%.2f %s %s"):format(e.t, e.kind, brief(e.data, 1)))
+				end
+			end
+		end
+		return out
+	end
+
+	function CMDS.jobCancel()
+		TK.fire("CancelJob")
+		local t0 = os.clock()
+		while player:GetAttribute("JobActive") == true and os.clock() - t0 < 3 do
+			RunService.Heartbeat:Wait()
+		end
+		local w = live.agent.job
+		if w then
+			w:stop()
+			live.agent.job = nil
+		end
+		return {active = player:GetAttribute("JobActive") == true}
+	end
+
+	function CMDS.cleanup()
+		return TK.cleanup(true)
+	end
+
+	function TK.startAgent(): string
+		if live.agent and live.agent.on then
+			return "agent already running"
+		end
+		local ev = ReplicatedStorage:FindFirstChild("PattayaTestKitAgent")
+		if not (ev and ev:IsA("RemoteEvent")) then
+			return "no ReplicatedStorage.PattayaTestKitAgent (start the server kit first)"
+		end
+		local remote = ev :: RemoteEvent
+		local A = {on = true, conns = {}, watch = nil :: any, job = nil :: any}
+		live.agent = A
+		table.insert(A.conns, remote.OnClientEvent:Connect(function(kind, id, cmd, ...)
+			if kind ~= "cmd" or not A.on then
+				return
+			end
+			local args = table.pack(...)
+			task.spawn(function()
+				local f = CMDS[cmd]
+				local ok, res = false, "unknown agent command " .. tostring(cmd)
+				if f then
+					ok, res = pcall(f, table.unpack(args, 1, args.n))
+				end
+				remote:FireServer("result", id, ok, if ok then res else tostring(res))
+			end)
+		end))
+		table.insert(A.conns, workspace:GetAttributeChangedSignal("TK_ClientAgent"):Connect(function()
+			if workspace:GetAttribute("TK_ClientAgent") ~= true then
+				TK.stopAgent()
+			end
+		end))
+		remote:FireServer("hello", agentState())
+		return "agent started"
+	end
+
+	function TK.stopAgent(): string
+		local A = live.agent
+		if not (A and A.on) then
+			return "no agent running"
+		end
+		A.on = false
+		for _, c in A.conns do
+			c:Disconnect()
+		end
+		if A.watch then
+			A.watch.conn:Disconnect()
+		end
+		if A.job then
+			A.job:stop()
+		end
+		live.agent = nil
+		return "agent stopped"
+	end
 end
 
 function TK.stopAll()

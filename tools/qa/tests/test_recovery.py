@@ -2280,6 +2280,13 @@ class ArcadeHitScope(unittest.TestCase):
         self.assertRegex(src(MOD), r'CollisionModel = "physical"')
         for path in _qa.luau_files():
             text = _qa.strip_comments(_qa.read(path))
+            if path.endswith('PattayaTestKitServer.luau'):
+                # team18/arcade-econ: the server kit's test-only lease (Studio / DevTest) is the one place that sets
+                # it: "arcade" for a test, then the value from before (tools/qa/tests/test_jobdrive.py)
+                sets = re.findall(r'SetAttribute\(\s*"CollisionModel"\s*,\s*([^)]*)\)', text)
+                self.assertEqual(sorted(sets), ['"arcade"', 'back'], path)
+                self.assertLess(text.index('if not enabled() then'), text.index('function S.arcadeLease('))
+                continue
             self.assertNotRegex(text, r'SetAttribute\(\s*"CollisionModel"', path)
 
     def test_hit_identity_and_telemetry(self):
