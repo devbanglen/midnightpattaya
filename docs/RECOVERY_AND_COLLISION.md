@@ -417,3 +417,40 @@ Rows: end of `docs/test_results/recovery_kit_studio.txt`. Investigated offline o
 
 Re-test (leader): server `workspace:SetAttribute("CollisionModel", "arcade")`, then client `TK.hitMatrix()`, at
 15 Hz (unfocused) and focused.
+
+## 12. Studio round 4 (2026-10-21, hitMatrix 9/12 then 5/12 at 60 Hz): findings and fixes (team18/arcade-fix-3)
+
+Investigated offline only; **not re-run in Studio.** Every row that met its target at full speed matched the table.
+
+- **(a) Isolation was not repeatable.** `plannedPathClear` judged a lane at the moment of choice, but in run 2
+  rear 70 / 150 / 200 and head 150 / 200 still met another car 10 to 35 studs from the target. Fix:
+  `TK.hitMatrix` now isolates every row by default, labelled "isolated" on each row and in the run summary:
+  every other traffic car ghosts through the TestKit-only `TK_HitTarget` hook. Real-traffic runs are still
+  possible with `TK.hitMatrix({isolate = false})` or `TK.hitTest(..., {isolate = false})`. In that mode the
+  approach is re-checked every frame, and another car within 30 studs of mine before the touch aborts the row,
+  which is retried with another target, up to 3 tries (`res.tries`).
+- **(b) Side rows lost speed before the touch** (86, 126 and 59 of 150).
+  - **Not a velocity override.** The plan sets the position and the velocity every step. Offline, the plan's
+    velocity is exactly its own position change, and the 0.3 s hold ends before the approach.
+  - **Not the kerb rays.** The wheel-ray spring cannot remove that much speed in one step.
+  - **Likely cause: the seated character.** It is part of the car's assembly, and its torso and head collide.
+    The arcade approach had switched off only the chassis, so the driver's body could still hit palms and signs
+    beside the lane between two frames.
+  - **Why the tiers flip.** The hit test reads the car's velocity after physics. A body hit changes that
+    velocity's size and direction, so the closing speed can come out anywhere in the table: a5 → light or heavy,
+    a20 → scrape. That fits all three side failures.
+  - **Fix:** every part of my car and of the character ignores collisions for the whole hold and approach
+    (re-applied every step), and is restored at the hand-off. Each row now prints the lowest speed seen on the
+    approach (`approach-min`), so the next Studio run shows directly whether anything still slows the car.
+- **Corner-first contact (side 100 a10 → heavy).** With the centres level at the meeting, my leading corner
+  reached 7.4 studs ahead at 10°, which is the front corner of a 14-stud car. Offline that still gave the side
+  normal, but the margin was nil. Fix: `stagePlan` now puts my front-left corner on the middle of its side
+  (`alignCorner`). New tests cover all three vehicle kinds (sedan, songthaew, van) and check that every side row
+  touches the side face (normal along its side axis, > 0.99 on straight lanes and > 0.95 on curves).
+- **(c) head 100 rejected at −0.50 s.** The planned meeting is right for every kind at 60 and 15 Hz (new test,
+  within 0.1 s). The −90 % head-on result needs a car facing mine, and a hit 0.5 s early at 145 studs/s
+  closing speed is about 72 studs ahead of the target: most likely another car of an overlapping loop in that
+  lane, as in run 2. The rejection message used to name only the first reason; it now names every one (time and
+  "another car"). Isolation removes the case.
+- `TK.hitMatrix({runs = 3})` prints each row, a line per run and an overall line that ends with "REPEATABLE" only
+  when all 36 rows passed.

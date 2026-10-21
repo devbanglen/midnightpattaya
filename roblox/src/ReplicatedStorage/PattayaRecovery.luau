@@ -597,9 +597,15 @@ function R.stagePlan(p)
 		-- started a 25 degree run 33 studs off the lane, on the kerb: Studio round 3, side 70 hit at 37)
 		local run = math.clamp((p.runLat or 6) / math.max(vs, 1e-3), 0.05, 0.8)
 		local tc = t0 + run
+		-- my leading (front-left) corner meets the MIDDLE of its side: with the centres level (round 3) the corner
+		-- reached its front corner (7.4 studs ahead at 10 degrees vs a 7-stud half length), a corner-to-corner
+		-- touch whose normal can be its front face (Studio round 4: side 100 a10 -> heavy). p.alignCorner = false
+		-- keeps the old alignment (tests only).
+		local cornerAhead = if p.alignCorner == false then 0
+			else R.CAR_HALF_LEN * math.cos(a) - R.CAR_HALF_WID * math.sin(a)
 		return function(t)
 			local lat = latC + vs * (tc - t)
-			local sc = s0 + vT * (tc - t0) - u * (tc - t)
+			local sc = s0 + vT * (tc - t0) - cornerAhead - u * (tc - t)
 			local x, z, tx, tz, rx, rz = lane(sc, lat)
 			local dx, dz = tx * math.cos(a) - rx * math.sin(a), tz * math.cos(a) - rz * math.sin(a)
 			return x, z, dx, dz, lat - latC
@@ -639,15 +645,19 @@ end
 -- planned meeting time or on another car does not count. Returns ok, reason.
 function R.acceptStagedHit(h): (boolean, string?)
 	local slack = 0.35 + 1.5 * (h.frameDt or 1 / 60)
+	local why = {}
 	if h.hitT < h.approachT then
-		return false, "before the approach"
+		table.insert(why, "before the approach")
+	elseif math.abs(h.hitT - h.meet) > slack then
+		table.insert(why, ("%.2f s from the planned meeting"):format(h.hitT - h.meet))
 	end
-	if math.abs(h.hitT - h.meet) > slack then
-		return false, ("%.2f s from the planned meeting"):format(h.hitT - h.meet)
-	end
+	-- every reason is reported: round 4's "head 100 -0.50 s" did not say whether it was also another car
 	local d = math.sqrt((h.hitX - h.targetX) ^ 2 + (h.hitZ - h.targetZ) ^ 2)
 	if d > 6 + 60 * (h.frameDt or 1 / 60) then
-		return false, ("another car (%.0f studs from the target)"):format(d)
+		table.insert(why, ("another car (%.0f studs from the target)"):format(d))
+	end
+	if #why > 0 then
+		return false, table.concat(why, ", ")
 	end
 	return true, nil
 end

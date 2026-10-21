@@ -380,11 +380,13 @@ local function trafficAt(route, s0, t0, t, vT)
 end
 
 -- returns the first hit's info + classification, the time of it, and the planned meeting time
-local function run(route, s0, mode, speed, opts, fps, reverseTraffic, vT)
+local function run(route, s0, mode, speed, opts, fps, reverseTraffic, vT, kind)
 	opts = opts or {}
 	vT = vT or 45
+	local SH = R.TRAFFIC_SHAPES[kind or 0]
 	local plan, meet = R.stagePlan({route = route, s0 = s0, t0 = 0, vT = vT, halfWid = SH.wid / 2, halfLen = SH.len / 2,
-		speed = speed, mode = mode, lead = opts.lead, offset = opts.offset, angle = opts.angle})
+		speed = speed, mode = mode, lead = opts.lead, offset = opts.offset, angle = opts.angle,
+		alignCorner = opts.alignCorner})
 	local dt = 1 / fps
 	local px, pz = nil, nil
 	local t = 0
@@ -402,6 +404,9 @@ local function run(route, s0, mode, speed, opts, fps, reverseTraffic, vT)
 			local res = R.classifyHit(info, cfg)
 			local wx, wz = R.impactVelocity(dx * speed, dz * speed, info.nx, info.nz, res)
 			res.after = math.sqrt(wx * wx + wz * wz)
+			-- the contact normal against the traffic car's own axes, and my centre in its frame
+			info.lateralN = math.abs(info.nx * -tlz + info.nz * tlx)
+			info.relAlong = (x - tx) * tlx + (z - tz) * tlz
 			return info, res, t, meet
 		end
 	end
@@ -438,12 +443,13 @@ for _, vT in {38, 45, 55} do
 	}
 	for _, route in ROUTES do
 		for _, fps in {60, 30, 20, 15} do
-			for _, c in CASES do
+			for ci, c in CASES do
 				local mode, speed, opts = c[1], c[2], c[3]
+				local kind = (ci + fps) % 3 -- every row meets sedans, songthaews and vans across the frame rates
 				local want, wantHit = R.expectedStaged(mode, speed, opts and opts.angle, vT, cfg)
-				local name = ("%s vT%d %s %d @%dfps%s"):format(route[1], vT, mode, speed, fps,
+				local name = ("%s vT%d k%d %s %d @%dfps%s"):format(route[1], vT, kind, mode, speed, fps,
 					if opts and opts.angle then " a" .. opts.angle elseif opts and opts.offset then " off" .. opts.offset else "")
-				local info, res, t, meet = run(route[2], route[3], mode, speed, opts, fps, false, vT)
+				local info, res, t, meet = run(route[2], route[3], mode, speed, opts, fps, false, vT, kind)
 				if not info then
 					check(name .. " touches", false, "no touch")
 					continue
@@ -462,6 +468,10 @@ for _, vT in {38, 45, 55} do
 					else
 						check(name .. " head-on near stop + bounce", res.after <= 10.5 + (if route[4] then 0.05 * speed else 0), res.after)
 					end
+				end
+				if mode == "side" then
+					-- my leading corner meets the middle of its side: the normal is its side axis
+					check(name .. " side normal", info.lateralN > (if route[4] then 0.95 else 0.99), info.lateralN)
 				end
 				if res.tier == "heavy" then
 					check(name .. " spin in the 45-120 band", math.abs(res.yaw) >= 45 and math.abs(res.yaw) <= 120, res.yaw)
@@ -516,6 +526,37 @@ for _, fps in {15, 30, 60} do
 	check(("studio r3 side 70 a25 @%d Hz -> light 20%%"):format(fps), r70 and r70.tier == "light" and near(r70.loss, 0.2, 1e-6),
 		r70 and (r70.tier .. " vc " .. i70.vc))
 end
+-- round 4 "side 100 a10 -> heavy": with the centres level the leading corner reaches the front corner of a 14-stud
+-- car; the new alignment puts it on the middle of the side for every kind
+for kind = 0, 2 do
+	for _, c in {{100, 10}, {150, 5}, {150, 20}, {70, 25}} do
+		local info, res = run(straight45, 500, "side", c[1], {angle = c[2]}, 60, false, 45, kind)
+		local want = R.expectedStaged("side", c[1], c[2], 45, cfg)
+		check(("studio r4 side %d a%d k%d -> %s on the side face"):format(c[1], c[2], kind, want.tier),
+			info and res.tier == want.tier and info.lateralN > 0.99, info and ("%s n %.2f"):format(res.tier, info.lateralN))
+	end
+end
+do
+	local info = run(straight45, 500, "side", 100, {angle = 10, alignCorner = false}, 60, false, 45, 0)
+	local info2 = run(straight45, 500, "side", 100, {angle = 10}, 60, false, 45, 0)
+	print(("INFO old alignment side 100 a10: normal lateral %.2f, my centre %.1f studs along; new: %.2f, %.1f"):format(
+		info and info.lateralN or -1, info and info.relAlong or 0, info2.lateralN, info2.relAlong))
+	check("new side alignment: my centre is behind its centre (corner on the side middle)", info2.relAlong < -3,
+		info2.relAlong)
+end
+-- round 4 "head 100 rejected -0.50 s": the planned meeting holds for every kind at 60 / 15 Hz
+for kind = 0, 2 do
+	for _, fps in {60, 15} do
+		local info, _, t, meet = run(straight45, 500, "head", 100, nil, fps, false, 45, kind)
+		check(("studio r4 head 100 k%d @%d Hz meets when planned"):format(kind, fps), info and math.abs(t - meet) < 0.1,
+			("%.2f vs %.2f"):format(t, meet))
+	end
+end
+local okR, whyR = R.acceptStagedHit({hitT = 10.5, approachT = 10, meet = 11, frameDt = 1 / 60, hitX = 30, hitZ = 0,
+	targetX = 0, targetZ = 0})
+check("a rejection names every reason (time and another car)", not okR and whyR:find("planned", 1, true)
+	and whyR:find("another car", 1, true), whyR)
+
 -- "side 70 a25: speed at the hit 37": the run-up started 33 studs off the lane (kerb); now at most 6 studs further
 -- out than the touching distance
 do
