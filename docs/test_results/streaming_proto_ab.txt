@@ -1,0 +1,102 @@
+Streaming prototype A/B (team16/streaming-arch StreamingPrototype, workspace.StreamingProto at +60,000 X), 2026-10-21
+Parity in Studio: A and B copy the same 14,795 source parts / 24,791 instances per folder (incl. 1,871 ShoulderChunks) -> PARITY OK
+Drive path: the builder's slab-centre path crossed ground/buildings (58% of samples off proto road, first run reported
+road missing 1422/2194 = a harness path bug, not streaming). Leader replaced ProtoPath with a road-graph route
+21800,1700 -> 24500,1800 (51 points, 4,209 studs, 100% on proto road). All runs below use that path.
+Drives: TestKit drivePath CFrame mode (the harness default), not physics.
+FOCUS: Studio was NOT in front for the runs marked "unfocused" (render 15 fps): their fps / p99 / 1% low / worst are
+throttled and NOT valid frame-time results; road-missing, instances-per-frame and memory are still valid.
+
+columns: run | worst ms | p99 ms | 1% low fps | frames >100ms | added/frame max / p99 | road missing under car, ahead 0.5s, 1s
+
+A cold session 1 (unfocused, 15 fps)
+A cold  | 94 | 83 | 11.1 | 0 | 2417/1871 | 0/375,0,0 | mem 6794
+A drive v=100 | 77 | 72 | 13.5 | 0 | 1535/413 | 0/632,0,0 | mem 6798
+A drive v=150 | 77 | 73 | 13.2 | 0 | 1375/413 | 0/421,0,0 | mem 6801
+A drive v=200 | 75 | 71 | 13.8 | 0 | 1193/601 | 0/316,0,0 | mem 6801
+
+A cold session 2 (partly focused: 40 fps in the first second)
+A cold  | 131 | 28 | 19.0 | 2 | 2670/605 | 7/1110,0,0 | mem 7032
+A drive v=100 | 30 | 19 | 45.6 | 0 | 642/65 | 6/1670,0,0 | mem 7023
+A drive v=150 | 110 | 67 | 14.3 | 1 | 988/133 | 0/1605,0,0 | mem 7026
+A drive v=200 | 78 | 73 | 13.2 | 0 | 1096/608 | 0/317,0,0 | mem 7025
+
+A cold session 3 (unfocused, 15 fps)
+A cold  | 130 | 95 | 9.3 | 2 | 3446/2093 | 0/383,0,0 | mem 6928
+A drive v=100 | 75 | 70 | 13.8 | 0 | 1375/413 | 0/631,0,0 | mem 6933
+A drive v=150 | 77 | 72 | 13.4 | 0 | 988/449 | 0/422,0,0 | mem 6935
+A drive v=200 | 77 | 73 | 13.5 | 0 | 1266/538 | 0/316,0,0 | mem 6934
+
+A teleport session 1 (unfocused, 15 fps)
+A teleport  | 264 | 81 | 6.7 | 1 | 12701/1457 | 1/297,0,0 | mem 7038
+A drive v=100 | 81 | 72 | 13.2 | 0 | 1674/422 | 0/633,0,0 | mem 7037
+A drive v=150 | 76 | 71 | 13.6 | 0 | 1635/413 | 0/423,0,1 | mem 7039
+A drive v=200 | 77 | 72 | 13.6 | 0 | 1535/415 | 0/317,0,0 | mem 7037
+
+A teleport session 2 (unfocused, 15 fps)
+A teleport  | 260 | 77 | 7.2 | 1 | 13980/619 | 1/298,0,0 | mem 7126
+A drive v=100 | 77 | 72 | 13.4 | 0 | 1169/601 | 0/632,0,0 | mem 7111
+A drive v=150 | 79 | 69 | 13.8 | 0 | 1635/413 | 0/422,0,0 | mem 7110
+A drive v=200 | 76 | 72 | 13.7 | 0 | 1731/413 | 0/317,0,0 | mem 7110
+
+A teleport session 3 (unfocused, 15 fps)
+A teleport  | 206 | 89 | 7.4 | 2 | 9765/1457 | 1/297,0,0 | mem 7111
+A drive v=100 | 78 | 71 | 13.5 | 0 | 1731/334 | 0/632,0,0 | mem 7101
+A drive v=150 | 78 | 71 | 13.6 | 0 | 1120/453 | 0/422,0,0 | mem 7104
+A drive v=200 | 79 | 72 | 13.4 | 0 | 1804/344 | 0/317,0,0 | mem 7102
+
+B cold session 1 (unfocused, 15 fps)
+B cold  | 114 | 83 | 11.1 | 1 | 1649/1247 | 1/384,0,0 | mem 7248
+B drive v=100 | 79 | 71 | 13.6 | 0 | 1843/341 | 0/632,0,0 | mem 7254
+B drive v=150 | 71 | 71 | 14.1 | 0 | 696/388 | 0/422,0,0 | mem 7255
+B drive v=200 | 80 | 70 | 13.6 | 0 | 1102/484 | 0/316,0,0 | mem 7256
+
+B cold session 2 (unfocused, 15 fps)
+B cold  | 121 | 87 | 10.4 | 1 | 2037/1251 | 0/382,0,0 | mem 7199
+B drive v=100 | 78 | 72 | 13.7 | 0 | 1255/403 | 0/632,0,0 | mem 7198
+B drive v=150 | 78 | 71 | 13.7 | 0 | 846/380 | 0/421,0,0 | mem 7200
+B drive v=200 | 76 | 72 | 13.7 | 0 | 1689/392 | 0/316,0,0 | mem 7201
+
+B cold session 3 (unfocused, 15 fps)
+B cold  | 88 | 81 | 11.7 | 0 | 1849/1172 | 0/380,0,0 | mem 7183
+B drive v=100 | 79 | 71 | 13.8 | 0 | 1658/392 | 0/632,0,0 | mem 7192
+B drive v=150 | 78 | 71 | 13.5 | 0 | 540/372 | 0/421,0,0 | mem 7193
+B drive v=200 | 80 | 73 | 13.2 | 0 | 1656/353 | 0/317,0,0 | mem 7195
+
+B teleport session 1 (unfocused, 15 fps)
+B teleport  | 155 | 117 | 7.1 | 3 | 4712/3413 | 1/296,0,0 | mem 7253
+B drive v=100 | 76 | 71 | 13.8 | 0 | 1658/385 | 0/631,0,0 | mem 7240
+B drive v=150 | 79 | 71 | 13.4 | 0 | 638/388 | 0/422,0,0 | mem 7242
+B drive v=200 | 73 | 72 | 13.8 | 0 | 1260/392 | 0/317,0,0 | mem 7242
+
+B teleport session 2 (unfocused, 15 fps)
+B teleport  | 164 | 77 | 8.0 | 2 | 5832/1675 | 1/298,0,0 | mem 7428
+B drive v=100 | 80 | 72 | 13.6 | 0 | 1850/392 | 0/632,0,0 | mem 7422
+B drive v=150 | 78 | 71 | 13.5 | 0 | 855/380 | 0/422,0,0 | mem 7424
+B drive v=200 | 76 | 73 | 13.5 | 0 | 1658/383 | 0/317,0,0 | mem 7421
+
+B teleport session 3 (unfocused, 15 fps)
+B teleport  | 86 | 74 | 12.1 | 0 | 1240/953 | 1/300,0,0 | mem 7264
+B drive v=100 | 79 | 71 | 13.8 | 0 | 1080/392 | 0/631,0,0 | mem 7254
+B drive v=150 | 77 | 71 | 13.6 | 0 | 899/388 | 0/421,0,0 | mem 7254
+B drive v=200 | 79 | 72 | 13.6 | 0 | 1107/327 | 0/317,0,0 | mem 7254
+
+== SUMMARY (12 fresh Play sessions: 3 cold + 3 teleport per variant, each followed by drives at 100/150/200) ==
+Frame-time metrics (fps / p99 / 1% low / worst) are NOT valid: Studio was not in front (render capped at 15 fps) in
+11 of 12 sessions. Valid: instances added per frame, road-missing counts, completeness.
+
+| | A (today: mixed Atomic chunks) | B (road-only Atomic cells + non-atomic decoration) |
+|---|---|---|
+| cold: max instances in one frame | 2,417 / 2,670 / 3,446 | 1,649 / 2,037 / 1,849 |
+| teleport: max instances in one frame | 12,701 / 13,980 / 9,765 | 4,712 / 5,832 / 1,240 |
+| teleport: worst frame (throttled, indicative only) | 264 / 260 / 206 ms | 155 / 164 / 86 ms |
+| road missing under car while DRIVING (9 windows each) | 6 frames in 1 window (session 2, v=100) + 1 frame 1 s ahead (teleport s1, v=150) | 0 in all 9 windows |
+| road missing at the arrival frame (cold/teleport) | cold 0/7/0, teleport 1/1/1 | cold 1/0/0, teleport 1/1/1 |
+| client memory total (Studio process, indicative) | 6.8 - 7.1 GB | 7.2 - 7.4 GB |
+The 1 missing frame at arrival in teleports is the first frame after the server moves the car, in both variants.
+
+Rollback / cleanup: P.Remove() removed 25,163 instances; P.Leftovers() empty; an independent sweep of workspace,
+ReplicatedStorage, ServerStorage, ServerScriptService and StarterPlayer found nothing; the StreamingPrototype module
+was deleted from ServerStorage too. PattayaWorld was never modified (copy only).
+Harness note for team16: the builder's drive path (slab centres) crossed ground and buildings; replace drivePath()
+with a road-graph route (as done by hand here) before C/D.
