@@ -643,6 +643,14 @@ local function applyImpact(info)
 			spinT = spinT, w0 = w0}
 	end
 	hitCount += 1
+	-- test telemetry (TK.hitTest): the numbers of this hit, set before the count so a reader sees them together
+	player:SetAttribute("Recovery_LastHitTier", res.tier)
+	player:SetAttribute("Recovery_LastHitBefore", before)
+	player:SetAttribute("Recovery_LastHitAfter", math.sqrt(wx * wx + wz * wz))
+	player:SetAttribute("Recovery_LastHitVc", info.vc)
+	if type(info.tx) == "number" and type(info.tz) == "number" then
+		player:SetAttribute("Recovery_LastHitPos", Vector3.new(info.tx, 0, info.tz))
+	end
 	player:SetAttribute("Recovery_HitCount", hitCount)
 	player:SetAttribute("Recovery_LastHit", ("%s vc=%d %d->%d yaw=%d ctl=%.2f"):format(res.tier, math.floor(info.vc),
 		math.floor(before), math.floor(math.sqrt(wx * wx + wz * wz)), math.floor(res.yaw), res.control))

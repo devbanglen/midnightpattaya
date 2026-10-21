@@ -334,3 +334,49 @@ All live, on the server, no restart:
 - Jobs: until 7.2 is applied, an arcade heavy hit at job speed usually does **not** cut the fare (the speed-drop
   detector still catches hits that lose more than 55 studs/s, e.g. head-ons and heavy hits above about 100).
 - Bots still never meet traffic (owner decision 10 open). Camera shake / phone vibration are not built (decision 11).
+
+## 10. Studio round 1 (2026-10-21): what was wrong with the arcade results, and the fixes (team18/arcade-fix)
+
+Leader's runs: `docs/test_results/recovery_kit_studio.txt`. Investigated offline only; **the fixes are not yet
+re-run in Studio.** Every Studio case is now replayed in the luau CLI (`StagedHits` in
+`tools/qa/tests/test_recovery.py`: the traffic car on its route by the PattayaTraffic formula, my car on
+`stagePlan`, `hitFromWorld` every frame at 60 / 30 / 20 FPS, on a straight and a round route).
+
+1. **Wrong contact normal (a real game bug, `sweptOverlap`).** The normal was the axis of smallest overlap. When a
+   frame step pushes my car's corner deep into the long side of a traffic car (20° side hit at 30 FPS), the
+   smallest overlap is along the wrong axis, so the closing speed was measured along it: replayed offline with
+   the old code, the 20° side hit at 150 at 30 FPS came out as a scrape (vc 15), and against an oncoming car the
+   normal tilted 20° off the side face. Any frame where the length axis wins against an oncoming car gives
+   vc ≈ 186 with facing −0.94, a "head-on": the likely cause of the Studio "side 150 a20 → headon −92 %" together
+   with point 2 (the old helper could meet an oncoming car). Fixed:
+   the normal is now the face the boxes really met on: of the axes that still separated them one sub-step
+   earlier, the one that closed last (time of impact); sub-steps are 1 stud. The classifier itself (closing
+   speed sign, facing, side / front, the tier table) was checked case by case and is correct: rear 100/150/200,
+   head-on 100/150/200, side 5° / 20° / 25° all give the owner's tiers and losses at every frame rate.
+2. **The test helper hit the wrong car or no car (TestKit).** The old `TK.hitTest` put the car on a straight line
+   120 studs from the target and homed on its centre: on a curved road it started off the lane, met kerbs and
+   scenery or *other* traffic, and its stop rule ("centres within 15.5 studs") fired without a touch. The tier it
+   printed was whatever the next touch was, seconds later; the "after" speed was read 0.1 s after that stop (−4 %
+   is just coasting). Fixed: `PattayaRecovery.stagePlan` plans the car on the target's own lane with the same
+   route formula the traffic uses (rear: behind it along the route; head: ahead of it, against the route; side:
+   from its right at the angle, level with it at the touch), `TK.hitTest` drives that plan and hands off on the
+   frame the hit registers (arcade) or at contact (physical). It reports `onTarget` (the hit car's position,
+   `Recovery_LastHitPos`, matches the target) and `MISSED (reason)` otherwise.
+3. **Cars without a model cannot be hit (PattayaTraffic).** The pool holds 70 models; when more cars are within
+   650 studs, the extra ones get none and are invisible and non-colliding in **both** modes (explains several
+   physical "MISSED" runs too). Fixed: a car within 200 studs of my car that finds the pool full takes the model
+   of the farthest car (beyond 350 studs) not yet placed this frame. `TK.hitTest` only picks a target that has a
+   model (`TK.trafficModelAt`).
+4. **Speed metric.** Arcade: `before` / `after` are now the game's own numbers for that hit
+   (`Recovery_LastHitBefore` / `Recovery_LastHitAfter`, set in `applyImpact`), plus `measured` = the speed TK sees
+   on the first step after the hit. Physical: the lowest speed in the 0.4 s after contact. Nobody presses the
+   throttle in the test (the driver stays at 0), so neither number includes re-acceleration.
+5. **Applied once, not overridden.** The cut is applied once per hit (the traffic car ghosts for 1.5 s, so it
+   cannot fire again). `CarImpact` handlers run after the Heartbeat in which the touch was found and before the
+   next physics step; CarController's own step only adds `accel × dt` (≤ 2 studs/s per frame at full throttle), and
+   TestKit's driver checks the hit counter *before* it would set the velocity again. Nothing overwrote the cut in
+   the Studio runs; the −4 % rows were the measurement in point 2.
+
+Re-test (leader): the section 6 test 12 calls, now e.g. `print(TK.hitTest("rear", 200).text)`; expected
+`hit tier=heavy vc=155 200->60 (-70%)`, `head 150` → `headon -85 %` (then 10 back), `side 150 {angle = 5}` →
+scrape, `{angle = 20}` → heavy; every row must say `hit` without "(NOT the target car)".

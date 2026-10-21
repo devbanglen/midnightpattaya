@@ -302,8 +302,27 @@ function R.obbOverlap(ax: number, az: number, afx: number, afz: number, ahw: num
 	return true, best, bnx, bnz
 end
 
--- swept version: box A moved from (pax, paz) to (ax, az) since the last frame; tests in steps of <= 2 studs so a low
+-- overlap of the two boxes along each of the 4 axes: {{o, ux, uz, d}} (o <= 0 on an axis = separated there)
+local function axisOverlaps(ax: number, az: number, afx: number, afz: number, ahw: number, ahl: number,
+	bx: number, bz: number, bfx: number, bfz: number, bhw: number, bhl: number)
+	local out = {}
+	local dx, dz = ax - bx, az - bz
+	for _, u in {{-afz, afx}, {afx, afz}, {-bfz, bfx}, {bfx, bfz}} do
+		local ux, uz = u[1], u[2]
+		local ra = ahw * math.abs(-afz * ux + afx * uz) + ahl * math.abs(afx * ux + afz * uz)
+		local rb = bhw * math.abs(-bfz * ux + bfx * uz) + bhl * math.abs(bfx * ux + bfz * uz)
+		local d = dx * ux + dz * uz
+		table.insert(out, {ra + rb - math.abs(d), ux, uz, d})
+	end
+	return out
+end
+
+-- swept version: box A moved from (pax, paz) to (ax, az) since the last frame; tests in steps of <= 1 stud so a low
 -- frame rate cannot skip through a car. Returns hit, depth, nx, nz, and the A centre where the hit was found.
+-- The contact normal is the face the boxes actually met on: of the axes that still separated them one step
+-- earlier, the one that closed last (time of impact). The smallest-overlap axis alone is wrong once a 30 FPS step
+-- pushes a corner deep into a long side: it picked the length axis on a 20 degree side hit and called it a scrape
+-- (Studio 2026-10-21, docs/RECOVERY_AND_COLLISION.md section 10).
 function R.sweptOverlap(pax: number?, paz: number?, ax: number, az: number, afx: number, afz: number, ahw: number,
 	ahl: number, bx: number, bz: number, bfx: number, bfz: number, bhw: number, bhl: number)
 	local steps = 1
@@ -312,17 +331,42 @@ function R.sweptOverlap(pax: number?, paz: number?, ax: number, az: number, afx:
 		if move > 60 then
 			pax, paz = nil, nil -- a teleport, not a sweep
 		else
-			steps = math.clamp(math.ceil(move / 2), 1, 30)
+			steps = math.clamp(math.ceil(move), 1, 60)
 		end
 	end
+	local before = if pax then axisOverlaps(pax, paz :: number, afx, afz, ahw, ahl, bx, bz, bfx, bfz, bhw, bhl) else nil
 	for i = 1, steps do
 		local t = i / steps
 		local cx = if pax then lerp(pax, ax, t) else ax
 		local cz = if paz then lerp(paz :: number, az, t) else az
-		local hit, depth, nx, nz = R.obbOverlap(cx, cz, afx, afz, ahw, ahl, bx, bz, bfx, bfz, bhw, bhl)
-		if hit then
-			return true, depth, nx, nz, cx, cz
+		local now = axisOverlaps(cx, cz, afx, afz, ahw, ahl, bx, bz, bfx, bfz, bhw, bhl)
+		local hit = true
+		for _, a in now do
+			if a[1] <= 0 then hit = false break end
 		end
+		if hit then
+			local pick = nil
+			if before then
+				local lastClose = -math.huge
+				for k, a in now do
+					local o0 = before[k][1]
+					if o0 <= 0 then
+						local tk = -o0 / math.max(a[1] - o0, 1e-9)
+						if tk > lastClose then lastClose, pick = tk, k end
+					end
+				end
+			end
+			if not pick then -- no earlier sample (or already overlapping): the smallest overlap
+				local best = math.huge
+				for k, a in now do
+					if a[1] < best then best, pick = a[1], k end
+				end
+			end
+			local a = now[pick :: number]
+			local sgn = if a[4] >= 0 then 1 else -1
+			return true, a[1], a[2] * sgn, a[3] * sgn, cx, cz
+		end
+		before = now
 	end
 	return false, 0, 0, 0, ax, az
 end
@@ -389,6 +433,49 @@ function R.impactVelocity(vx: number, vz: number, nx: number, nz: number, res): 
 	return wx, wz
 end
 
+-- The whole arcade touch test in world numbers (the same maths PattayaTraffic runs every frame, so the luau CLI
+-- tests reproduce Studio cases from recorded positions and velocities).
+-- me = {x, z, lx, lz (unit heading), vx, vz}; tr = {x, z, lx, lz (unit heading), speed, halfWid, halfLen}
+-- prevX / prevZ: my centre in the traffic car's frame last frame (nil = no sweep).
+-- Traffic frame = CFrame.lookAt(traffic, traffic + heading): +X = right = heading x up = (-lz, lx), forward = -Z.
+-- Returns info (nil when they do not touch) and my centre in the traffic frame (store it for the next sweep).
+-- info = {vc, approachDeg, rel, facingDot, side (+1 = the traffic car is on my right), front (it touched my front
+-- half), nx, nz (world normal from the traffic car to me), depth}
+function R.hitFromWorld(me, tr, prevX: number?, prevZ: number?)
+	local rx, rz = -tr.lz, tr.lx -- traffic right
+	local dx, dz = me.x - tr.x, me.z - tr.z
+	local relX = dx * rx + dz * rz
+	local relZ = -(dx * tr.lx + dz * tr.lz)
+	local fx = me.lx * rx + me.lz * rz
+	local fz = -(me.lx * tr.lx + me.lz * tr.lz)
+	local fm = math.sqrt(fx * fx + fz * fz)
+	if fm < 1e-6 then
+		fx, fz = 0, -1
+	else
+		fx, fz = fx / fm, fz / fm
+	end
+	local hit, depth, onx, onz = R.sweptOverlap(prevX, prevZ, relX, relZ, fx, fz, R.CAR_HALF_WID, R.CAR_HALF_LEN,
+		0, 0, 0, -1, tr.halfWid, tr.halfLen)
+	if not hit then
+		return nil, relX, relZ
+	end
+	-- object (x, z) -> world: x along right, z along -heading
+	local nx, nz = onx * rx - onz * tr.lx, onx * rz - onz * tr.lz
+	local nm = math.sqrt(nx * nx + nz * nz)
+	if nm < 1e-6 then
+		nx, nz = -me.lx, -me.lz
+	else
+		nx, nz = nx / nm, nz / nm
+	end
+	local vc, approach, rel = R.closingSpeed(me.vx, me.vz, tr.lx * tr.speed, tr.lz * tr.speed, nx, nz)
+	-- the traffic car in my frame: right = (-lz, lx), front = heading
+	local ox, oz = tr.x - me.x, tr.z - me.z
+	local otherX = ox * -me.lz + oz * me.lx
+	local otherFwd = ox * me.lx + oz * me.lz
+	return {vc = vc, approachDeg = approach, rel = rel, facingDot = me.lx * tr.lx + me.lz * tr.lz,
+		side = if otherX >= 0 then 1 else -1, front = otherFwd > 0, nx = nx, nz = nz, depth = depth}, relX, relZ
+end
+
 -- yaw-rate profile of the scripted spin: omega(t) = w0 * (1 - t / T) for t < T integrates to the kick angle.
 -- Returns T (s) and w0 (rad/s, + = left).
 function R.spinProfile(yawDeg: number, control: number): (number, number)
@@ -432,7 +519,21 @@ local function routePoint(r, s: number): (number, number)
 end
 R.routePoint = routePoint
 
--- traffic cars within radius of (cx, cz) at server time t: {x, z, lx, lz (unit heading), speed, kind, dist}
+-- unit direction of a route at arc s, as (tx, tz)
+function R.routeTangent(r, s: number): (number, number)
+	local ax, az = routePoint(r, s - 3)
+	local bx, bz = routePoint(r, s + 3)
+	local dx, dz = bx - ax, bz - az
+	local m = math.sqrt(dx * dx + dz * dz)
+	if m < 1e-6 then
+		return 0, -1
+	end
+	return dx / m, dz / m
+end
+
+-- traffic cars within radius of (cx, cz) at server time t: {x, z, lx, lz (unit heading), speed, kind, dist,
+-- route, s (arc length on the route at time t, not wrapped), t}. The car is at R.routePoint(route, s + speed * dt)
+-- dt seconds later.
 function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number)
 	local out = {}
 	for _, r in routes do
@@ -453,12 +554,62 @@ function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number
 				else
 					lx, lz = 0, -1
 				end
-				table.insert(out, {x = x, z = z, lx = lx, lz = lz, speed = r.speed, kind = r.kinds[k], dist = d})
+				table.insert(out, {x = x, z = z, lx = lx, lz = lz, speed = r.speed, kind = r.kinds[k], dist = d,
+					route = r, s = s, t = t})
 			end
 		end
 	end
 	table.sort(out, function(a, b) return a.dist < b.dist end)
 	return out
+end
+
+-- Staged hit for TK.hitTest (and its offline tests): where my car must be at server time t to meet a traffic car
+-- on its own lane. p = {route, s0, t0 (the traffic car is at arc s0 at server time t0), vT (its speed), halfWid,
+-- halfLen, speed (mine), mode = "rear" | "head" | "side", lead (studs, rear / head), offset (studs to its right,
+-- rear / head), angle (degrees, side)}. Returns plan(t) -> x, z, dirX, dirZ, gap (studs before the boxes meet along
+-- the approach; <= 0 = touching), and the server time the boxes are due to meet.
+--   rear: on the lane behind it, along the route.   head: on its lane ahead of it, against the route.
+--   side: from its right (the overtaking side) at `angle`, level with it when they meet.
+function R.stagePlan(p)
+	local r, s0, t0, vT = p.route, p.s0, p.t0, p.vT
+	local speed = p.speed
+	local contact = p.halfLen + R.CAR_HALF_LEN
+	local function lane(sArc: number, lat: number)
+		local x, z = routePoint(r, sArc)
+		local tx, tz = R.routeTangent(r, sArc)
+		local rx, rz = -tz, tx
+		return x + rx * lat, z + rz * lat, tx, tz, rx, rz
+	end
+	if p.mode == "head" then
+		local lead = p.lead or 120
+		local meet = t0 + math.max(lead - contact, 0) / (speed + vT)
+		return function(t)
+			local sc = s0 + lead - speed * (t - t0)
+			local x, z, tx, tz = lane(sc, p.offset or 0)
+			return x, z, -tx, -tz, sc - (s0 + vT * (t - t0)) - contact
+		end, meet
+	elseif p.mode == "side" then
+		local a = math.rad(p.angle or 20)
+		local vs, u = speed * math.sin(a), speed * math.cos(a)
+		-- lateral distance between the centres when the corner of my (angled) box reaches its side
+		local latC = p.halfWid + R.CAR_HALF_WID * math.cos(a) + R.CAR_HALF_LEN * math.sin(a)
+		local run = math.max(0.8, 10 / math.max(vs, 1e-3))
+		local tc = t0 + run
+		return function(t)
+			local lat = latC + vs * (tc - t)
+			local sc = s0 + vT * (tc - t0) - u * (tc - t)
+			local x, z, tx, tz, rx, rz = lane(sc, lat)
+			local dx, dz = tx * math.cos(a) - rx * math.sin(a), tz * math.cos(a) - rz * math.sin(a)
+			return x, z, dx, dz, lat - latC
+		end, tc
+	end
+	local lead = p.lead or 120
+	local meet = t0 + math.max(lead - contact, 0) / math.max(speed - vT, 1e-3)
+	return function(t)
+		local sc = s0 - lead + speed * (t - t0)
+		local x, z, tx, tz = lane(sc, p.offset or 0)
+		return x, z, tx, tz, (s0 + vT * (t - t0)) - sc - contact
+	end, meet
 end
 
 -- server check of a client TrafficHit report: ok, reason

@@ -344,6 +344,162 @@ class RecoveryLogic(unittest.TestCase):
         self.assertGreaterEqual(out.count('PASS '), 60, out[-2000:])
 
 
+STAGED = r'''
+-- Studio cases of 2026-10-21 (docs/test_results/recovery_kit_studio.txt) replayed offline: the traffic car moves on
+-- its route by the same formula as PattayaTraffic, my car follows PattayaRecovery.stagePlan (what TK.hitTest
+-- drives), and every frame runs PattayaRecovery.hitFromWorld (what PattayaTraffic runs). The first touch is
+-- classified with the owner's table.
+local R = require("./PattayaRecovery")
+R._attr = function() return nil end
+local cfg = R.config()
+local fails, passes = 0, 0
+local function check(name, cond, detail)
+	if cond then passes += 1 print("PASS " .. name)
+	else fails += 1 print("FAIL " .. name .. (if detail then " :: " .. tostring(detail) else "")) end
+end
+
+-- a long straight loop (heading +X on the south side) and a round one (radius 300, 48 points)
+local straight = R.buildTrafficRoutes({{pts = {0, 0, 3000, 0, 3000, 600, 0, 600, 0, 0}, speed = 45, phase = 0,
+	kinds = {0}}}, 0, 0)[1]
+local circ = {}
+for i = 0, 48 do
+	local a = i / 48 * 2 * math.pi
+	table.insert(circ, 300 * math.cos(a))
+	table.insert(circ, 300 * math.sin(a))
+end
+local round = R.buildTrafficRoutes({{pts = circ, speed = 45, phase = 0, kinds = {0}}}, 0, 0)[1]
+
+local SH = R.TRAFFIC_SHAPES[0]
+local function trafficAt(route, s0, t0, t)
+	local s = s0 + 45 * (t - t0)
+	local x, z = R.routePoint(route, s)
+	local x2, z2 = R.routePoint(route, s + 6) -- heading as PattayaTraffic: towards the point 6 studs on
+	local lx, lz = x2 - x, z2 - z
+	local m = math.sqrt(lx * lx + lz * lz)
+	return x, z, lx / m, lz / m
+end
+
+-- returns the first hit's info + classification, the time of it, and the planned meeting time
+local function run(route, s0, mode, speed, opts, fps, reverseTraffic)
+	opts = opts or {}
+	local plan, meet = R.stagePlan({route = route, s0 = s0, t0 = 0, vT = 45, halfWid = SH.wid / 2, halfLen = SH.len / 2,
+		speed = speed, mode = mode, lead = opts.lead, offset = opts.offset, angle = opts.angle})
+	local dt = 1 / fps
+	local px, pz = nil, nil
+	local t = 0
+	while t < meet + 2 do
+		t += dt
+		local x, z, dx, dz = plan(t)
+		local m = math.sqrt(dx * dx + dz * dz)
+		dx, dz = dx / m, dz / m
+		local tx, tz, tlx, tlz = trafficAt(route, s0, 0, t)
+		if reverseTraffic then tlx, tlz = -tlx, -tlz end
+		local info, rx, rz = R.hitFromWorld({x = x, z = z, lx = dx, lz = dz, vx = dx * speed, vz = dz * speed},
+			{x = tx, z = tz, lx = tlx, lz = tlz, speed = 45, halfWid = SH.wid / 2, halfLen = SH.len / 2}, px, pz)
+		px, pz = rx, rz
+		if info then
+			local res = R.classifyHit(info, cfg)
+			local wx, wz = R.impactVelocity(dx * speed, dz * speed, info.nx, info.nz, res)
+			res.after = math.sqrt(wx * wx + wz * wz)
+			return info, res, t, meet
+		end
+	end
+	return nil, nil, t, meet
+end
+
+local function near(a, b, eps) return math.abs(a - b) <= eps end
+-- expected: tier, loss (instant cut of the speed), from the owner's table (vc = closing speed)
+local CASES = {
+	{"rear", 100, nil, "heavy", 0.45 + 0.25 * (55 - 45) / 85},   -- vc 55
+	{"rear", 150, nil, "heavy", 0.45 + 0.25 * (105 - 45) / 85},  -- vc 105
+	{"rear", 200, nil, "heavy", 0.70},                          -- vc 155
+	{"rear", 150, {offset = 2}, "heavy", 0.45 + 0.25 * (105 - 45) / 85},
+	{"rear", 70, nil, "light", 0.20},                           -- vc 25
+	{"head", 100, nil, "headon", 0.85},
+	{"head", 150, nil, "headon", 0.85},
+	{"head", 200, nil, "headon", 0.85},
+	{"side", 150, {angle = 5}, "scrape", 0.08},
+	{"side", 150, {angle = 20}, "heavy", nil},
+	{"side", 70, {angle = 25}, "light", 0.20},
+}
+for _, route in {{"straight", straight, 500}, {"round", round, 400}} do
+	for _, fps in {60, 30, 20} do
+		for _, c in CASES do
+			local mode, speed, opts, tier, loss = c[1], c[2], c[3], c[4], c[5]
+			local name = ("%s %s %d @%dfps%s"):format(route[1], mode, speed, fps,
+				if opts and opts.angle then " a" .. opts.angle elseif opts and opts.offset then " off" .. opts.offset else "")
+			local info, res, t, meet = run(route[2], route[3], mode, speed, opts, fps)
+			if not info then
+				check(name .. " touches", false, "no touch")
+				continue
+			end
+			check(name .. " touches when planned", math.abs(t - meet) < 0.25, ("t %.2f meet %.2f"):format(t, meet))
+			check(name .. " -> " .. tier, res.tier == tier, ("%s vc %.0f angle %.0f facing %.2f"):format(res.tier,
+				info.vc, info.approachDeg, info.facingDot))
+			if loss then
+				-- the curve changes vc a little (the traffic heading is the chord to 6 studs on)
+				check(name .. " loss", near(res.loss, loss, if route[1] == "round" then 0.03 else 0.005),
+					("%.3f vs %.3f"):format(res.loss, loss))
+				check(name .. " speed after", near(res.after, speed * (1 - res.loss), 0.5) or res.bounce > 0,
+					("%.1f"):format(res.after))
+			end
+			if tier == "headon" then
+				check(name .. " bounces back", res.after <= 10.5 and res.bounce == 10, res.after)
+			end
+			if tier == "heavy" then
+				check(name .. " spin in the 45-120 band", math.abs(res.yaw) >= 45 and math.abs(res.yaw) <= 120, res.yaw)
+			end
+		end
+	end
+end
+
+-- what the Studio "side 150 a20 -> headon -92 %" looks like: the same side approach into a car coming the other way
+local info, res = run(straight, 500, "side", 150, {angle = 20}, 60, true)
+check("a 20 degree side approach into an ONCOMING car is a heavy side hit, never a head-on", info and res.tier == "heavy"
+	and info.vc > 45 and info.vc < 60, res and (res.tier .. " vc " .. info.vc))
+for _, fps in {60, 30, 20} do
+	info, res = run(straight, 500, "side", 150, {angle = 20}, fps, true)
+	check("oncoming side hit at " .. fps .. " fps keeps the side normal", info and math.abs(info.nz) > 0.99, info and info.nz)
+end
+-- and "head 150 -> heavy": a head-on aimed 9 studs off the lane only clips the corner at an angle
+info, res = run(straight, 500, "head", 150, {offset = 9}, 60)
+check("an offset head-on that only clips the corner is not a full head-on", info == nil or res.tier ~= "headon"
+	or info.facingDot <= -0.866, res and res.tier)
+
+-- conventions, one by one (world numbers as PattayaTraffic passes them)
+local me = {x = 0, z = 14, lx = 0, lz = -1, vx = 0, vz = -150}           -- behind a car heading -Z, nose to its tail
+local tr = {x = 0, z = 0, lx = 0, lz = -1, speed = 45, halfWid = 3.3, halfLen = 7}
+info = R.hitFromWorld(me, tr)
+check("rear-end: vc 105, facing +1, it is in front of me", info and near(info.vc, 105, 1e-6)
+	and near(info.facingDot, 1, 1e-6) and info.front == true and near(info.nz, 1, 1e-6), info and info.vc)
+me = {x = 0, z = -14, lx = 0, lz = 1, vx = 0, vz = 150}                 -- in front of it, driving at it
+info = R.hitFromWorld(me, tr)
+check("head-on: vc 195, facing -1", info and near(info.vc, 195, 1e-6) and near(info.facingDot, -1, 1e-6)
+	and info.front == true, info and info.vc)
+me = {x = 6.5, z = 0, lx = 0, lz = -1, vx = -10, vz = -150}             -- level with it on its right, drifting left
+info = R.hitFromWorld(me, tr)
+check("side: traffic on my left, vc = my sideways speed", info and info.side == -1 and near(info.vc, 10, 1e-6)
+	and near(info.nx, 1, 1e-6), info and info.side)
+me = {x = 0, z = 30, lx = 0, lz = -1, vx = 0, vz = -150}
+check("apart: no hit", R.hitFromWorld(me, tr) == nil)
+
+print(("%d passed, %d failed"):format(passes, fails))
+print("FAILS", fails)
+'''
+
+
+class StagedHits(unittest.TestCase):
+    """The Studio arcade cases replayed offline through stagePlan + hitFromWorld + classifyHit."""
+
+    def test_studio_cases(self):
+        code, out = _qa.run_luau(STAGED, {'PattayaRecovery.luau': src(MOD)})
+        self.assertEqual(code, 0, out[-3000:])
+        fails = [line for line in out.splitlines() if line.startswith('FAIL ')]
+        self.assertEqual(fails, [], out[-4000:])
+        self.assertIn('FAILS\t0', out, out[-3000:])
+        self.assertGreaterEqual(out.count('PASS '), 150, out[-2000:])
+
+
 class RecoveryWiring(unittest.TestCase):
     """Static checks: the switches, remotes and rollback paths the doc promises are in the code."""
 
