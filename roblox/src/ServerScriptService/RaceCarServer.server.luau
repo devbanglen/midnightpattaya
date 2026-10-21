@@ -89,18 +89,37 @@ local function bodyLayout(src, s)
 	}
 end
 
--- Scales the body mesh to BODY_LENGTH. Returns (hasMesh, layout): without a wheel layout the mesh's own fused tyres
--- are the wheels, so it is dropped until its lowest point sits on the ground at rest.
+-- Optional real wheel meshes (TEST VEHICLES so far, docs/CAR_IMPORT_RED_SPORTS.md): MeshParts named
+-- WheelMesh_FL / _FR / _RL / _RR (or one per side: WheelMesh_L / _R) inside ServerStorage.CarBodies.<id>, each centred
+-- on its axle with the axle along X (tools/blender/import_car.py). They are never the body mesh. Without them the
+-- procedural cylinder wheels are used, as before.
+local function isWheelMesh(inst)
+	return string.sub(inst.Name, 1, 10) == "WheelMesh_"
+end
+
+local function bodyMeshOf(src)
+	if src:IsA("MeshPart") then return src end
+	for _, d in ipairs(src:GetDescendants()) do
+		if d:IsA("MeshPart") and not isWheelMesh(d) then return d end
+	end
+	return nil
+end
+
+-- Scales the body mesh to BODY_LENGTH. Returns (hasMesh, layout, wheelMeshes): without a wheel layout the mesh's own
+-- fused tyres are the wheels, so it is dropped until its lowest point sits on the ground at rest.
 local function attachBody(model, chassis, id)
 	local folder = ServerStorage:FindFirstChild("CarBodies")
 	local src = folder and folder:FindFirstChild(id)
 	if not src then return false end
-	local mesh = src:IsA("MeshPart") and src or src:FindFirstChildWhichIsA("MeshPart", true)
+	local mesh = bodyMeshOf(src)
 	if not mesh then return false end
 	local s = BODY_LENGTH / mesh.Size.Z
 	local layout = bodyLayout(src, s)
 	local body = mesh:Clone()
 	body.Name = "Body"
+	for _, d in ipairs(body:GetChildren()) do
+		if isWheelMesh(d) then d:Destroy() end -- the wheel meshes may be kept as children of the body MeshPart
+	end
 	body.Size = body.Size * s
 	local offsetY = layout and layout.bodyOffset or body.Size.Y / 2 - (DEFAULT_LAYOUT.radius + REST_EXT)
 	body.CFrame = chassis.CFrame * CFrame.new(0, offsetY, 0) * CFrame.Angles(0, math.rad(src:GetAttribute("YawFix") or 0), 0)
@@ -109,7 +128,52 @@ local function attachBody(model, chassis, id)
 	body.Massless = true
 	body.Parent = model
 	weld(chassis, body)
-	return true, layout
+	local wheelMeshes = nil
+	local found = {}
+	for _, key in ipairs({"FL", "FR", "RL", "RR", "L", "R"}) do
+		local m = src:FindFirstChild("WheelMesh_" .. key, true)
+		if m and m:IsA("MeshPart") then
+			found[key] = m
+		end
+	end
+	if layout and next(found) then
+		-- the importer bakes the same yaw into every mesh of the import; WheelYawFix overrides it for the wheels only
+		local yaw = src:GetAttribute("WheelYawFix") or src:GetAttribute("YawFix") or 0
+		wheelMeshes = {meshes = found, scale = s, yaw = math.rad(yaw)}
+	end
+	return true, layout, wheelMeshes
+end
+
+-- The real wheel mesh as the visual of a procedural wheel part: welded to it, so CarController's spin (about the
+-- part's X), steering and suspension travel move it. Massless, no collision / queries: physics stays raycast-only.
+-- Lookup: WheelMesh_<FL..RR>, else WheelMesh_<L|R> for that side, else a mesh of the other side turned 180 degrees
+-- about Y (outer face outward again).
+local function attachWheelMesh(wheel, name, wm)
+	local side = string.sub(name, 2, 2)
+	local other = side == "L" and "R" or "L"
+	local found, yaw = wm.meshes, wm.yaw
+	local srcMesh = found[name] or found[side]
+	if not srcMesh then
+		srcMesh = found[string.sub(name, 1, 1) .. other] or found[other]
+			or found[(string.sub(name, 1, 1) == "F" and "R" or "F") .. other]
+		yaw += math.pi
+	end
+	if not srcMesh then
+		srcMesh = found[(string.sub(name, 1, 1) == "F" and "R" or "F") .. side]
+		yaw = wm.yaw
+	end
+	local m = srcMesh:Clone()
+	m.Name = "WheelMesh"
+	m.Size = srcMesh.Size * wm.scale
+	m.CFrame = wheel.CFrame * CFrame.Angles(0, yaw, 0)
+	m.Anchored = false
+	m.CanCollide = false
+	m.CanQuery = false
+	m.CanTouch = false
+	m.Massless = true
+	m.Parent = wheel
+	weld(wheel, m)
+	return m
 end
 
 -- opts (optional, personal garage cars): {owner = userId, engine = tier, grip = tier, name = model name}
@@ -145,7 +209,7 @@ local function buildCar(cf, color, id, opts)
 	chassis.Parent = model
 	model.PrimaryPart = chassis
 
-	local hasMesh, meshLayout = attachBody(model, chassis, id)
+	local hasMesh, meshLayout, wheelMeshes = attachBody(model, chassis, id)
 	local layout = meshLayout or DEFAULT_LAYOUT
 	local showWheels = meshLayout ~= nil or not hasMesh
 	model:SetAttribute("WheelRadius", layout.radius)
@@ -198,14 +262,20 @@ local function buildCar(cf, color, id, opts)
 		local cf = chassis.CFrame * CFrame.new(pos - Vector3.new(0, REST_EXT, 0))
 		local wheel = wheelPart(model, "Wheel_" .. name, Vector3.new(width, r * 2, r * 2), cf, Color3.fromRGB(22, 22, 24))
 		wheel.Shape = Enum.PartType.Cylinder
-		local rim = wheelPart(wheel, "Rim", Vector3.new(width + 0.08, r * 1.3, r * 1.3), cf, layout.rim, Enum.Material.Metal)
-		rim.Shape = Enum.PartType.Cylinder
-		weld(wheel, rim)
-		-- spokes, so the spin reads on screen
-		local spokeColor = layout.rim:Lerp(Color3.new(0, 0, 0), 0.35)
-		for k = 0, 2 do
-			local spoke = wheelPart(wheel, "Spoke", Vector3.new(width + 0.14, r * 0.22, r * 1.25), cf * CFrame.Angles(math.rad(k * 60), 0, 0), spokeColor, Enum.Material.Metal)
-			weld(wheel, spoke)
+		if wheelMeshes then
+			-- the imported tyre + rim is the visual; the cylinder stays (same size, weld, mass) but is hidden
+			wheel.Transparency = 1
+			attachWheelMesh(wheel, name, wheelMeshes)
+		else
+			local rim = wheelPart(wheel, "Rim", Vector3.new(width + 0.08, r * 1.3, r * 1.3), cf, layout.rim, Enum.Material.Metal)
+			rim.Shape = Enum.PartType.Cylinder
+			weld(wheel, rim)
+			-- spokes, so the spin reads on screen
+			local spokeColor = layout.rim:Lerp(Color3.new(0, 0, 0), 0.35)
+			for k = 0, 2 do
+				local spoke = wheelPart(wheel, "Spoke", Vector3.new(width + 0.14, r * 0.22, r * 1.25), cf * CFrame.Angles(math.rad(k * 60), 0, 0), spokeColor, Enum.Material.Metal)
+				weld(wheel, spoke)
+			end
 		end
 
 		-- a Weld (not WeldConstraint) so the controller can move the wheel through C0
