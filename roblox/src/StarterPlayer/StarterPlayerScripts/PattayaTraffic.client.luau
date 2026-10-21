@@ -12,6 +12,8 @@
 --   roll) through the client BindableEvent PlayerScripts.CarImpact, and the traffic car ghosts for 1.5 s.
 -- Player attribute TrafficGhostUntil (server time, set after a rescue) ghosts every car near mine until then;
 -- TrafficGhostAll = true (TestKit) skips arcade hits.
+-- TestKit hook (Studio or workspace DevTest only): player attribute TK_HitTarget = a car key (route * 1000 + index)
+-- ghosts every other car, so TK.hitTest meets exactly its target. Ignored in normal play.
 -- Looks (team9, 2026-10-19): real vehicle meshes (sedan / taxi, hatch, scooter pair, tuk-tuk, songthaew, pickup, van)
 -- from ReplicatedStorage.TrafficVehicles + TrafficVehicleTemplates, welded to the same single collision box as before
 -- (now invisible). No template for a kind (or no module) = the box car below, unchanged. docs/TRAFFIC_VEHICLES.md
@@ -35,6 +37,7 @@ if tvModule then
 	end
 end
 local NearMiss = remotes:WaitForChild("NearMiss", 30)
+local IS_STUDIO = RunService:IsStudio()
 local player = Players.LocalPlayer
 local recModule = ReplicatedStorage:FindFirstChild("PattayaRecovery")
 local recOk, Recovery = false, nil
@@ -289,6 +292,10 @@ RunService.Heartbeat:Connect(function()
 	local ghostUntil = player:GetAttribute("TrafficGhostUntil")
 	local ghostAround = type(ghostUntil) == "number" and ghostUntil > t
 	local noHits = player:GetAttribute("TrafficGhostAll") == true
+	local tkKey = player:GetAttribute("TK_HitTarget")
+	if type(tkKey) ~= "number" or not (IS_STUDIO or workspace:GetAttribute("DevTest") == true) then
+		tkKey = nil
+	end
 	local seen = {}
 	table.clear(roots)
 	table.clear(cframes)
@@ -354,6 +361,9 @@ RunService.Heartbeat:Connect(function()
 				if rel.Z < 0 and rel.Z > -(entry.halfLen + 16) and math.abs(rel.X) < entry.halfWid + 4
 					and along > -10 and along < r.speed - 5 then
 					entry.ghostUntil = t + 1.5
+				end
+				if tkKey and key ~= tkKey then
+					entry.ghostUntil = math.max(entry.ghostUntil, t + 0.25) -- TestKit: only the target is real
 				end
 				-- just rescued: everything close to me stays a ghost until TrafficGhostUntil
 				if ghostAround and math.abs(rel.X) < entry.halfWid + 20 and math.abs(rel.Z) < entry.halfLen + 30 then

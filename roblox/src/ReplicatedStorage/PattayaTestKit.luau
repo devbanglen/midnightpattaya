@@ -59,6 +59,12 @@
 --   {touched, onTarget, tier, vc, before, after (arcade: the game's own speed right after the cut; physical: the
 --   lowest speed in the 0.4 s after contact), lossPct, yawDeg (2 s), minUp, flipped, uprights}; result.text
 -- TK.trafficModelAt(pos, within) -> Model?   the traffic model near a spot (nil = no model: cannot be hit)
+--   Round 3 rules: the target is the nearest car whose whole approach (start spot included) stays opts.clearance (30)
+--   studs from every other traffic car; if none, every other car ghosts for the run (TestKit-only hook
+--   TK_HitTarget in PattayaTraffic, Studio / DevTest only). The car waits 0.3 s at its start; only a hit after the
+--   approach began, near the planned meeting time, on the target counts (PattayaRecovery.acceptStagedHit). Arcade:
+--   my car ignores scenery during the approach. Each row reports the Heartbeat rate (Hz).
+-- TK.hitMatrix(opts?) -> summary, rows       every row of TK.HIT_MATRIX, PASS / FAIL against the owner's table
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1138,39 +1144,108 @@ local function trafficModelAt(pos: Vector3, within: number): Model?
 end
 TK.trafficModelAt = trafficModelAt
 
-function TK.hitTest(mode: string, speed: number, opts)
-	opts = opts or {}
-	local chassis = TK.car()
-	assert(chassis and Rec, "hitTest: get in a car first (and PattayaRecovery must be installed)")
-	-- target: the nearest traffic car that has a model right now (opts.target forces one)
-	local target = opts.target
-	if not target then
-		for _, e in TK.trafficNear(opts.radius or 400) do
-			if trafficModelAt(e.pos, 4) then target = e break end
+-- staged hit: plan, target and lane checks (all maths in PattayaRecovery: stagePlan, plannedPathClear,
+-- acceptStagedHit, tested offline in tools/qa/tests/test_recovery.py)
+local function stage(target, mode: string, speed: number, opts)
+	return Rec.stagePlan({route = target.route, s0 = target.s, t0 = target.t, vT = target.speed,
+		halfWid = target.halfWid, halfLen = target.halfLen, speed = speed, mode = mode, lead = opts.lead,
+		offset = opts.offset, angle = opts.angle, runLat = opts.runLat})
+end
+
+-- the nearest traffic car with a model whose whole approach is clear of every other traffic car by `clearance`
+-- studs (start spot included); returns target, clear (false = none was clear: the nearest with a model)
+local function pickTarget(mode: string, speed: number, opts, startDelay: number)
+	local clearance = opts.clearance or 30
+	local fallback = nil
+	for _, e in TK.trafficNear(opts.radius or 500) do
+		if not trafficModelAt(e.pos, 4) then continue end
+		fallback = fallback or e
+		-- plan from the moment the approach will start
+		local t0 = e.t + startDelay
+		local probe = table.clone(e)
+		probe.s, probe.t = e.s + e.speed * startDelay, t0
+		local plan, meet = stage(probe, mode, speed, opts)
+		local others = {}
+		local x0, z0 = plan(t0)
+		for _, o in TK.trafficNear(700, Vector3.new(x0, 1, z0)) do
+			if o.key ~= e.key then table.insert(others, o) end
+		end
+		local clear = Rec.plannedPathClear(plan, t0, meet, others, clearance)
+		if clear then
+			return e, true
 		end
 	end
-	assert(target, "hitTest: no traffic car with a model nearby")
+	return fallback, false
+end
+
+local hz = {n = 0, at = os.clock(), rate = 0}
+RunService.Heartbeat:Connect(function()
+	hz.n += 1
+	local c = os.clock()
+	if c - hz.at >= 0.5 then
+		hz.rate, hz.n, hz.at = hz.n / (c - hz.at), 0, c
+	end
+end)
+
+function TK.hitTest(mode: string, speed: number, opts)
+	opts = opts or {}
+	local chassis, model = TK.car()
+	assert(chassis and model and Rec, "hitTest: get in a car first (and PattayaRecovery must be installed)")
 	local arcade = workspace:GetAttribute("CollisionModel") == "arcade"
-	local plan, meetAt = Rec.stagePlan({route = target.route, s0 = target.s, t0 = target.t, vT = target.speed,
-		halfWid = target.halfWid, halfLen = target.halfLen, speed = speed, mode = mode, lead = opts.lead,
-		offset = opts.offset, angle = opts.angle})
+	local START_DELAY = 0.3 -- s between the target choice and the start of the approach (placement + one frame)
+	local target, clear = opts.target, true
+	if not target then
+		target, clear = pickTarget(mode, speed, opts, START_DELAY)
+	end
+	assert(target, "hitTest: no traffic car with a model nearby")
+	-- no clear lane: every other car ghosts for this run (TestKit-only hook in PattayaTraffic)
+	local ghostOthers = not clear or opts.ghostOthers == true
+	if ghostOthers then
+		player:SetAttribute("TK_HitTarget", target.key)
+	end
+	local approachT = workspace:GetServerTimeNow() + START_DELAY
+	local probe = table.clone(target)
+	probe.s, probe.t = target.s + target.speed * (approachT - target.t), approachT
+	local plan, meetAt = stage(probe, mode, speed, opts)
 	local Y = 1 + 2.8 -- road + chassis ride height (traffic roads are at Y = 1)
 	local function targetAt(t: number): Vector3
 		local x, z = Rec.routePoint(target.route, target.s + target.speed * (t - target.t))
 		return Vector3.new(x, 1, z)
 	end
-	local hitsBefore = player:GetAttribute("Recovery_HitCount") or 0
 	local uprightsBefore = player:GetAttribute("Recovery_Uprights") or 0
-	local x0, z0, dx0, dz0 = plan(workspace:GetServerTimeNow())
-	TK.jumpTo(Vector3.new(x0, Y, z0), Vector3.new(dx0, 0, dz0))
-	-- drive the plan (CFrame + velocity every step) until the touch
-	local state = {done = false, reason = "", releaseAt = 0}
+	-- place the car at its start (clear of the target and, after pickTarget, of every other car) and hold it
+	-- there until the approach starts; scenery is ignored by my car during the approach in arcade mode (a kerb
+	-- between two 15 Hz frames cost speed before the hit: Studio round 3, side 70 at 37)
+	local collide = chassis.CanCollide
+	if arcade then chassis.CanCollide = false end
+	local hitsBefore = nil
+	local state = {done = false, reason = "", releaseAt = 0, frames = 0, startClock = 0, rejected = nil}
 	local conn = onPreSim(function()
 		if state.done then return end
 		local t = workspace:GetServerTimeNow()
-		if (player:GetAttribute("Recovery_HitCount") or 0) ~= hitsBefore then
-			-- arcade hit registered: hands off at once, the velocity now is the one the hit left
-			state.done, state.reason, state.releaseAt = true, "hit", t
+		local count = player:GetAttribute("Recovery_HitCount") or 0
+		if t < approachT then
+			-- holding at the start: anything counted here is not the staged hit
+			hitsBefore = count
+			local x, z, dx, dz = plan(approachT)
+			local p = Vector3.new(x, Y, z)
+			chassis.CFrame = CFrame.lookAt(p, p + Vector3.new(dx, 0, dz))
+			chassis.AssemblyLinearVelocity = Vector3.zero
+			chassis.AssemblyAngularVelocity = Vector3.zero
+			return
+		end
+		if state.frames == 0 then state.startClock = os.clock() end
+		state.frames += 1
+		if hitsBefore and count ~= hitsBefore then
+			-- a hit registered: is it the staged one?
+			local hp = player:GetAttribute("Recovery_LastHitPos")
+			local tp = targetAt(t)
+			local ok, why = Rec.acceptStagedHit({hitT = t, approachT = approachT, meet = meetAt,
+				frameDt = 1 / math.max(hz.rate, 1), hitX = if typeof(hp) == "Vector3" then hp.X else math.huge,
+				hitZ = if typeof(hp) == "Vector3" then hp.Z else math.huge, targetX = tp.X, targetZ = tp.Z})
+			state.done, state.releaseAt = true, t
+			state.reason = if ok then "hit" else "rejected: " .. tostring(why)
+			state.rejected = not ok
 			return
 		end
 		local x, z, dx, dz, gap = plan(t)
@@ -1178,7 +1253,7 @@ function TK.hitTest(mode: string, speed: number, opts)
 			state.done, state.reason, state.releaseAt = true, "contact", t -- physics takes the touch from here
 		elseif arcade and gap < -4 then
 			state.done, state.reason = true, "no hit registered (overlapping)"
-		elseif t > meetAt + 2 or t - target.t > (opts.timeout or 10) then
+		elseif t > meetAt + 2 or t - approachT > (opts.timeout or 10) then
 			state.done, state.reason = true, "timeout"
 		end
 		local p = Vector3.new(x, Y, z)
@@ -1189,10 +1264,10 @@ function TK.hitTest(mode: string, speed: number, opts)
 	end)
 	while not state.done do RunService.Heartbeat:Wait() end
 	conn:Disconnect()
+	chassis.CanCollide = collide
+	local frameHz = if state.frames > 1 then (state.frames - 1) / math.max(os.clock() - state.startClock, 1e-3) else hz.rate
 	local immediate = flat(chassis.AssemblyLinearVelocity).Magnitude
 	local look0 = flat(chassis.CFrame.LookVector).Unit
-	-- right after the hit: the lowest speed in the next 0.4 s (physics bounces take a few steps), before the driver
-	-- (nobody: throttle 0) could re-accelerate; then the spin and roll over 2 s
 	local minSpeed, minUp, minDist = immediate, 1, math.huge
 	local t1 = os.clock()
 	while os.clock() - t1 < 2 do
@@ -1202,38 +1277,94 @@ function TK.hitTest(mode: string, speed: number, opts)
 		minUp = math.min(minUp, chassis.CFrame.UpVector.Y)
 		minDist = math.min(minDist, flat(chassis.Position - targetAt(workspace:GetServerTimeNow())).Magnitude)
 	end
+	if ghostOthers then
+		player:SetAttribute("TK_HitTarget", nil)
+	end
 	local look1 = flat(chassis.CFrame.LookVector).Unit
 	local yaw = math.deg(math.atan2(look0:Cross(look1).Y, look0:Dot(look1)))
-	local registered = (player:GetAttribute("Recovery_HitCount") or 0) ~= hitsBefore
-	local res = {mode = mode, speed = speed, model = if arcade then "arcade" else "physical", reason = state.reason,
-		yawDeg = yaw, minUp = minUp, flipped = minUp < 0.5,
+	local res = {mode = mode, speed = speed, angle = opts.angle, model = if arcade then "arcade" else "physical",
+		reason = state.reason, yawDeg = yaw, minUp = minUp, flipped = minUp < 0.5, hz = frameHz,
+		ghostedOthers = ghostOthers, vT = target.speed,
 		uprights = (player:GetAttribute("Recovery_Uprights") or 0) - uprightsBefore}
 	if arcade then
-		-- the game's own numbers for this hit, and whether it was the target (not some other car on the way)
-		local hp = player:GetAttribute("Recovery_LastHitPos")
-		local onTarget = registered and typeof(hp) == "Vector3"
-			and flat(hp - targetAt(state.releaseAt)).Magnitude < 10
-		res.touched = registered
-		res.onTarget = onTarget
-		res.tier = if registered then player:GetAttribute("Recovery_LastHitTier") else nil
-		res.vc = if registered then player:GetAttribute("Recovery_LastHitVc") else nil
-		res.before = if registered then player:GetAttribute("Recovery_LastHitBefore") or speed else speed
-		res.after = if registered then player:GetAttribute("Recovery_LastHitAfter") or immediate else immediate
+		local good = state.reason == "hit"
+		res.touched, res.onTarget = good, good
+		res.tier = if good then player:GetAttribute("Recovery_LastHitTier") else nil
+		res.vc = if good then player:GetAttribute("Recovery_LastHitVc") else nil
+		res.before = if good then player:GetAttribute("Recovery_LastHitBefore") or speed else speed
+		res.after = if good then player:GetAttribute("Recovery_LastHitAfter") or immediate else immediate
 		res.measured = immediate
 	else
 		res.before, res.after, res.measured = speed, minSpeed, immediate
-		-- a real touch costs speed, or the cars ended up at contact distance
 		res.touched = state.reason == "contact" and (minSpeed < speed * 0.9 or minDist < target.halfLen + 9)
 		res.onTarget = res.touched
 	end
 	res.lossPct = (1 - (res.after or 0) / math.max(res.before or speed, 1)) * 100
 	res.lastHit = player:GetAttribute("Recovery_LastHit")
-	res.text = ("hitTest %s @%d [%s]: %s%s tier=%s vc=%s %d->%d (-%d%%) yaw=%d minUp=%.2f%s"):format(mode, speed,
-		res.model, if res.touched then "hit" else "MISSED (" .. state.reason .. ")",
-		if res.touched and not res.onTarget then " (NOT the target car)" else "", tostring(res.tier),
+	res.text = ("hitTest %s @%d%s [%s, %.0f Hz%s]: %s tier=%s vc=%s %d->%d (-%d%%) yaw=%d minUp=%.2f%s"):format(mode,
+		speed, if opts.angle then " a" .. opts.angle elseif opts.offset then " off" .. opts.offset else "", res.model,
+		frameHz, if ghostOthers then ", others ghosted" else "",
+		if res.touched then "hit" else "MISSED (" .. state.reason .. ")", tostring(res.tier),
 		if res.vc then tostring(math.floor(res.vc)) else "-", math.floor(res.before or 0), math.floor(res.after or 0),
 		math.floor(res.lossPct + 0.5), math.floor(yaw), minUp, if res.flipped then " FLIPPED" else "")
 	return res
+end
+
+-- the owner's table as staged hits (CollisionModel must be "arcade"; set it on the server first)
+TK.HIT_MATRIX = {
+	{"rear", 70}, {"rear", 100}, {"rear", 150}, {"rear", 200}, {"rear", 150, {offset = 2}},
+	{"head", 100}, {"head", 150}, {"head", 200},
+	{"side", 150, {angle = 5}}, {"side", 150, {angle = 20}}, {"side", 70, {angle = 25}}, {"side", 100, {angle = 10}},
+}
+
+-- TK.hitMatrix(opts?) -> summary, rows   runs every row of TK.HIT_MATRIX (opts.rows to choose) and prints one
+-- PASS / FAIL line per row against the owner's table: tier as the geometry gives it (PattayaRecovery.expectedStaged
+-- with the target's real speed), loss within opts.tol (0.05), speed at the hit >= 90 % of the planned speed, the
+-- hit on the target, no flip (minUp >= 0.85).
+function TK.hitMatrix(opts)
+	opts = opts or {}
+	assert(Rec, "hitMatrix: PattayaRecovery missing")
+	assert(workspace:GetAttribute("CollisionModel") == "arcade", "hitMatrix: set CollisionModel = \"arcade\" on the server")
+	local cfg = Rec.config()
+	local rows, pass = {}, 0
+	for i, row in opts.rows or TK.HIT_MATRIX do
+		local mode, speed, o = row[1], row[2], table.clone(row[3] or {})
+		local ok, res = pcall(TK.hitTest, mode, speed, o)
+		local line
+		if not ok then
+			line = ("FAIL %2d %s @%d: error %s"):format(i, mode, speed, tostring(res))
+		else
+			local want = Rec.expectedStaged(mode, speed, o.angle, res.vT or 45, cfg)
+			local problems = {}
+			if not res.touched then table.insert(problems, "no staged hit (" .. res.reason .. ")") end
+			if res.touched and res.tier ~= want.tier then
+				table.insert(problems, ("tier %s, table %s"):format(tostring(res.tier), want.tier))
+			end
+			local loss = 1 - (res.after or 0) / math.max(res.before or speed, 1)
+			if res.touched and want.bounce == 0 and math.abs(loss - want.loss) > (opts.tol or 0.05) then
+				table.insert(problems, ("loss %d%%, table %d%%"):format(math.floor(loss * 100 + 0.5),
+					math.floor(want.loss * 100 + 0.5)))
+			end
+			if res.touched and want.bounce > 0 and (res.after or 0) > (res.before or speed) * 0.3 then
+				table.insert(problems, ("head-on left %d of %d"):format(math.floor(res.after or 0), math.floor(res.before or 0)))
+			end
+			if res.touched and (res.before or 0) < speed * 0.9 then
+				table.insert(problems, ("speed at the hit %d of %d"):format(math.floor(res.before or 0), speed))
+			end
+			if res.minUp < 0.85 then table.insert(problems, ("minUp %.2f"):format(res.minUp)) end
+			local good = #problems == 0
+			if good then pass += 1 end
+			line = ("%s %2d %s | table %s %d%%%s"):format(if good then "PASS" else "FAIL", i, res.text, want.tier,
+				math.floor(want.loss * 100 + 0.5), if good then "" else " | " .. table.concat(problems, "; "))
+		end
+		print(line)
+		table.insert(rows, line)
+		task.wait(opts.gap or 1.5)
+	end
+	local total = #(opts.rows or TK.HIT_MATRIX)
+	local summary = ("hitMatrix: %d/%d PASS (Heartbeat %.0f Hz)"):format(pass, total, hz.rate)
+	print(summary)
+	return summary, rows
 end
 
 function TK.stopAll()
