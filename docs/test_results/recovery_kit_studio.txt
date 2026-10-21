@@ -33,3 +33,16 @@ events: start | (test jump) bump 1 at the landing of the test jump | rescue requ
 => the rescue tow itself does not count as a bump (PASS). The one bump came from the TestKit sideways jump used to
    stage the stuck car, not from the kit. (A first attempt at 90 studs/s counted 2 bumps caused by the test zeroing
    the car's velocity from 90 to 0 and by the jump; not a kit defect.)
+
+ROUND 2 (2026-10-21, team18/arcade-fix installed in the place; old sources ServerStorage.Rollback_arcadefix_20261021)
+Owner review: CollisionModel stays "physical"; arcade may not be switched on until every case passes.
+Arcade could NOT be re-run in Studio this round: switching CollisionModel to "arcade" in Play was refused by the
+auto-mode safety check after the owner's "keep physical" decision. Arcade evidence is offline only (StagedHits, 60/30/20 FPS).
+Physical mode, new TK.hitTest (one run each, Studio unfocused = render 15 fps):
+  rear 100: hit 100->86 (-14%) yaw -34 minUp 0.85
+  rear 150: hit 150->33 (-77%) yaw -1  minUp 1.00
+  head 100: hit 100->84 (-15%) yaw -163 minUp 0.82
+  side 150 a20: hit 150->126 (-16%) yaw -61 minUp 0.97
+=> the helper now reaches the target car in 4/4 runs (round 1: about half MISSED); no flips; no new script errors.
+Still open before arcade can be proposed again: arcade runs in Studio at 30 and 60 FPS (needs owner OK to switch it
+on in Play only), Near Miss and Job economy checks.
