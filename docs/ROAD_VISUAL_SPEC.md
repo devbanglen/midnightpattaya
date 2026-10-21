@@ -1,8 +1,9 @@
 # Road visual spec: design A vs design B (RayCity-quality roads on real Pattaya routes)
 
 Status: **offline spec + offline pilot only.** Nothing has been built in Studio. The leader installs a pilot only after
-the owner approves. All images are offline previews (PIL top-down and Blender Cycles renders of the exported
-geometry), never Roblox visual acceptance and never a Visual PASS. Root cause and numbers:
+the owner approves. All images are offline previews (PIL top-down and Blender renders of the exported geometry: EEVEE
+with the local PyPI bpy module since 2026-10-21, Cycles on the GPU box before), never Roblox visual acceptance and never
+a Visual PASS. Root cause and numbers:
 `docs/ROAD_VISUAL_ROOT_CAUSE.md`.
 
 | File | Role |
@@ -124,14 +125,14 @@ Recommendation: a (now), d (with the art team), b only after a drive test.
 | Disc overhang | 15,629 | 0 (clipped) | 0 (no discs) |
 | Meaningless asphalt (outside lane corridors and junction complexes) | 470, plus blobs from fills and discs | 198 | **0** |
 | Wheel drops on lane centres, 3,253 samples outside the seam band | 250 | 248 | **0** |
-| Same, including the seam band (3,871) | 295 | 304 | 35 (at the seam, where the old merged slab continues outside) |
+| Same, including the seam band (3,871) | 295 | 295 | 18 (in the seam band, at wheel spots that are holes today too: the taper keeps the old road's outline there) |
 | Lane-boundary coverage (where the carriageway has asphalt) | 45.8 % visible / 11.9 % hidden | 98.9 % | **99.3 %** (all carriageways, outside the junction polygon) |
 | Crossings | 18; 0 land on a sidewalk at both ends | 3 (both ends land) | 5 (both ends land, perpendicular, kerb to kerb; 2 across all of Sukhumvit, 104–109 studs) |
 | Stop lines | none | at inbound mouths | at inbound mouths |
-| Shoulder gate: drops after ≤ before at every offset (0 / ±8 / ±14 / ±20 / ±24) | baseline (0, 0/10, 0/74, 1/155, 3/247) | **fails at +14** (2 vs 0) | **passes**. In-lane drops 0 at every offset. Out-of-lane −24: 61 vs 247 |
-| Kerb contacts (0.45–0.6 step up, no drop) at ±24 in-lane | 0 | 7 / 53 | 57 / 71 (carriageway edge = kerb line) |
-| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 2,090 (53 slabs, 807 wedges, 914 sidewalk + 68 island wedges, 248 marking Parts) | **1,457** with visual meshes (552 asphalt + 717 sidewalk + 146 island collision wedges + 42 MeshParts, markings inside the meshes); **1,935 with the default Parts build** (collision visible + 397 marking Parts + 64 kerb + 70 grass). The shoulder-safe collision (2026-10-21, docs/ROAD_B_OWNER_REVIEW.md section 6) costs about 550 parts over the first version. |
-| Visual triangles | | 1,276 | 603 |
+| Shoulder gate: drops after ≤ before at every offset (0 / ±8 / ±14 / ±20 / ±24) | baseline (0, 0/10, 0/74, 1/155, 3/247) | **fails at +14** (2 vs 0) | **passes**. In-lane drops 0 at every offset. Out-of-lane −24: 71 vs 247, −20: 10 vs 155 |
+| Kerb contacts (0.45–0.6 step up, no drop) at +24 / −24 in-lane | 0 / 3 | 2 / 34 | 56 / 65 (carriageway edge = kerb line) |
+| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 1,862 (53 slabs, 807 wedges, 664 sidewalk + 99 island wedges, 239 marking Parts) | **1,359** with visual meshes (525 asphalt + 129 invisible support + 521 sidewalk + 142 island collision wedges + 42 MeshParts, markings inside the meshes); **1,822 with the default Parts build** (asphalt visible + 129 invisible RoadSupport + 385 marking Parts + 62 kerb + 70 grass). Final review numbers (2026-10-21): docs/ROAD_B_OWNER_REVIEW.md. |
+| Visual triangles | | 1,133 | 607 |
 | Streaming (road-only Atomic cells, layout b: 256 studs, cap 1,500) | about 5.5 cells × 145 instances | about 310 per cell | about 165 per cell. 8 MeshParts per cell (each tile mesh streams with its cell). |
 | Installation complexity | | Medium-high: changes to PattayaBuilder / road_fix / dual / aprons rules, chunk modules regenerated, RebuildChunks per batch. Touches tested code paths citywide. | Medium: a NEW builder + a new folder. Old parts in the area are moved to a backup folder (not deleted). Visual meshes need edit-time EditableMesh → MeshPart (or uploaded mesh assets). Fallback: visual as WedgeParts (+1,200 parts). |
 | Rollback | Restore old chunk modules + RebuildChunks | One call: destroy the pilot folder and move the backed-up parts back. |
@@ -143,10 +144,12 @@ WedgeParts). It is 804 parts, against 799 in the surface-level count above (same
 **Recommendation: design B.** A cannot remove the main defects. They come from the merged-slab model (lane holes 248
 vs 250, invented lane layout, zebras that cannot land), and A costs more parts (Parts for every marking) and touches
 citywide code. B fixes the geometry from the graph without touching it, removes every disc and fill, keeps the
-shoulder support, and uses fewer parts than A (1,935 against 2,090 as Parts). Both need more parts than today's 804
+shoulder support, and uses fewer parts than A (1,822 against 1,862 as Parts). Both need more parts than today's 804
 because they add sidewalks, islands and complete markings. Roll it out junction by junction with the same gates.
 
-Images (offline previews, same owner camera for all three):
+Images (offline previews, same owner camera for all three; local EEVEE renders, `cli.py compose`; design B with the
+shoulder pieces in today's colour, as the default Build leaves them, and `cmp_owner_view_look.png` with the opt-in
+ShoulderLook):
 
 | | Before | Design A | Design B |
 |---|---|---|---|
@@ -173,15 +176,17 @@ test checks this).
 
 **Design B integration:**
 
-1. The pilot asphalt (1.01) covers the shoulder pieces that lie inside the new carriageways. That is 4,018 studs² of
-   strip (visible strip area 9,269 to 5,466 in the box), plus most gap fills. They still collide underneath (flush
-   0.985), so their support is unchanged.
-2. Sidewalks are cut back wherever a shoulder piece lies outside the asphalt. The strip stays flush and reads as a
+1. The pilot asphalt (1.0) covers the shoulder pieces that lie inside the new carriageways. That is 2,977 studs² of
+   shoulder pieces (visible strip area 9,269 to 6,695 in the box). They still collide underneath (flush 0.985), so
+   their support is unchanged.
+2. Sidewalks are cut back wherever a shoulder piece lies outside the asphalt, and out of the joints between shoulder
+   pieces (the pieces closed by 1 stud), so no 0.6 ridge rises between two flush pieces; sidewalk remnants that no
+   longer touch the asphalt or an island (0.1–1.8-stud slivers) are dropped. The strip stays flush and reads as a
    **concrete gutter** between the asphalt and the kerb, the RayCity kerb + gutter look. Every wheel footprint it
    supported is still supported.
 3. Appearance change, proposed and owner-approved per step. These are property edits on existing parts, not
    rebuilds:
-   - (a) Strips and tapers: Color 176, 174, 168 / Material Concrete (gutter look, used in the B renders), or asphalt
+   - (a) Strips and tapers: Color 176, 174, 168 / Material Concrete (gutter look, `cam_B_look_*` renders), or asphalt
      46, 47, 52 if the owner prefers an invisible shoulder.
    - (b) Gap fills (362 pieces here, 154 visible in the owner view): set Transparency 1, keep CanCollide.
      Invisible collision, no speckle.
@@ -211,17 +216,18 @@ run in Studio.
 **Data:** `build/roadvis/roblox/` (written by `tools/roadvis/cli.py pilot` or `tools/roadvis/export_luau.py`):
 
 - `manifest.luau`
-- 10 `cell_<cx>_<cz>[q<qx><qz>][_k].luau` modules: at most 600 parts each. A 256-stud cell over 600 parts is split into its four 128-stud quadrants.
+- 7 `cell_<cx>_<cz>[q<qx><qz>][_k].luau` modules: at most 600 parts each (largest 570, 54 KB). A 256-stud cell over 600 parts would be split into its four 128-stud quadrants; the final data needs no split.
 
-**The default build is Parts, 1,935 parts in 10 Atomic cells (Model `Cell_<id>`, at most 600 parts each):**
+**The default build is Parts, 1,822 parts in 7 Atomic cells (Model `Cell_<id>`, at most 600 parts each):**
 
 | Kind | Parts | Notes |
 |---|---|---|
-| Asphalt collision | 550 WedgeParts | Visible, named `Road` so RoadLook styles them like other roads |
-| Sidewalk | 710 WedgeParts | Pulled back 0.3 from the asphalt only, never on a shoulder piece |
-| Island | 144 WedgeParts | |
-| Markings | 397 thin non-colliding Parts | lane 179, centre 36, edge 108, stop 6, zebra 68 |
-| Kerb strips | 64 | |
+| Asphalt collision | 524 WedgeParts | Visible, named `Road` so RoadLook styles them like other roads |
+| Invisible wheel support | 129 WedgeParts | `RoadSupport`: Transparency 1, CanCollide and CanQuery true (suspension rays see it), CanTouch false, top 1.0; never under a kerb, never on a shoulder piece, at most 2 studs from the visible asphalt |
+| Sidewalk | 510 WedgeParts | Pulled back 0.3 from the asphalt only, never on a shoulder piece or in a joint between shoulder pieces |
+| Island | 142 WedgeParts | |
+| Markings | 385 thin non-colliding Parts | lane 179, centre 36, edge 96, stop 6, zebra 68 |
+| Kerb strips | 62 | |
 | Grass | 70 | |
 
 The replaced set is 804 parts. This list is checked part by part.
@@ -230,7 +236,7 @@ The replaced set is 804 parts. This list is checked part by part.
 or published unless the mesh is uploaded as an asset, it needs the EditableMesh API enabled, and it counts against the
 EditableMesh memory budget.
 
-**Opt-in mesh build:** `Build({mesh = true})` builds invisible collision (1,415 wedges) plus up to 7 MeshParts per cell.
+**Opt-in mesh build:** `Build({mesh = true})` builds invisible collision (1,317 wedges, the 129 supports included) plus up to 7 MeshParts per cell.
 It is a preview only, and it falls back to Parts when the API is missing.
 
 ### Edit-mode procedure (command bar, Studio focused)
@@ -241,12 +247,12 @@ It is a preview only, and it falls back to Parts when the API is missing.
    - Create Folder `ServerStorage.PattayaDataRoadVis` with ModuleScripts `manifest` and every `cell_*`, from
      `build/roadvis/roblox/`. Use the same localhost bundle method as the other data folders.
 3. **Plan:** `local RV = require(game.ServerStorage.PattayaRoadVisBuilder) print(RV.Plan())`
-   - Expected: `10 modules, 10 cells, 1935 parts to build`.
+   - Expected: `7 modules, 7 cells, 1822 parts to build`.
    - Move plan: `Road 397, Sidewalk 7, Dash 41, Centre 22, Junction 17, Joint 10, Apron 142, CornerFill 13,
      ZebraStripe 155 -> MATCHES the data; selected 804, expected 804`.
    - **If it says DOES NOT MATCH, stop.** The place differs from the build data (e.g. a chunk was rebuilt). Report the
      printed unmatched parts and do not continue.
-4. **Build:** `print(RV.Build())`. Expected: `built 10 cells, 1935 parts (Parts)` and no warnings.
+4. **Build:** `print(RV.Build())`. Expected: `built 7 cells, 1822 parts (Parts)` and no warnings.
 5. **Move the old parts:** `print(RV.MoveReplaced())`.
    - Expected: `moved 804 parts ... to ServerStorage.RoadVisBackup`.
    - It aborts and moves nothing if the selection differs from the list. It never selects anything in
@@ -256,7 +262,7 @@ It is a preview only, and it falls back to Parts when the API is missing.
 6. **Probe:** `print(RV.Probe())`.
    - Expected per offset (0, ±8, ±14, ±20, ±24, in-lane samples only): `drop 0`.
    - Kerb contacts close to the offline values: about 3 at -20, 15 at +24, 20 at -24.
-   - Building overlaps 0. Pilot parts 1935 (data 1935). Moved parts 804.
+   - Building overlaps 0. Pilot parts 1822 (data 1822). Moved parts 804.
 7. **Optional, only if the owner approves the shoulder look:**
    `print(RV.ShoulderLook({recolour = true, hideGapFills = true}))`. Revert with `RV.ShoulderLookRevert()`.
    - Strips and tapers become gutter concrete 176, 174, 168.
@@ -303,25 +309,28 @@ It is a preview only, and it falls back to Parts when the API is missing.
 
 The shoulder pilot (`ShoulderChunks`, 2,536 parts) is never moved, rebuilt or destroyed by any of these calls.
 
-## 10. Preview renders (GPU box)
+## 10. Preview renders (local, low resource)
 
-Upload `build/roadvis/scene_{before,A,B}.json` and `tools/roadvis/blender_preview.py` to
-`vast-rtx6000-1:/root/robloxrace/road_p0/`, then run:
+The GPU box is paused by owner order (2026-10-21, CPU quota). Renders run locally with the PyPI `bpy` module
+(Blender 5.1.2 as a Python package, its own venv, used read only), EEVEE, 16 samples, 0.6 x the camera resolution,
+4 render threads:
 
-`bash /root/kit/fleet/gslot.sh -- /root/w/blender/blender -b --python-exit-code 1 --python blender_preview.py -- scene_B.json out B 48 0.75`
+`<bpy venv>\Scripts\python.exe tools\roadvis\blender_preview.py -- build\roadvis\scene_B.json build\roadvis\renders_local B 16 0.6 EEVEE`
 
-This renders Cycles GPU with a Nishita sky and sun. Only the scripts and the exported geometry are sent (no keys, no
-.env).
+for each of `scene_before`, `scene_A`, `scene_B`, `scene_B_look` (B with the opt-in ShoulderLook colour), then
+`.venv\Scripts\python tools\roadvis\cli.py compose` writes the labelled `art/roadvis/cam_*` and `cmp_*` previews.
+Same engine, sky, sun and cameras for every state, so they compare. `WORKBENCH` (flat studio light) is the cheaper
+fallback; `CYCLES` stays for a Blender binary.
 
 ## 11. Risks
 
-- The default Parts build has more parts than it replaces (1,935 against 804) because every marking is a Part. The
-  mesh build (1,457) needs EditableMesh assets that persist. Uploading the tile meshes as assets is the follow-up that
+- The default Parts build has more parts than it replaces (1,822 against 804) because every marking is a Part. The
+  mesh build (1,359) needs EditableMesh assets that persist. Uploading the tile meshes as assets is the follow-up that
   brings the count down.
 
 - MeshPart creation at edit time (EditableMesh) depends on Studio API availability and limits. The WedgePart fallback
   costs about 1,200 more parts in this area.
-- The seam with old merged geometry: 35 wheel samples in the 40-stud band. The last 40 studs of each road taper to the
+- The seam with old merged geometry: 18 wheel samples in the 40-stud band, every one a hole today too (45 today in the band). The last 40 studs of each road taper to the
   old slab ends. Rolling B out to the neighbouring junctions removes the seams.
 - Kerbs where there were bare edges: the car meets 0.45–0.6-stud steps at ±24 instead of falling 3 studs. A drive test
   must confirm the car physics handles them at speed (no physics change is planned).

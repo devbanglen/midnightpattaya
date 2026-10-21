@@ -1,9 +1,14 @@
-"""Blender preview of the road pilot (runs INSIDE Blender; PREVIEW ONLY, offline render, not the game).
+"""Blender preview of the road pilot (PREVIEW ONLY, offline render, not the game, not Studio).
 
-  blender -b --python-exit-code 1 --python blender_preview.py -- <scene.json> <out_dir> <tag> [samples] [scale]
+Inside a Blender binary:
+  blender -b --python-exit-code 1 --python blender_preview.py -- <scene.json> <out_dir> <tag> [samples] [scale] [engine] [cams]
+or with the PyPI bpy module (Blender as a Python module, no GPU box needed):
+  <bpy venv>\\Scripts\\python.exe blender_preview.py -- <scene.json> <out_dir> <tag> 16 0.6 EEVEE
 
 Builds the scene (tools/roadvis/scene.py output), day lighting (Nishita sky + sun), renders every camera in the file
-with Cycles (GPU when available) to <out_dir>/<tag>_<camera>.png. Roblox (x, y, z) -> Blender (x, -z, y).
+(or the comma list `cams`) to <out_dir>/<tag>_<camera>.png. Roblox (x, y, z) -> Blender (x, -z, y).
+engine: CYCLES (default; GPU when available), EEVEE (rasteriser, same sky + sun, low resource) or WORKBENCH (flat
+studio light, material colours, shadows; the cheapest). The same engine for every state keeps them comparable.
 """
 import json
 import math
@@ -17,6 +22,9 @@ argv = sys.argv[sys.argv.index('--') + 1:]
 scene_path, out_dir, tag = argv[0], argv[1], argv[2]
 samples = int(argv[3]) if len(argv) > 3 else 64
 scale = float(argv[4]) if len(argv) > 4 else 1.0
+engine = (argv[5] if len(argv) > 5 else 'CYCLES').upper()
+only = set(argv[6].split(',')) if len(argv) > 6 and argv[6] else None
+threads = int(os.environ.get('ROADVIS_THREADS', '4'))
 os.makedirs(out_dir, exist_ok=True)
 data = json.load(open(scene_path, encoding='utf-8'))
 
@@ -31,9 +39,12 @@ def srgb_to_lin(c):
 
 def material(name, rgb, rough=0.85):
     m = bpy.data.materials.new(name)
+    lin = (srgb_to_lin(rgb[0]), srgb_to_lin(rgb[1]), srgb_to_lin(rgb[2]), 1.0)
+    m.diffuse_color = lin                      # the Workbench (viewport) colour
+    m.roughness = rough
     m.use_nodes = True
     b = m.node_tree.nodes.get('Principled BSDF')
-    b.inputs['Base Color'].default_value = (srgb_to_lin(rgb[0]), srgb_to_lin(rgb[1]), srgb_to_lin(rgb[2]), 1.0)
+    b.inputs['Base Color'].default_value = lin
     b.inputs['Roughness'].default_value = rough
     return m
 
@@ -52,6 +63,7 @@ for ob in data['objects']:
 # day light: Nishita sky + sun
 world = bpy.data.worlds.new('sky')
 sc.world = world
+world.color = (0.42, 0.56, 0.75)              # Workbench background
 world.use_nodes = True
 nt = world.node_tree
 nt.nodes.clear()
@@ -74,30 +86,61 @@ so = bpy.data.objects.new('sun', sun)
 so.rotation_euler = (math.radians(38), 0, math.radians(30))
 sc.collection.objects.link(so)
 
-sc.render.engine = 'CYCLES'
-sc.cycles.samples = samples
-sc.cycles.use_denoising = True
-try:
-    prefs = bpy.context.preferences.addons['cycles'].preferences
-    for dev in ('OPTIX', 'CUDA'):
+sc.render.threads_mode = 'FIXED'
+sc.render.threads = threads
+vt = [v.identifier for v in sc.view_settings.bl_rna.properties['view_transform'].enum_items]
+if engine == 'WORKBENCH':
+    sc.render.engine = 'BLENDER_WORKBENCH'
+    sh = sc.display.shading
+    sh.light = 'STUDIO'
+    sh.color_type = 'MATERIAL'
+    sh.show_shadows = True
+    sh.shadow_intensity = 0.45
+    sh.show_cavity = False
+    sh.show_specular_highlight = False
+    sc.display.light_direction = (0.45, -0.35, 0.82)       # roughly the sun of the Cycles / EEVEE light
+    sc.display.render_aa = '8'
+    sc.view_settings.view_transform = 'Standard'
+    sc.view_settings.exposure = 0.0
+elif engine == 'EEVEE':
+    sc.render.engine = 'BLENDER_EEVEE'
+    ee = sc.eevee
+    for k, v in (('taa_render_samples', samples), ('use_shadows', True), ('use_raytracing', False),
+                 ('shadow_resolution_scale', 1.0), ('use_gtao', True)):
         try:
-            prefs.compute_device_type = dev
-            prefs.get_devices()
-            if any(d.type == dev for d in prefs.devices):
-                for d in prefs.devices:
-                    d.use = d.type == dev
-                sc.cycles.device = 'GPU'
-                break
+            setattr(ee, k, v)
         except Exception:
-            continue
-except Exception:
-    pass
-sc.view_settings.view_transform = 'AgX' if 'AgX' in [v.identifier for v in sc.view_settings.bl_rna.properties['view_transform'].enum_items] else 'Filmic'
+            pass
+    sun.energy = 4.0
+    sc.view_settings.view_transform = 'AgX' if 'AgX' in vt else 'Filmic'
+    sc.view_settings.exposure = -0.6
+else:
+    sc.render.engine = 'CYCLES'
+    sc.cycles.samples = samples
+    sc.cycles.use_denoising = True
+    try:
+        prefs = bpy.context.preferences.addons['cycles'].preferences
+        for dev in ('OPTIX', 'CUDA'):
+            try:
+                prefs.compute_device_type = dev
+                prefs.get_devices()
+                if any(d.type == dev for d in prefs.devices):
+                    for d in prefs.devices:
+                        d.use = d.type == dev
+                    sc.cycles.device = 'GPU'
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    sc.view_settings.view_transform = 'AgX' if 'AgX' in vt else 'Filmic'
+    sc.view_settings.exposure = -0.9
 sc.render.film_transparent = False
-sc.view_settings.exposure = -0.9
 sc.view_settings.look = 'None'
 
 for name, cam in data['cameras'].items():
+    if only and name not in only:
+        continue
     cd = bpy.data.cameras.new(name)
     cd.sensor_fit = 'VERTICAL'
     cd.angle_y = math.radians(cam['fov'])

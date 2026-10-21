@@ -161,3 +161,60 @@ def render_look(W, bbox, path, P=None, px=1.5, title=None):
     for b in W['blds']:
         c.poly(b['poly'], COLORS['building'])
     return c.finish(path)
+
+
+CAM_LABELS = {'before': 'BEFORE (today, as built)', 'A': 'DESIGN A', 'B': 'DESIGN B (Build default)',
+              'B_look': 'DESIGN B + ShoulderLook (opt-in)'}
+
+
+def compose_cams(render_dir, out_dir, cams=('owner_view', 'street', 'driver', 'aerial'), states=('before', 'A', 'B'),
+                 width=720, note='offline EEVEE preview, not Studio'):
+    """the local 3D renders (blender_preview.py, one engine for every state) as small labelled previews:
+    cam_<state>_<cam>.png per state and cmp_<cam>.png = the states side by side; plus cmp_owner_view_look.png
+    (B default | B + ShoulderLook) when B_look renders exist. 128-colour palette PNGs, small enough for the repo."""
+    import os
+    f = ImageFont.load_default()
+    made = []
+    for cam in cams:
+        panels = []
+        for st in states:
+            src = os.path.join(render_dir, f'{st}_{cam}.png')
+            if not os.path.exists(src):
+                continue
+            im = Image.open(src).convert('RGB')
+            im = im.resize((width, int(im.height * width / im.width)), Image.LANCZOS)
+            lab = Image.new('RGB', (im.width, im.height + 22), (255, 255, 255))
+            lab.paste(im, (0, 22))
+            d = ImageDraw.Draw(lab)
+            d.text((6, 5), f'{CAM_LABELS.get(st, st)} - {cam} - {note}', fill=(0, 0, 0), font=f)
+            out = os.path.join(out_dir, f'cam_{st}_{cam}.png')
+            lab.quantize(128).save(out, optimize=True)
+            made.append(out)
+            panels.append(lab)
+        if len(panels) > 1:
+            gap = 8
+            strip = Image.new('RGB', (sum(p.width for p in panels) + gap * (len(panels) - 1), panels[0].height), (255, 255, 255))
+            x = 0
+            for p_ in panels:
+                strip.paste(p_, (x, 0))
+                x += p_.width + gap
+            out = os.path.join(out_dir, f'cmp_{cam}.png')
+            strip.quantize(128).save(out, optimize=True)
+            made.append(out)
+    look = [os.path.join(render_dir, f'{st}_owner_view.png') for st in ('B', 'B_look')]
+    if all(os.path.exists(q) for q in look):
+        panels = []
+        for st, src in zip(('B', 'B_look'), look):
+            im = Image.open(src).convert('RGB')
+            im = im.resize((width, int(im.height * width / im.width)), Image.LANCZOS)
+            lab = Image.new('RGB', (im.width, im.height + 22), (255, 255, 255))
+            lab.paste(im, (0, 22))
+            ImageDraw.Draw(lab).text((6, 5), f'{CAM_LABELS[st]} - owner_view - {note}', fill=(0, 0, 0), font=f)
+            panels.append(lab)
+        strip = Image.new('RGB', (panels[0].width * 2 + 8, panels[0].height), (255, 255, 255))
+        strip.paste(panels[0], (0, 0))
+        strip.paste(panels[1], (panels[0].width + 8, 0))
+        out = os.path.join(out_dir, 'cmp_owner_view_look.png')
+        strip.quantize(128).save(out, optimize=True)
+        made.append(out)
+    return made

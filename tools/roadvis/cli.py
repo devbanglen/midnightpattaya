@@ -4,7 +4,9 @@
   D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\cli.py pilot [--art]         -> build/roadvis/pilot_<name>.json,
         build/roadvis/scene_{before,after}.json (Blender input), build/roadvis/top_*.png; --art also copies the small
         top-down previews to art/roadvis/
-Blender (GPU box, preview renders): see docs/ROAD_VISUAL_SPEC.md "Preview renders".
+  D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\cli.py compose         -> art/roadvis/cam_*.png, cmp_*.png from the
+        local 3D renders in build/roadvis/renders_local (tools/roadvis/blender_preview.py with the PyPI bpy module)
+Blender preview renders (local PyPI bpy module, EEVEE; the GPU box is paused): docs/ROAD_VISUAL_SPEC.md section 10.
 """
 import argparse
 import json
@@ -82,13 +84,17 @@ def run_pilot(build_root=None, art=False, log=print, cfg=None, designs=('A', 'B'
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument('cmd', choices=['analyze', 'pilot'])
+    ap.add_argument('cmd', choices=['analyze', 'pilot', 'compose'])
     ap.add_argument('--city', action='store_true')
     ap.add_argument('--art', action='store_true')
     ap.add_argument('--build-root')
     a = ap.parse_args(argv)
     if a.cmd == 'analyze':
         analyze.main((['--city'] if a.city else []) + (['--build-root', a.build_root] if a.build_root else []))
+    elif a.cmd == 'compose':
+        rd = os.path.join(world.find_build_root(a.build_root), 'roadvis', 'renders_local')
+        for p_ in raster.compose_cams(rd, os.path.join(REPO, 'art', 'roadvis')):
+            print('wrote', p_)
     else:
         run_pilot(a.build_root, a.art)
 

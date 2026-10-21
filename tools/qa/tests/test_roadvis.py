@@ -173,7 +173,9 @@ class TestShoulderProof(unittest.TestCase):
         self.assertLessEqual(a['max_flush_step'], 0.02)
         self.assertLessEqual(a['max_kerb_step'], 0.62)
         self.assertLessEqual(a['drop'], b['drop'])
-        self.assertLessEqual(a['slot'], b['slot'] + 15.0)     # +11 studs measured (simplified kerb collision)
+        self.assertLessEqual(a['slot'], b['slot'])             # the kerb collision keeps the exact edge at a shoulder
+        self.assertEqual(b['ridge'], 0.0)
+        self.assertLessEqual(a['ridge'], 5.0)                  # no sidewalk / island sliver in the pilot's joints (3 measured)
 
     def test_drive_gate_not_worse(self):
         before = {(r['dir'], r['lateral'], r['speed']): r for r in self.res['gate_before']['runs']}
@@ -184,6 +186,21 @@ class TestShoulderProof(unittest.TestCase):
             self.assertGreaterEqual(r['min_up'] + 1e-6, min(before[k]['min_up'] - 0.001, 0.95), k)
         self.assertGreaterEqual(self.res['gate_after']['min_up'], self.res['gate_before']['min_up'] - 0.001)
         self.assertEqual(self.res['gate_after']['n'], 36)
+
+    def test_no_drop_inside_a_lane(self):
+        """the owner's question: how many spot 2 drops happen inside a drivable lane (B vs today)"""
+        d = self.res['drops_in_lane']
+        self.assertEqual((d['after'], d['after_samples']), (0, 0))
+        self.assertEqual((d['before'], d['before_samples']), (0, 0))
+        before = {(r['dir'], r['lateral'], r['speed']): r for r in self.res['drops_before']}
+        self.assertEqual(len(before), sum(1 for r in self.res['gate_before']['runs'] if r['wheel_drops']))
+        self.assertEqual(len(self.res['drops_after']), sum(1 for r in self.res['gate_after']['runs'] if r['wheel_drops']))
+        for r in self.res['drops_after']:
+            k = (r['dir'], r['lateral'], r['speed'])
+            self.assertIn(k, before, 'B drops a wheel on a run that has none today')
+            self.assertLessEqual(r['drop_length'], before[k]['drop_length'], k)
+            for t in r['stretches']:
+                self.assertIn(t['where'], ('past the shoulder', 'shoulder strip', 'terrain'), (k, t['where'], t['world']))
 
 
 class TestPilotA(unittest.TestCase):
@@ -227,11 +244,22 @@ local where = {edge, edge, edge, edge, cont.WideJunctions, cont.WideJunctions, a
 local names = {"Road", "Sidewalk", "Dash", "Centre", "Junction", "Joint", "Road", "Sidewalk", "ZebraStripe"}
 local K = man.replace.keys
 local ORIG = {}
+local function cfkey(c)
+	local t = {}
+	for _, v in {c.Position, c.XVector, c.YVector, c.ZVector} do
+		table.insert(t, string.format("%.17g,%.17g,%.17g", v.X, v.Y, v.Z))
+	end
+	return table.concat(t, ";")
+end
 for i = 1, #K, 3 do
-	local p = I.new("Part") p.Name = names[K[i]] p.Size = Vector3.new(0.2, 4, 0.2) p.CFrame = CFrame.new(K[i + 1], -1, K[i + 2])
+	-- every mock part turned about Y by its own angle: the restore must give back the full CFrame, not just X / Z
+	local a = (i % 13) * 0.4137
+	local p = I.new("Part") p.Name = names[K[i]] p.Size = Vector3.new(0.2, 4, 0.2)
+	p.CFrame = CFrame.fromMatrix(Vector3.new(K[i + 1], -1 - (i % 5) * 0.001, K[i + 2]), Vector3.new(math.cos(a), 0, -math.sin(a)),
+		Vector3.new(0, 1, 0), Vector3.new(math.sin(a), 0, math.cos(a)))
 	if K[i] == 7 then p:SetAttribute("Apron", true) end
 	p.Parent = where[K[i]]
-	table.insert(ORIG, {p, where[K[i]], K[i + 1], K[i + 2]})
+	table.insert(ORIG, {p, where[K[i]], K[i + 1], K[i + 2], cfkey(p.CFrame)})
 end
 local function decoy(parent, name, x, z, sx, attr, sz)
 	local p = I.new("Part") p.Name = name p.Size = Vector3.new(sx, 4, sz or 0.2) p.CFrame = CFrame.new(x, -1, z)
@@ -247,6 +275,11 @@ local S1 = decoy(shc, "Road", bx0 + 210, bz0 + 210, 1, "Shoulder")   -- inside, 
 S1:SetAttribute("ShoulderKind", "gap") S1.CanCollide = true S1.Color = {92, 91, 88} S1.Material = Enum.Material.Concrete S1.Transparency = 0
 local S2 = decoy(shc, "Shoulder", bx0 + 220, bz0 + 220, 1, "Shoulder")
 S2:SetAttribute("ShoulderKind", "shoulder") S2.Color = {92, 91, 88} S2.Material = Enum.Material.Concrete S2.Transparency = 0
+local function snap(p) return table.concat({tostring(p.Parent and p.Parent.Name), tostring(p.Color[1]), tostring(p.Material.Name),
+	tostring(p.Transparency), tostring(p.CanCollide), tostring(p.CFrame.Position.X), tostring(p.CFrame.Position.Z)}, "|") end
+local SNAP0 = {snap(S1), snap(S2)}
+local function nshoulder() return #cont.ShoulderChunks:GetDescendants() end
+local NSH0 = nshoulder()
 print("PLAN", RV.Plan())
 print("BUILD", RV.Build())
 print("BUILD2", RV.Build())
@@ -264,7 +297,19 @@ for _, p in pilot:GetDescendants() do
 	if not p:IsA("BasePart") then continue end
 	local k = p:GetAttribute("RoadVisKind")
 	kinds[k] = (kinds[k] or 0) + 1
-	if (k == "asphalt" or k == "sidewalk" or k == "island") ~= (p.CanCollide == true) then print("BADCOLLIDE", k) end
+	if (k == "asphalt" or k == "sidewalk" or k == "island" or k == "support") ~= (p.CanCollide == true) then print("BADCOLLIDE", k) end
+	if k == "support" then
+		local c, s = p.CFrame, p.Size
+		local pts = {c * Vector3.new(0, -s.Y / 2, -s.Z / 2), c * Vector3.new(0, -s.Y / 2, s.Z / 2), c * Vector3.new(0, s.Y / 2, s.Z / 2)}
+		local top = -math.huge
+		for _, dx in {-1, 1} do for _, dy in {-1, 1} do for _, dz in {-1, 1} do
+			top = math.max(top, (c * Vector3.new(dx * s.X / 2, dy * s.Y / 2, dz * s.Z / 2)).Y)
+		end end end
+		local xs = {}
+		for _, q in pts do table.insert(xs, string.format("%.3f", q.X)) table.insert(xs, string.format("%.3f", q.Z)) end
+		print("SUPPORT", p.Name, p.Transparency, tostring(p.CanCollide), tostring(p.CanQuery), tostring(p.CanTouch),
+			string.format("%.3f", top), p.Parent.Name, table.concat(xs, " "))
+	end
 end
 for k, n in kinds do print("KIND", k, n) end
 print("MOVE", RV.MoveReplaced())
@@ -272,16 +317,24 @@ local moved, wrong = 0, 0
 for _, o in ORIG do if o[1]:IsDescendantOf(ServerStorage.RoadVisBackup) then moved += 1 else wrong += 1 end end
 print("MOVED", moved, wrong, D1.Parent == edge, D2.Parent == edge, D3.Parent == edge, S1.Parent == shc, S2.Parent == shc)
 print("MOVE2", RV.MoveReplaced())
+print("SHOULDERS_AFTER_BUILD_MOVE", snap(S1) == SNAP0[1] and snap(S2) == SNAP0[2])
+print("SHOULDERCOUNT_AFTER_BUILD_MOVE", NSH0, nshoulder())
 print("PROBE", RV.Probe())
 print("LOOK", RV.ShoulderLook({recolour = true, hideGapFills = true}))
 print("LOOKSTATE", S1.Transparency, S1.CanCollide, S2.Color[1], S2:GetAttribute("RVOrigColor")[1])
 print("LOOKREV", RV.ShoulderLookRevert())
 print("LOOKBACK", S1.Transparency, S2.Color[1], S2:GetAttribute("RVOrigColor") == nil)
 print("REMOVE", RV.Remove())
+print("SHOULDERS_AFTER_REMOVE", snap(S1) == SNAP0[1] and snap(S2) == SNAP0[2])
+print("SHOULDERCOUNT_AFTER_REMOVE", NSH0, nshoulder())
 local back, cfok = 0, 0
 for _, o in ORIG do
 	if o[1].Parent == o[2] then back += 1 end
-	if math.abs(o[1].CFrame.Position.X - o[3]) < 1e-6 and math.abs(o[1].CFrame.Position.Z - o[4]) < 1e-6 and o[1]:GetAttribute("OriginalCFrame") == nil then cfok += 1 end
+	-- exact: all 12 CFrame components identical, the builder's attributes gone, the part's own attributes kept
+	if cfkey(o[1].CFrame) == o[5] and o[1]:GetAttribute("OriginalCFrame") == nil and o[1]:GetAttribute("OriginalParent") == nil
+		and o[1]:GetAttribute("RoadVisMoved") == nil and (o[1].Name ~= "Road" or o[2] ~= apr or o[1]:GetAttribute("Apron") == true) then
+		cfok += 1
+	end
 end
 print("RESTORED", back, cfok, #ORIG, W:FindFirstChild("RoadVisPilot") == nil, ServerStorage:FindFirstChild("RoadVisBackup") == nil)
 -- abort: one expected part missing -> nothing moves
@@ -311,6 +364,11 @@ class LuauRoadVis(unittest.TestCase):
         parts.append(LUAU_TAIL)
         cls.code, cls.out = _qa.run_luau(''.join(parts), timeout=600)
         cls.lines = cls.out.splitlines()
+        try:                      # evidence for docs/ROAD_B_OWNER_REVIEW.md (build/ is not committed)
+            with open(os.path.join(d, '..', 'luau_cli_output.txt'), 'w', encoding='utf-8') as f:
+                f.write(cls.out)
+        except OSError:
+            pass
         cls.man = _qa.luau_table(os.path.join(d, 'manifest.luau'))
 
     def line(self, tag):
@@ -356,6 +414,42 @@ class LuauRoadVis(unittest.TestCase):
         n = self.man['replace']['total']
         self.assertEqual(r[1:], [str(n), str(n), str(n), 'true', 'true'])
         self.assertIn(f'restored {n} of {n}', self.line('REMOVE'))
+
+    def test_shoulder_chunks_untouched(self):
+        self.assertEqual(self.line('SHOULDERS_AFTER_BUILD_MOVE').split()[1], 'true')
+        self.assertEqual(self.line('SHOULDERS_AFTER_REMOVE').split()[1], 'true')
+        for tag in ('SHOULDERCOUNT_AFTER_BUILD_MOVE', 'SHOULDERCOUNT_AFTER_REMOVE'):
+            a, b = self.line(tag).split()[1:3]
+            self.assertEqual(a, b, tag)
+
+    def test_supports_invisible_and_queryable(self):
+        sup = [l.split() for l in self.lines if l.startswith('SUPPORT')]
+        self.assertEqual(len(sup), self.man['counts']['byKind']['support'])
+        for f in sup:
+            self.assertEqual(f[1:6], ['RoadSupport', '1', 'true', 'true', 'false'], f)
+            self.assertAlmostEqual(float(f[6]), 1.0, places=3)          # flush with the asphalt top
+
+    def test_supports_geometry_from_built_parts(self):
+        """the footprints of the RoadSupport WedgeParts the builder made (luau CLI) against the Python data: inside the
+        planned support area, never on a shoulder piece, never under a kerb / sidewalk / island, <= 2 studs from the
+        visible asphalt"""
+        from shapely.geometry import Point, Polygon
+        from shapely.ops import unary_union
+        _, Ps = state()
+        P = Ps['B']
+        tris = []
+        for f in (l.split() for l in self.lines if l.startswith('SUPPORT')):
+            c = [float(v) for v in f[8:14]]
+            tris.append(Polygon([(c[0] - 20000, c[1]), (c[2] - 20000, c[3]), (c[4] - 20000, c[5])]))
+        self.assertTrue(tris)
+        U = unary_union([t.buffer(1e-4) for t in tris])
+        self.assertLess(U.difference(P['keep_support'].buffer(0.05)).area, 0.05)
+        self.assertLess(U.intersection(P['shoulders'].buffer(-0.01)).area, 0.01)
+        kerbs = unary_union([P['walk'], P['islands'], P['kerb'], P['island_kerb']] + P['walk_tris'] + P['isl_tris'])
+        self.assertLess(U.intersection(kerbs.buffer(-0.01)).area, 0.01)
+        vis = unary_union(P['tris'])
+        far = max(vis.distance(Point(x, z)) for t in tris for x, z in list(t.exterior.coords)[:3])
+        self.assertLessEqual(far, 2.0)
 
     def test_abort_on_mismatch(self):
         self.assertIn('ABORTED, nothing moved', self.line('ABORT'))

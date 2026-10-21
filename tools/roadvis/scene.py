@@ -170,8 +170,9 @@ def after_scene(W, P, area, o, shoulder_color=None):
 
 
 def export(W, pilots, out_dir):
-    """pilots: {'A': P, 'B': P}; writes scene_before.json and scene_<design>.json. Design B shows the shoulder pieces
-    recoloured as a concrete gutter (kerb grey), the proposed appearance change; A keeps today's colour."""
+    """pilots: {'A': P, 'B': P}; writes scene_before.json and scene_<design>.json with the shoulder pieces in today's
+    colour (Build never touches ShoulderChunks), plus scene_B_look.json: design B with the opt-in ShoulderLook (the
+    shoulder pieces recoloured as a concrete gutter, kerb grey; reverted by ShoulderLookRevert)."""
     P0 = next(iter(pilots.values()))
     area = P0['area']
     c = area.centroid
@@ -180,7 +181,9 @@ def export(W, pilots, out_dir):
     paths = {}
     states = [('before', before_scene(W, area, o))]
     for d, P in pilots.items():
-        states.append((d, after_scene(W, P, area, o, shoulder_color=(176, 174, 168) if d == 'B' else None)))
+        states.append((d, after_scene(W, P, area, o)))
+    if 'B' in pilots:
+        states.append(('B_look', after_scene(W, pilots['B'], area, o, shoulder_color=(176, 174, 168))))
     for name, ms in states:
         data = dict(note='PREVIEW ONLY (offline render input, tools/roadvis/scene.py)', origin=list(o),
                     objects=[x.out() for x in ms if x.f], cameras=cameras(o))
