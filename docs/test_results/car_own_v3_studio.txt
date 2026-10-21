@@ -1,0 +1,20 @@
+red_sports_own_v3 in Studio (owner: "อัปโหลด v3 ลองขับได้เลย" = upload v3 and test drive it), 2026-10-22
+Backup before: Documents\SaveNew-V4-2.rbxl (02:47; has Road B, the +0.9 ground backup, arcade fix 5).
+Code installed first (main 38f1953, rollback ServerStorage.Rollback_econ_20261022): PattayaRecovery, PattayaTestKit,
+PattayaTestKitServer (place had 39627ba), CarController, PattayaTraffic, PattayaRoadVisBuilder, RaceCarServer (place had
+681853b; now with the WheelMesh support from the car-import work).
+
+Open Cloud upload (Model assets, creator = the owner's account; ids also in build/cars3d/upload_ids_own_v3.json):
+  body red_sports_own_v3.glb (midnight blue)  90094845763929
+  wheels (the shared v2 turbine wheels)       FL 134630398494002  FR 74871958760739  RL 121469048851077  RR 86681611253418
+InsertService:LoadAsset: each asset = 1 MeshPart with its texture; body 2.21 x 1.22 x 4.50, wheels 0.344 x 0.770 x 0.770.
+Car_import_wheels snippet -> ServerStorage.CarBodies.red_sports_own_v3 (Body + WheelMesh_FL/FR/RL/RR, YawFix 180, wheel
+layout = red_sports). Attributes TestVehicleOnly = true and AssetIds. NOT in CarSpecs, NOT in the garage, not on the grid.
+
+Play (TestKit server):
+  S.spawnCar(player, "red_sports_own_v3") -> "TestCar_red_sports_own_v3_<id> built (body mesh yes, wheel meshes 4); seated"
+  settled upright (up 1.00) at the spawn
+  route drive (physics drivePath, 100 studs/s) spawn -> Central Festival, 1,996 studs: 21.3 s, 83/83 probes on road,
+    min up 0.99, top speed 100
+  wheel spin at 49.8 studs/s straight: all four wheel meshes roll forward at 34.6 rad/s (effective radius 1.44 studs)
+NOT checked yet: screenshots of each side (Studio was not focused), full-lock steering look, mobile performance.
