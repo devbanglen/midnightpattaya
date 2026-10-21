@@ -337,7 +337,10 @@ def export(W, P, out_dir):
                modules=sorted(mods), cells=sorted({m['cell'] for m in mods.values()}),
                counts=dict(parts=int(sum(m['parts'] for m in mods.values())), byKind=dict(counts),
                            meshTriangles=len(mesh_items)),
-               replace=dict(total=len(sel), byName=dict(cnt), keys=keys, tolerance=0.3),
+               # zebraSource: the ZebraStripe keys are the bars of the BUILT furniture modules (world.built_crossings), not
+               # furniture.json (stale since 2026-10-19: Studio RV.Plan 2026-10-22 matched only 70 of its 155 keys)
+               replace=dict(total=len(sel), byName=dict(cnt), keys=keys, tolerance=0.3,
+                            zebraSource='build/furniture/roblox chunk_f* crossings (built modules)'),
                probe=dict(offsets=list(PROBE_OFFSETS), foot=list(FOOT), samples=[x for row in rows for x in row],
                           legs=[dict(id=l['id'], name=l['name'], oneway=l['oneway'], lanes=l['lanes']) for l in legs], expected=expected))
     os.makedirs(out_dir, exist_ok=True)

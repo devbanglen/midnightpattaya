@@ -562,8 +562,10 @@ end
 -- lane-centre support: per probe sample (every 4 studs on every leg outside the seam band) and offset (only where the
 -- offset lies on the carriageway, |o| <= half width), a 4 x 9 car footprint (6 points) is raycast straight down: flat =
 -- every point hits a top in 0.9..1.1 (road, shoulder, apron), kerb = a point hits 1.1..1.8 (sidewalk / island, no
--- drop), drop = a point hits nothing or lower, blocked = higher (a building or prop on the road). Plus: pilot parts
--- overlapping a building, counts. The manifest holds the offline expectation for the same samples.
+-- drop), drop = a point hits nothing or lower, blocked = higher (a building or prop on the road). A drop point whose
+-- 4 neighbour rays 0.05 stud away all hit road is a hairline seam (a float32 crack between two coplanar wedges; Studio
+-- 2026-10-22, sample 220 at (24504.9, 1045.4)), counted apart, not as a drop. Plus: pilot parts overlapping a building,
+-- counts. The manifest holds the offline expectation for the same samples.
 function RV.Probe(): string
 	local _, man = data()
 	local w = world()
@@ -576,9 +578,25 @@ function RV.Probe(): string
 	local fw, fl = man.probe.foot[1] / 2, man.probe.foot[2] / 2
 	local pts = {{-fl, -fw}, {-fl, fw}, {fl, -fw}, {fl, fw}, {0, -fw}, {0, fw}}
 	local lines = {}
-	local totalDrop = 0
+	local totalDrop, totalSeam = 0, 0
+	local dropAt = {}
+	local function topAt(x: number, z: number): number
+		local hit = workspace:Raycast(Vector3.new(x, 40, z), Vector3.new(0, -60, 0), params)
+		return if hit then hit.Position.Y else -math.huge
+	end
+	-- a hairline seam, not a hole: the ray went through a float32 crack between two coplanar WedgeParts (world x about
+	-- 24,500: positions step by 0.002 studs), and 4 rays 0.05 stud around it all hit a road-height top
+	local function seam(x: number, z: number): boolean
+		for _, d in {{0.05, 0}, {-0.05, 0}, {0, 0.05}, {0, -0.05}} do
+			local y = topAt(x + d[1], z + d[2])
+			if y < 0.9 or y > 1.1 then
+				return false
+			end
+		end
+		return true
+	end
 	for _, o in man.probe.offsets do
-		local n, flat, kerb, drop, blocked = 0, 0, 0, 0, 0
+		local n, flat, kerb, drop, blocked, seams = 0, 0, 0, 0, 0, 0
 		for i = 1, #S, 6 do
 			local hw = S[i + 4]
 			if math.abs(o) <= hw then
@@ -588,9 +606,14 @@ function RV.Probe(): string
 				for _, q in pts do
 					local x = cx + nx * (o + q[2]) + tx * q[1]
 					local z = cz + nz * (o + q[2]) + tz * q[1]
-					local hit = workspace:Raycast(Vector3.new(x, 40, z), Vector3.new(0, -60, 0), params)
-					local y = if hit then hit.Position.Y else -math.huge
+					local y = topAt(x, z)
 					local cls = if y > 1.8 then "blocked" elseif y > 1.1 then "kerb" elseif y >= 0.9 then "flat" else "drop"
+					if cls == "drop" and seam(x, z) then
+						cls = "flat"
+						seams += 1
+					elseif cls == "drop" and #dropAt < 5 then
+						table.insert(dropAt, ("(%.1f, %.1f) offset %d"):format(x, z, o))
+					end
 					if cls == "drop" or (cls == "blocked" and worst ~= "drop") or (cls == "kerb" and worst == "flat") then
 						worst = cls
 					end
@@ -600,9 +623,13 @@ function RV.Probe(): string
 			end
 		end
 		totalDrop += drop
+		totalSeam += seams
 		local e = man.probe.expected[tostring(o)]
-		table.insert(lines, ("offset %d: %d samples, flat %d, kerb %d, drop %d, blocked %d (offline expected: drop %d, kerb %d)"):format(
-			o, n, flat, kerb, drop, blocked, e and e.drop or -1, e and e.kerb or -1))
+		table.insert(lines, ("offset %d: %d samples, flat %d, kerb %d, drop %d, blocked %d, hairline seams %d (offline expected: drop %d, kerb %d)"):format(
+			o, n, flat, kerb, drop, blocked, seams, e and e.drop or -1, e and e.kerb or -1))
+	end
+	if #dropAt > 0 then
+		table.insert(lines, "first drops at " .. table.concat(dropAt, "; "))
 	end
 	local bHits, built = 0, 0
 	if pilot then
@@ -622,8 +649,8 @@ function RV.Probe(): string
 		end
 	end
 	local backup = ServerStorage:FindFirstChild(RV.BACKUP)
-	local head = ("road vis probe: %d legs, %d samples; pilot parts %d (data %d); building overlaps %d; moved parts %s; total drops %d"):format(
-		#man.probe.legs, #S // 6, built, man.counts.parts, bHits, if backup then tostring(backup:GetAttribute("Count")) else "none", totalDrop)
+	local head = ("road vis probe: %d legs, %d samples; pilot parts %d (data %d); building overlaps %d; moved parts %s; total drops %d; hairline seams %d"):format(
+		#man.probe.legs, #S // 6, built, man.counts.parts, bHits, if backup then tostring(backup:GetAttribute("Count")) else "none", totalDrop, totalSeam)
 	local out = head .. "\n" .. table.concat(lines, "\n")
 	print(out)
 	return out
