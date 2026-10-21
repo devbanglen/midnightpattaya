@@ -542,6 +542,11 @@ def generate(W, cfg=None, log=print):
     kept_asphalt = unary_union([s['poly'] for s in keep if s['kind'] in world.ROAD_KINDS])
     old_all = unary_union([s_['poly'] for s_ in rep + keep if s_['kind'] in world.ROAD_KINDS])
     S = seam_taper(S1.intersection(area), area, kept_asphalt, cfg, keep_lanes=old_all.intersection(S0).buffer(0.3))
+    # replaced parts reach past the area edge (centre inside, >= 50 % inside): their outside part is rebuilt too, so the
+    # seam keeps every stud of road the old parts covered there
+    rep_out = unary_union([s_['poly'] for s_ in rep if s_['kind'] in world.ROAD_KINDS]).difference(area)
+    if not rep_out.is_empty:
+        S = clean(unary_union([S, rep_out]))
     islands = clean(islands.intersection(area.buffer(-2)).difference(S))
     kept_walk = unary_union([s['poly'] for s in keep if s['kind'] in ('sidewalk', 'corner')])
     kept_any = unary_union([kept_asphalt, kept_walk])
@@ -555,7 +560,10 @@ def generate(W, cfg=None, log=print):
     # concrete gutter between the asphalt and the kerb, and every wheel footprint it supports keeps its support)
     shoulders = unary_union([s_['poly'] for s_ in W['surf'] if s_['kind'] in world.SHOULDER_KINDS and s_['poly'].intersects(area)])
     if cfg['keep_shoulders_flush'] and not shoulders.is_empty:
-        walk = clean(walk.difference(shoulders.difference(S).buffer(0.05)))
+        walk = clean(walk.difference(shoulders.difference(S)))
+        # no raised island on a shoulder / gap piece either: it stays flush road-height support
+        islands = clean(islands.difference(shoulders))
+        islands = clean(unary_union([q for q in polys(islands) if q.area > 4.0]))
         walk = clean(unary_union([q for q in polys(walk) if q.area > 4.0]))
     kerb = clean(walk.intersection(paved.buffer(cfg['kerb_w'])))
     island_kerb = clean(islands.difference(islands.buffer(-cfg['kerb_w'])))
@@ -746,16 +754,32 @@ def generate(W, cfg=None, log=print):
     # collision (invisible): the asphalt grown 0.3 (it tucks under the kerb / sidewalk edge) and simplified 0.25, as
     # constrained-Delaunay triangles (two WedgeParts each, flat top at 1.0); sidewalks and islands shrunk 0.3 (they
     # never reach over the asphalt) and simplified the same way. Fewer, larger parts than slabs + discs + fills.
+    keep_support = Polygon()
     if cfg['design'] == 'A':
         # A: the kept slab Parts plus visible flat triangles (WedgeParts) for the rest: visual = collision, as today
         slab_u = unary_union(old_slabs) if old_slabs else Polygon()
         tris = triangles(S.difference(slab_u).buffer(0.05, join_style='mitre').simplify(cfg['coll_simplify']), simplify=0)
     else:
-        tris = triangles(S.buffer(cfg['coll_slack'], join_style='mitre').simplify(cfg['coll_simplify']), simplify=0)
-    walk_tris = triangles(walk.buffer(-cfg['coll_slack'], join_style='mitre').simplify(cfg['coll_simplify']), simplify=0)
-    isl_tris = triangles(islands.buffer(-cfg['coll_slack'], join_style='mitre').simplify(cfg['coll_simplify']), simplify=0)
+        # no-regression support: where an old replaced road part held a wheel within 2 studs of the new asphalt and B
+        # puts no sidewalk / island there, an invisible road-height strip keeps that support (the shoulder harness at
+        # +-24 used apron spill); it is never visible and never over a kerb
+        old_rep = unary_union([s_['poly'] for s_ in rep if s_['kind'] in world.ROAD_KINDS])
+        keep_support = clean(old_rep.intersection(S.buffer(2.0)).difference(S).difference(walk).difference(islands), 0.05)
+        # asphalt collision tucks 0.45 under every kerb (never past the paved edge)
+        paved_all = unary_union([S, walk, islands, keep_support])
+        grown = unary_union([S.buffer(0.45, join_style='mitre').intersection(paved_all.buffer(cfg['coll_slack'])), keep_support])
+        tris = triangles(grown.simplify(cfg['coll_simplify']), simplify=0)
+    # sidewalk / island collision: pulled back 0.3 from the asphalt only (never over it); against shoulders, terrain
+    # and buildings it keeps the visual edge, so no slot opens beside a shoulder piece
+    def flat_coll(g):
+        # pulled back 0.3 from the asphalt only: against a shoulder piece it keeps the shoulder edge (no slot beside
+        # the shoulder), and it never lies on a shoulder piece (no kerb on the shoulder)
+        c = g.difference(S.buffer(cfg['coll_slack'], join_style='mitre')).simplify(cfg['coll_simplify'])
+        return clean(c.difference(shoulders) if not shoulders.is_empty else c)
+    walk_tris = triangles(flat_coll(walk), simplify=0)
+    isl_tris = triangles(flat_coll(islands), simplify=0)
     coll_asphalt = unary_union(tris + old_slabs)
-    pilot = dict(cfg={k: v for k, v in cfg.items() if k != 'wheels'}, area=area, chains=chains, rib=rib, zones=zones,
+    pilot = dict(cfg={k: v for k, v in cfg.items() if k != 'wheels'}, keep_support=keep_support, area=area, chains=chains, rib=rib, zones=zones,
                  layers=dict(asphalt=[S], sidewalk=[walk], kerb=[kerb, island_kerb], island=[islands], median=[green]),
                  S=S, walk=walk, kerb=kerb, islands=islands, green=green, marks=marks, crossings=crossings, tris=tris,
                  walk_tris=walk_tris, isl_tris=isl_tris, coll_asphalt=coll_asphalt, replaced=rep, kept=keep,
@@ -815,11 +839,12 @@ def checks(W, P, cfg):
     wa_all = wheel_check(P['chains'], P['rib'], after_surf, area, cfg, inset=4.0)
     wb_all = wheel_check(P['chains'], P['rib'], before_surf, area, cfg, inset=4.0)
     vis_no_coll = S.intersection(inner).difference(P['coll_asphalt'].buffer(0.05)).area
-    coll_outside_vis = P['coll_asphalt'].difference(unary_union([S, P['walk'], P['islands']]).buffer(0.35)).area
+    support = P.get('keep_support', Polygon())
+    coll_outside_vis = P['coll_asphalt'].difference(unary_union([S, P['walk'], P['islands'], support]).buffer(0.35)).area
     paved = unary_union([S, P['walk'], P['islands']])
     bld_overlap = paved.intersection(P['blds']).area
     # meaningless asphalt: outside every lane corridor and outside the junction complexes (fillets are in the complex)
-    meaningless = S.difference(P['lane_corridor'].buffer(1.0)).difference(P['Z'].buffer(P['cfg']['kerb_r'])).area
+    meaningless = S.intersection(area).difference(P['lane_corridor'].buffer(1.0)).difference(P['Z'].buffer(P['cfg']['kerb_r'])).area
     fillet = S.difference(P['lane_corridor'].buffer(1.0)).area
     # overlaps between visual pieces: by construction one polygon per layer; check layer pairs
     ov = sum(a.intersection(b).area for a, b in ((S, P['walk']), (S, P['islands']), (P['walk'], P['islands'])))
@@ -878,6 +903,7 @@ def checks(W, P, cfg):
         meaningless_asphalt=round(meaningless, 1), fillet_and_seam_asphalt=round(fillet, 1),
         asphalt=round(S.area, 0), sidewalk=round(P['walk'].area, 0), islands=round(P['islands'].area, 0),
         layer_overlap=round(ov, 2), marking_off_asphalt=round(off_asphalt, 2),
+        invisible_support_strip=round(support.area, 1),
         marks_in_junction=round(sum(m['poly'].intersection(P['J'].buffer(-0.5)).area for m in P['marks'] if m['kind'] in ('lane', 'centre', 'edge')), 2),
         junction_field_area=round(P['J'].area, 0),
         lane_boundary_samples=cov_n, lane_boundary_covered=cov_k, lane_boundary_coverage=round(cov_k / cov_n, 3) if cov_n else None,

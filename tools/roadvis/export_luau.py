@@ -125,9 +125,10 @@ def tri_rows(tris, kind):
     out = []
     for t in tris:
         c = np.asarray(t.exterior.coords)[:3]
-        n = len(world.rs.wedge_tris(c[0], c[1], c[2]))
+        row = [r(v) for v in c.flatten()]
+        n = len(world.rs.wedge_tris(row[0:2], row[2:4], row[4:6]))      # on the rounded row, as the builder sees it
         if n:
-            out.append(([r(v) for v in c.flatten()] + [kind], n, t.centroid))
+            out.append((row + [kind], n, t.centroid))
     return out
 
 
@@ -258,10 +259,11 @@ def export(W, P, out_dir):
     items = []                                # (cell, kind 'tris'|'segs', row, parts)
     for tris, kind in ((P['tris'], 1), (P['walk_tris'], 2), (P['isl_tris'], 3), (junction.triangles(P['green']), 4)):
         for row, n, c in tri_rows(tris, kind):
-            items.append((cell_of(c), 'tris', row, n))
+            items.append((cell_of(c), 'tris', row, n, c))
     segs = [s for m in P['marks'] for s in mark_segs(m)] + kerb_segs(P)
     for a, b, w, kind in segs:
-        items.append((cell_of(Point((a + b) / 2)), 'segs', [r(a[0]), r(a[1]), r(b[0]), r(b[1]), r(w), SEG_KIND[kind]], 1))
+        pm = Point((a + b) / 2)
+        items.append((cell_of(pm), 'segs', [r(a[0]), r(a[1]), r(b[0]), r(b[1]), r(w), SEG_KIND[kind]], 1, pm))
     layers = [(P['S'], 1), (P['walk'], 2), (P['kerb'], 3), (P['islands'], 4), (P['green'], 5),
               (unary_union([m['poly'] for m in P['marks'] if m['kind'] != 'centre']), 6),
               (unary_union([m['poly'] for m in P['marks'] if m['kind'] == 'centre']), 7)]
@@ -269,7 +271,19 @@ def export(W, P, out_dir):
     for g, layer in layers:
         for t in junction.triangles(g, simplify=0.02):
             c = np.asarray(t.exterior.coords)[:3]
-            mesh_items.append((cell_of(t.centroid), [r(v) for v in c.flatten()] + [layer]))
+            mesh_items.append((cell_of(t.centroid), [r(v) for v in c.flatten()] + [layer], t.centroid))
+    # an Atomic cell over CAP parts is split into its four 128-stud quadrants (<cx>_<cz>q<qx><qz>), each its own Model
+    tot = Counter()
+    for it in items:
+        tot[it[0]] += it[3]
+    big = {c for c, n in tot.items() if n > CAP}
+
+    def quad(cid, pt):
+        if cid not in big:
+            return cid
+        return f'{cid}q{int((pt.x % CELL) // (CELL / 2))}{int((pt.y % CELL) // (CELL / 2))}'
+    items = [(quad(c, pt), k, row, n, pt) for c, k, row, n, pt in items]
+    mesh_items = [(quad(c, pt), row) for c, row, pt in mesh_items]
     # modules: per cell, split at CAP parts
     mods = {}
     by_cell = defaultdict(list)
