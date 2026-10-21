@@ -1127,7 +1127,8 @@ function TK.trafficNear(radius: number?, at: Vector3?)
 	for _, e in Rec.trafficNear(trafficRoutes, workspace:GetServerTimeNow(), c.X, c.Z, radius or 300) do
 		local sh = Rec.TRAFFIC_SHAPES[e.kind] or Rec.TRAFFIC_SHAPES[0]
 		table.insert(out, {pos = Vector3.new(e.x, 1, e.z), look = Vector3.new(e.lx, 0, e.lz), speed = e.speed,
-			halfLen = sh.len / 2, halfWid = sh.wid / 2, kind = e.kind, dist = e.dist, route = e.route, s = e.s, t = e.t})
+			halfLen = sh.len / 2, halfWid = sh.wid / 2, kind = e.kind, dist = e.dist, route = e.route, s = e.s, t = e.t,
+			key = e.key})
 	end
 	return out
 end
