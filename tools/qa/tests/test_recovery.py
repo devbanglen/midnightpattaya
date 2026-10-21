@@ -370,8 +370,8 @@ end
 local round = R.buildTrafficRoutes({{pts = circ, speed = 45, phase = 0, kinds = {0}}}, 0, 0)[1]
 
 local SH = R.TRAFFIC_SHAPES[0]
-local function trafficAt(route, s0, t0, t)
-	local s = s0 + 45 * (t - t0)
+local function trafficAt(route, s0, t0, t, vT)
+	local s = s0 + vT * (t - t0)
 	local x, z = R.routePoint(route, s)
 	local x2, z2 = R.routePoint(route, s + 6) -- heading as PattayaTraffic: towards the point 6 studs on
 	local lx, lz = x2 - x, z2 - z
@@ -380,9 +380,10 @@ local function trafficAt(route, s0, t0, t)
 end
 
 -- returns the first hit's info + classification, the time of it, and the planned meeting time
-local function run(route, s0, mode, speed, opts, fps, reverseTraffic)
+local function run(route, s0, mode, speed, opts, fps, reverseTraffic, vT)
 	opts = opts or {}
-	local plan, meet = R.stagePlan({route = route, s0 = s0, t0 = 0, vT = 45, halfWid = SH.wid / 2, halfLen = SH.len / 2,
+	vT = vT or 45
+	local plan, meet = R.stagePlan({route = route, s0 = s0, t0 = 0, vT = vT, halfWid = SH.wid / 2, halfLen = SH.len / 2,
 		speed = speed, mode = mode, lead = opts.lead, offset = opts.offset, angle = opts.angle})
 	local dt = 1 / fps
 	local px, pz = nil, nil
@@ -392,10 +393,10 @@ local function run(route, s0, mode, speed, opts, fps, reverseTraffic)
 		local x, z, dx, dz = plan(t)
 		local m = math.sqrt(dx * dx + dz * dz)
 		dx, dz = dx / m, dz / m
-		local tx, tz, tlx, tlz = trafficAt(route, s0, 0, t)
+		local tx, tz, tlx, tlz = trafficAt(route, s0, 0, t, vT)
 		if reverseTraffic then tlx, tlz = -tlx, -tlz end
 		local info, rx, rz = R.hitFromWorld({x = x, z = z, lx = dx, lz = dz, vx = dx * speed, vz = dz * speed},
-			{x = tx, z = tz, lx = tlx, lz = tlz, speed = 45, halfWid = SH.wid / 2, halfLen = SH.len / 2}, px, pz)
+			{x = tx, z = tz, lx = tlx, lz = tlz, speed = vT, halfWid = SH.wid / 2, halfLen = SH.len / 2}, px, pz)
 		px, pz = rx, rz
 		if info then
 			local res = R.classifyHit(info, cfg)
@@ -408,48 +409,125 @@ local function run(route, s0, mode, speed, opts, fps, reverseTraffic)
 end
 
 local function near(a, b, eps) return math.abs(a - b) <= eps end
--- expected: tier, loss (instant cut of the speed), from the owner's table (vc = closing speed)
+
+-- a third route: straight, a 4-stud lane change over 30 studs, straight, then a 90 degree bend of radius 400
+local sc = {0, 0, 800, 0, 830, 4, 1200, 4}
+for i = 1, 24 do
+	local a = i / 24 * math.pi / 2
+	table.insert(sc, 1200 + 400 * math.sin(a))
+	table.insert(sc, 404 - 400 * math.cos(a))
+end
+for _, q in {1600, 2400, 0, 2400} do table.insert(sc, q) end
+table.insert(sc, 0)
+table.insert(sc, 0)
+
+-- the owner's table rows (TK.HIT_MATRIX); expected values come from the geometry (R.expectedStaged)
 local CASES = {
-	{"rear", 100, nil, "heavy", 0.45 + 0.25 * (55 - 45) / 85},   -- vc 55
-	{"rear", 150, nil, "heavy", 0.45 + 0.25 * (105 - 45) / 85},  -- vc 105
-	{"rear", 200, nil, "heavy", 0.70},                          -- vc 155
-	{"rear", 150, {offset = 2}, "heavy", 0.45 + 0.25 * (105 - 45) / 85},
-	{"rear", 70, nil, "light", 0.20},                           -- vc 25
-	{"head", 100, nil, "headon", 0.85},
-	{"head", 150, nil, "headon", 0.85},
-	{"head", 200, nil, "headon", 0.85},
-	{"side", 150, {angle = 5}, "scrape", 0.08},
-	{"side", 150, {angle = 20}, "heavy", nil},
-	{"side", 70, {angle = 25}, "light", 0.20},
+	{"rear", 70}, {"rear", 100}, {"rear", 150}, {"rear", 200}, {"rear", 150, {offset = 2}},
+	{"head", 100}, {"head", 150}, {"head", 200},
+	{"side", 150, {angle = 5}}, {"side", 150, {angle = 20}}, {"side", 70, {angle = 25}}, {"side", 100, {angle = 10}},
 }
-for _, route in {{"straight", straight, 500}, {"round", round, 400}} do
-	for _, fps in {60, 30, 20} do
-		for _, c in CASES do
-			local mode, speed, opts, tier, loss = c[1], c[2], c[3], c[4], c[5]
-			local name = ("%s %s %d @%dfps%s"):format(route[1], mode, speed, fps,
-				if opts and opts.angle then " a" .. opts.angle elseif opts and opts.offset then " off" .. opts.offset else "")
-			local info, res, t, meet = run(route[2], route[3], mode, speed, opts, fps)
-			if not info then
-				check(name .. " touches", false, "no touch")
-				continue
-			end
-			check(name .. " touches when planned", math.abs(t - meet) < 0.25, ("t %.2f meet %.2f"):format(t, meet))
-			check(name .. " -> " .. tier, res.tier == tier, ("%s vc %.0f angle %.0f facing %.2f"):format(res.tier,
-				info.vc, info.approachDeg, info.facingDot))
-			if loss then
-				-- the curve changes vc a little (the traffic heading is the chord to 6 studs on)
-				check(name .. " loss", near(res.loss, loss, if route[1] == "round" then 0.03 else 0.005),
-					("%.3f vs %.3f"):format(res.loss, loss))
-				check(name .. " speed after", near(res.after, speed * (1 - res.loss), 0.5) or res.bounce > 0,
-					("%.1f"):format(res.after))
-			end
-			if tier == "headon" then
-				check(name .. " bounces back", res.after <= 10.5 and res.bounce == 10, res.after)
-			end
-			if tier == "heavy" then
-				check(name .. " spin in the 45-120 band", math.abs(res.yaw) >= 45 and math.abs(res.yaw) <= 120, res.yaw)
+local THRESHOLDS = {15, 45, 90}
+for _, vT in {38, 45, 55} do
+	local mk = function(pts) return R.buildTrafficRoutes({{pts = pts, speed = vT, phase = 0, kinds = {0}}}, 0, 0)[1] end
+	local ROUTES = {
+		{"straight", mk({0, 0, 3000, 0, 3000, 600, 0, 600, 0, 0}), 500, false},
+		{"round", mk(circ), 400, true},
+		{"lanechange", mk(sc), 760, true},   -- meets at / through the lane change
+		{"bend", mk(sc), 1400, true},        -- meets on the radius-400 bend
+	}
+	for _, route in ROUTES do
+		for _, fps in {60, 30, 20, 15} do
+			for _, c in CASES do
+				local mode, speed, opts = c[1], c[2], c[3]
+				local want, wantHit = R.expectedStaged(mode, speed, opts and opts.angle, vT, cfg)
+				local name = ("%s vT%d %s %d @%dfps%s"):format(route[1], vT, mode, speed, fps,
+					if opts and opts.angle then " a" .. opts.angle elseif opts and opts.offset then " off" .. opts.offset else "")
+				local info, res, t, meet = run(route[2], route[3], mode, speed, opts, fps, false, vT)
+				if not info then
+					check(name .. " touches", false, "no touch")
+					continue
+				end
+				check(name .. " touches when planned", math.abs(t - meet) < 0.25 + 1 / fps, ("t %.2f meet %.2f"):format(t, meet))
+				local nearEdge = false
+				for _, th in THRESHOLDS do
+					if math.abs(wantHit.vc - th) < 3 then nearEdge = true end
+				end
+				if not nearEdge then
+					check(name .. " -> " .. want.tier, res.tier == want.tier, ("%s vc %.1f (want %.1f) angle %.0f facing %.2f")
+						:format(res.tier, info.vc, wantHit.vc, info.approachDeg, info.facingDot))
+					if want.bounce == 0 then
+						check(name .. " loss", near(res.loss, want.loss, if route[4] then 0.04 else 0.01),
+							("%.3f vs %.3f"):format(res.loss, want.loss))
+					else
+						check(name .. " head-on near stop + bounce", res.after <= 10.5 + (if route[4] then 0.05 * speed else 0), res.after)
+					end
+				end
+				if res.tier == "heavy" then
+					check(name .. " spin in the 45-120 band", math.abs(res.yaw) >= 45 and math.abs(res.yaw) <= 120, res.yaw)
+				end
 			end
 		end
+	end
+end
+
+-- Studio round 3 rows (docs/test_results/recovery_kit_studio.txt, ~15 Hz) as regressions --------------------------
+local straight45 = straight
+-- rows "rear 100 / head 100 / head 200: scrape vc=0 0->0": a hit at the start spot, before the approach
+local ok, why = R.acceptStagedHit({hitT = 9.9, approachT = 10, meet = 11.5, frameDt = 1 / 15, hitX = 0, hitZ = 0,
+	targetX = 0, targetZ = 0})
+check("studio r3 rear100/head100/head200: a hit before the approach is not the staged hit", not ok, why)
+-- and a car parked on the start spot makes the lane "not clear" (the helper then picks another target or ghosts)
+do
+	local plan, meet = R.stagePlan({route = straight45, s0 = 500, t0 = 0, vT = 45, halfWid = 3.3, halfLen = 7,
+		speed = 100, mode = "head"})
+	local x0, z0 = plan(0)
+	local parked = {route = R.buildTrafficRoutes({{pts = {x0 - 1, z0, x0 + 1, z0, x0 + 1, z0 + 1, x0 - 1, z0}, speed = 0,
+		phase = 0, kinds = {0}}}, 0, 0)[1], s = 0, t = 0, speed = 0}
+	check("studio r3 head100: a car on the start spot -> lane not clear", not R.plannedPathClear(plan, 0, meet, {parked}, 30))
+	-- the same lane with nobody else is clear; an oncoming car in the next lane is not
+	check("an empty lane is clear", R.plannedPathClear(plan, 0, meet, {}, 30))
+	local oncoming = R.buildTrafficRoutes({{pts = {3000, 12, 0, 12, 0, 600, 3000, 600, 3000, 12}, speed = 45, phase = 0,
+		kinds = {0}}}, 0, 0)[1]
+	local rel = {route = oncoming, s = 3000 - 560, t = 0, speed = 45}
+	local okClear, worst = R.plannedPathClear(plan, 0, meet, {rel}, 30)
+	check("studio r3: an oncoming car 12 studs over, passing during the approach -> not clear", not okClear, worst)
+end
+-- rows "hit (NOT the target car)": a hit on another car is rejected, the target is accepted
+ok = R.acceptStagedHit({hitT = 11.5, approachT = 10, meet = 11.5, frameDt = 1 / 15, hitX = 40, hitZ = 0,
+	targetX = 0, targetZ = 0})
+check("studio r3: a hit 40 studs from the target is another car", not ok)
+ok = R.acceptStagedHit({hitT = 11.55, approachT = 10, meet = 11.5, frameDt = 1 / 15, hitX = 3, hitZ = 0,
+	targetX = 0, targetZ = 0})
+check("studio r3: the target hit one 15 Hz frame late is accepted", ok)
+ok = R.acceptStagedHit({hitT = 12.6, approachT = 10, meet = 11.5, frameDt = 1 / 15, hitX = 0, hitZ = 0,
+	targetX = 0, targetZ = 0})
+check("a hit 1.1 s after the planned meeting is not the staged hit", not ok)
+-- "side 150 a5 -> heavy vc 147" and "side 150 a20 -> scrape vc 0" were other cars; on the target at 15 Hz:
+for _, fps in {15, 30, 60} do
+	local _, r5 = run(straight45, 500, "side", 150, {angle = 5}, fps)
+	check(("studio r3 side 150 a5 on the target @%d Hz -> scrape"):format(fps), r5 and r5.tier == "scrape", r5 and r5.tier)
+	local i20, r20 = run(straight45, 500, "side", 150, {angle = 20}, fps)
+	check(("studio r3 side 150 a20 on the target @%d Hz -> heavy"):format(fps), r20 and r20.tier == "heavy",
+		r20 and (r20.tier .. " vc " .. i20.vc))
+	local _, rh = run(straight45, 500, "head", 150, nil, fps)
+	check(("studio r3 head 150 @%d Hz -> headon"):format(fps), rh and rh.tier == "headon", rh and rh.tier)
+	local i70, r70 = run(straight45, 500, "side", 70, {angle = 25}, fps)
+	check(("studio r3 side 70 a25 @%d Hz -> light 20%%"):format(fps), r70 and r70.tier == "light" and near(r70.loss, 0.2, 1e-6),
+		r70 and (r70.tier .. " vc " .. i70.vc))
+end
+-- "side 70 a25: speed at the hit 37": the run-up started 33 studs off the lane (kerb); now at most 6 studs further
+-- out than the touching distance
+do
+	for _, c in {{70, 25}, {150, 5}, {150, 20}, {100, 10}} do
+		local a = math.rad(c[2])
+		local plan = R.stagePlan({route = straight45, s0 = 500, t0 = 0, vT = 45, halfWid = 3.3, halfLen = 7, speed = c[1],
+			mode = "side", angle = c[2]})
+		local _, z0 = plan(0)
+		local latC = 3.3 + 3.5 * math.cos(a) + 7.5 * math.sin(a)
+		-- straight route heading +X: its right is (-lz, lx) = (0, 1) -> lateral = z
+		check(("side %d a%d starts within 6 studs of the touching line (lateral %.1f, touch %.1f)"):format(c[1], c[2],
+			z0, latC), z0 <= latC + 6 + 1e-6 and z0 > latC, z0)
 	end
 end
 
@@ -497,7 +575,7 @@ class StagedHits(unittest.TestCase):
         fails = [line for line in out.splitlines() if line.startswith('FAIL ')]
         self.assertEqual(fails, [], out[-4000:])
         self.assertIn('FAILS\t0', out, out[-3000:])
-        self.assertGreaterEqual(out.count('PASS '), 150, out[-2000:])
+        self.assertGreaterEqual(out.count('PASS '), 1500, out[-2000:])
 
 
 class RecoveryWiring(unittest.TestCase):
@@ -546,6 +624,9 @@ class RecoveryWiring(unittest.TestCase):
         self.assertIn('workspace:GetAttribute("CollisionModel") == "arcade"', self.traffic)
         self.assertIn('entry.root.CanCollide = not on and not arcade', self.traffic)
         self.assertRegex(self.traffic, r'local arcade = false')
+        # the TestKit "only the target is real" hook works only in Studio / DevTest places
+        self.assertIn('TK_HitTarget', self.traffic)
+        self.assertIn('IS_STUDIO or workspace:GetAttribute("DevTest") == true', self.traffic)
         # the impact is ignored unless arcade is on (a stale event after switching back does nothing)
         self.assertIn('Recovery.arcade()', self.car)
         # a traffic hit never rolls the car: pitch / roll are zeroed during the hit window

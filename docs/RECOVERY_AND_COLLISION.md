@@ -380,3 +380,40 @@ re-run in Studio.** Every Studio case is now replayed in the luau CLI (`StagedHi
 Re-test (leader): the section 6 test 12 calls, now e.g. `print(TK.hitTest("rear", 200).text)`; expected
 `hit tier=heavy vc=155 200->60 (-70%)`, `head 150` → `headon -85 %` (then 10 back), `side 150 {angle = 5}` →
 scrape, `{angle = 20}` → heavy; every row must say `hit` without "(NOT the target car)".
+
+## 11. Studio round 3 (2026-10-21, ~15 Hz unfocused): findings and fixes (team18/arcade-fix-2)
+
+Rows: end of `docs/test_results/recovery_kit_studio.txt`. Investigated offline only; **not re-run in Studio.**
+
+- **The classifier was right on every row that hit its target** (head 150 → head-on −93 %). Replayed offline
+  (`StagedHits`): all 12 matrix rows × traffic speeds 38 / 45 / 55 × 60 / 30 / 20 / 15 FPS × four lanes (straight,
+  round r = 300, a 4-stud lane change, a r = 400 bend) give the owner's tier and loss (±1 % straight, ±4 % on
+  curves). That is more than 1,700 checks, plus one regression per Studio row.
+- **"NOT the target car" (9 of 12) and "scrape 0→0" (3 rows) were the helper.** Traffic loops overlap on the main
+  roads, so the target's lane (or the oncoming lane next to it) held other cars from other loops. The start spot
+  could sit on another car, and the hit counter was armed before the teleport, so that hit at speed 0 counted.
+  `side 150 a5 → heavy vc 147` and `side 150 a20 → scrape vc 0` were both hits on other cars (flagged as such).
+  Fixes in `TK.hitTest`:
+  - The target is now the nearest car with a model whose whole planned approach, start spot included, stays 30
+    studs from every other traffic car (`PattayaRecovery.plannedPathClear`). If no car qualifies, every other car
+    ghosts for the run. This uses the TestKit-only hook `TK_HitTarget` in PattayaTraffic, which works only in
+    Studio or with `workspace.DevTest` and is ignored in normal play.
+  - The car is held 0.3 s at its start, and the counter is re-armed every frame of the hold.
+  - Only a hit after the approach began, within 0.35 s + 1.5 frames of the planned meeting, and on the target
+    counts (`PattayaRecovery.acceptStagedHit`). Anything else ends the row as `MISSED (rejected: ...)`.
+  - Each row shows the Heartbeat rate.
+- **`side 70 a25` hit at 37:** the side run-up started up to 33 studs right of the lane, on the kerb, and between
+  two 15 Hz frames the car hit it. Fixes:
+  - The run-up is now at most 6 studs of sideways travel (`stagePlan`, `runLat`).
+  - In arcade mode my car ignores scenery during the approach (`CanCollide` off until the hand-off; the wheel rays
+    still hold it up).
+- `TK.hitMatrix()` runs the 12 rows (`TK.HIT_MATRIX`) and prints one PASS / FAIL line per row with a summary. It
+  checks five things against the table:
+  - the tier, from the geometry and the target's real speed (`expectedStaged`);
+  - the loss, ±5 %;
+  - the head-on near-stop;
+  - the speed at the hit, at least 90 % of the planned speed;
+  - no flip.
+
+Re-test (leader): server `workspace:SetAttribute("CollisionModel", "arcade")`, then client `TK.hitMatrix()`, at
+15 Hz (unfocused) and focused.

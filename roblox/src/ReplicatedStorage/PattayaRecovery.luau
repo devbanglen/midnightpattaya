@@ -536,7 +536,7 @@ end
 -- dt seconds later.
 function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number)
 	local out = {}
-	for _, r in routes do
+	for ri, r in routes do
 		if r.length <= 0 or cx < r.minX - radius or cx > r.maxX + radius or cz < r.minZ - radius or cz > r.maxZ + radius then
 			continue
 		end
@@ -555,7 +555,7 @@ function R.trafficNear(routes, t: number, cx: number, cz: number, radius: number
 					lx, lz = 0, -1
 				end
 				table.insert(out, {x = x, z = z, lx = lx, lz = lz, speed = r.speed, kind = r.kinds[k], dist = d,
-					route = r, s = s, t = t})
+					route = r, s = s, t = t, ri = ri, k = k, key = ri * 1000 + k})
 			end
 		end
 	end
@@ -593,7 +593,9 @@ function R.stagePlan(p)
 		local vs, u = speed * math.sin(a), speed * math.cos(a)
 		-- lateral distance between the centres when the corner of my (angled) box reaches its side
 		local latC = p.halfWid + R.CAR_HALF_WID * math.cos(a) + R.CAR_HALF_LEN * math.sin(a)
-		local run = math.max(0.8, 10 / math.max(vs, 1e-3))
+		-- run-up: at most p.runLat (6) studs of sideways travel, so the start stays next to its lane (a long run-up
+		-- started a 25 degree run 33 studs off the lane, on the kerb: Studio round 3, side 70 hit at 37)
+		local run = math.clamp((p.runLat or 6) / math.max(vs, 1e-3), 0.05, 0.8)
 		local tc = t0 + run
 		return function(t)
 			local lat = latC + vs * (tc - t)
@@ -610,6 +612,62 @@ function R.stagePlan(p)
 		local x, z, tx, tz = lane(sc, p.offset or 0)
 		return x, z, tx, tz, (s0 + vT * (t - t0)) - sc - contact
 	end, meet
+end
+
+-- Staged hit helpers (TK.hitTest / TK.hitMatrix, tested offline) ----------------------------------------------------
+-- Is the planned approach clear of every other traffic car? others = {{route, s, t, speed}} (trafficNear entries
+-- without the target). Samples my planned centre from t0 to meet + 0.5 s every 0.05 s against each car's position
+-- at that time; returns clear, the smallest distance seen.
+function R.plannedPathClear(plan, t0: number, meet: number, others, clearance: number): (boolean, number)
+	local worst = math.huge
+	local t = t0
+	while t <= meet + 0.5 do
+		local x, z = plan(t)
+		for _, o in others do
+			local ox, oz = routePoint(o.route, o.s + o.speed * (t - o.t))
+			local d = math.sqrt((x - ox) ^ 2 + (z - oz) ^ 2)
+			if d < worst then worst = d end
+		end
+		t += 0.05
+	end
+	return worst >= clearance, worst
+end
+
+-- Does a registered hit belong to the staged run? h = {hitT, approachT (server time the approach began), meet,
+-- frameDt (the Heartbeat step), hitX, hitZ (position of the traffic car that was hit), targetX, targetZ (the target's
+-- position at hitT)}. A hit before the approach began (e.g. the car placed on top of another car), far from the
+-- planned meeting time or on another car does not count. Returns ok, reason.
+function R.acceptStagedHit(h): (boolean, string?)
+	local slack = 0.35 + 1.5 * (h.frameDt or 1 / 60)
+	if h.hitT < h.approachT then
+		return false, "before the approach"
+	end
+	if math.abs(h.hitT - h.meet) > slack then
+		return false, ("%.2f s from the planned meeting"):format(h.hitT - h.meet)
+	end
+	local d = math.sqrt((h.hitX - h.targetX) ^ 2 + (h.hitZ - h.targetZ) ^ 2)
+	if d > 6 + 60 * (h.frameDt or 1 / 60) then
+		return false, ("another car (%.0f studs from the target)"):format(d)
+	end
+	return true, nil
+end
+
+-- What the owner's table says a staged hit must give: the hit as the geometry makes it (rear: vc = speed - vT,
+-- head: speed + vT, side: speed * sin(angle) into its side), classified. Returns the classifyHit result and the hit.
+function R.expectedStaged(mode: string, speed: number, angleDeg: number?, vT: number, cfg)
+	local hit
+	if mode == "head" then
+		hit = {vc = speed + vT, approachDeg = 90, facingDot = -1, side = 1, front = true}
+	elseif mode == "side" then
+		local a = math.rad(angleDeg or 20)
+		local vc = speed * math.sin(a)
+		local rel = math.sqrt((speed * math.cos(a) - vT) ^ 2 + vc * vc)
+		hit = {vc = vc, approachDeg = math.deg(math.asin(clamp(vc / math.max(rel, 1e-6), 0, 1))),
+			facingDot = math.cos(a), side = -1, front = true}
+	else
+		hit = {vc = math.max(speed - vT, 0), approachDeg = 90, facingDot = 1, side = 1, front = true}
+	end
+	return R.classifyHit(hit, cfg), hit
 end
 
 -- server check of a client TrafficHit report: ok, reason
