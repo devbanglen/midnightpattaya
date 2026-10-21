@@ -1428,8 +1428,40 @@ local lx, ly, lz = R.yawOnlyLook(1, 0.3, 0, 0, 1, 0)
 check("yawOnlyLook flattens the look", near(lx, 1) and near(ly, 0) and near(lz, 0))
 check("yawOnlyLook along the up axis: none", R.yawOnlyLook(0, 1, 0, 0, 1, 0) == nil)
 check("tiltFrom: 0 and 10 degrees", near(R.tiltFrom(0, 1, 0, 0, 1, 0), 0, 1e-4) and near(R.tiltFrom(u[1], u[2], u[3], 0, 1, 0), 10, 1e-4))
-check("the anti-roll is part of the arcade defaults (and only the hit window)", cfg.Arcade_AntiRoll == true
-	and cfg.Arcade_AntiRollExtra > 0 and cfg.Arcade_AntiRollExtra <= 0.5 and cfg.Arcade_AntiRollSnapDeg > 0)
+check("the anti-roll is part of the arcade defaults (the hit window + 0.25 s; heavy / head-on: + their slide)",
+	cfg.Arcade_AntiRoll == true and cfg.Arcade_AntiRollExtra > 0 and cfg.Arcade_AntiRollExtra <= 0.5
+	and cfg.Arcade_AntiRollSnapDeg > 0 and cfg.Arcade_AntiRollHeavyExtra > cfg.Arcade_AntiRollExtra
+	and cfg.Arcade_AntiRollHeavyExtra <= 2)
+-- round 8 (60 fps rear @100): how long the hold lasts after the touch, per tier
+check("antiRollHold: light / scrape keep the window + Arcade_AntiRollExtra",
+	near(R.antiRollHold("light", 0.25, cfg), 0.5) and near(R.antiRollHold("scrape", 0.15, cfg), 0.4))
+check("antiRollHold: heavy / head-on add Arcade_AntiRollHeavyExtra (rear @100: 0.66 + 1.5)",
+	near(R.antiRollHold("heavy", 0.66, cfg), 2.16) and near(R.antiRollHold("headon", 1.0, cfg), 2.5))
+local cfgOld = table.clone(cfg)
+cfgOld.Arcade_AntiRollHeavyExtra = 0
+check("antiRollHold: Arcade_AntiRollHeavyExtra = 0 is the round 7 hold (window + 0.25 s) for every tier",
+	near(R.antiRollHold("heavy", 0.66, cfgOld), 0.91) and near(R.antiRollHold("headon", 1.0, cfgOld), 1.25)
+	and near(R.antiRollHold("light", 0.25, cfgOld), 0.5))
+-- the scripted spin (a yaw RATE set once per Heartbeat, integrated over the next frame) reaches the table's kick at
+-- every frame rate within one frame of rate: rear @100 (vc 55: 53.8 degrees) reaches 51.6-56.1 at 60 Hz, so a
+-- 34-36 degree heading after 2 s (Studio round 8) is not the script
+for _, case in {{53.8, 0.67}, {97.9, 1.02}, {120, 1.2}, {10, 1.0}} do
+	local T, w0 = R.spinProfile(case[1], case[2])
+	for _, hz in {15, 30, 60} do
+		local lo, hi = 0, 0
+		for k = 0, math.ceil(T * hz) do
+			local t = k / hz
+			if t < T then
+				hi += w0 * (1 - t / T) / hz
+				if k > 0 then lo += w0 * (1 - t / T) / hz end
+			end
+		end
+		local slack = math.deg(w0 / hz) + 1e-6
+		check(("scripted spin %.1f deg at %d Hz: %.1f..%.1f (within one frame of rate, %.1f deg)"):format(case[1], hz,
+			math.deg(lo), math.deg(hi), slack), math.abs(math.deg(lo) - case[1]) <= slack
+			and math.abs(math.deg(hi) - case[1]) <= slack)
+	end
+end
 
 -- near misses: my car from 30 studs behind a traffic car to 30 ahead, `g` studs beside it, `u` studs/s faster
 local hw, hl = 3.3, 7
@@ -2226,9 +2258,14 @@ class ArcadeHitScope(unittest.TestCase):
         self.assertEqual(car.count('antiRollOn('), 2, 'defined once, called once (applyImpact)')
         impact = self._body(car, 'local function applyImpact(')
         self.assertIn('if cfg.Arcade_AntiRoll then', impact)
-        self.assertIn('antiRollOn(chassis, up0, now + window + cfg.Arcade_AntiRollExtra, cfg)', impact)
+        # round 8: the hold comes from PattayaRecovery.antiRollHold (window + 0.25 s; heavy / head-on + their slide)
+        self.assertIn('antiRollOn(chassis, up0, now + Recovery.antiRollHold(res.tier, window, cfg), cfg)', impact)
         self.assertIn('if hitNow >= antiRoll.untilT then', car)
         self.assertGreaterEqual(car.count('antiRollOff()'), 4, 'window end, enter, exit')
+        mod = _qa.strip_comments(src(MOD))
+        hold = self._body(mod, 'function R.antiRollHold(')
+        self.assertIn('if tier == "heavy" or tier == "headon" then', hold)
+        self.assertIn('cfg.Arcade_AntiRollHeavyExtra', hold)
 
     def test_car_physics_unchanged(self):
         raw = src(CAR)
@@ -2338,7 +2375,7 @@ class RecoveryWiring(unittest.TestCase):
         # a traffic hit never rolls the car: during the hit window only the yaw about the up axis it had at the
         # touch is kept (AlignOrientation + per-step projection, arcade hit response only: ArcadeHitScope)
         self.assertIn('Recovery.yawOnlyRate(av.X, av.Y, av.Z, u0.X, u0.Y, u0.Z)', self.car)
-        self.assertIn('antiRollOn(chassis, up0, now + window + cfg.Arcade_AntiRollExtra, cfg)', self.car)
+        self.assertIn('antiRollOn(chassis, up0, now + Recovery.antiRollHold(res.tier, window, cfg), cfg)', self.car)
 
     def test_no_new_client_scripts(self):
         """Client logic lives in CarController / PattayaTraffic: the QA runner's CLIENT_SCRIPTS list stays valid."""

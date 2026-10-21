@@ -804,3 +804,94 @@ file). Attribute changes made in Play are not saved, so the saved place stays `C
   keeps them stable offline, but a real car's heading noise could still flip one in Studio.
 - `docs/TEST_KIT.md` (not owned by this team) could list the new TestKit functions: `TK.fpsLimit`, `TK.cleanup`,
   `TK.nearMissTest`, `TK.jobWatch`, `TK.jobPayout`, `TK.drawT`, and `TK.hitMatrix({fps = ...})`.
+
+## 15. Studio round 8 (2026-10-22, hitMatrix at 60 fps): rear @100 tips on the sidewalk (team18/arcade-econ)
+
+**Status: offline analysis and offline tests only. Nothing in this section has run in Studio.**
+
+### 15.1 What the leader saw
+
+Round 7 (Studio Play) passed: hitMatrix 72/72 at 15 and 30 fps (repeatable) and near miss 3/3. At 60 fps (Heartbeat
+60 Hz, leader run 2026-10-22), row 2 (rear @100) failed in 2 of 3 runs:
+
+| Run | Target | Row 2 | Yaw (scripted) | Lowest up |
+|---|---|---|---|---|
+| 1 | 26013 | FAIL | 34 (53) | 0.82 at +1.43 s, "off road Sidewalk" |
+| 2 | 26003 | PASS | | |
+| 3 | 26017 | FAIL | 36 (53) | 0.82 at +1.43 s, "off road Sidewalk" |
+
+In both failures the hit itself matched the table: hit key = target, heavy, closing speed 54 (planned 55), loss 48 %
+(table 48 %). The collisions came back at +0.02 s and braking started at +1.22 s. The hit window was 0.67 s, plus
+0.25 s of anti-roll.
+
+### 15.2 Cause (offline analysis)
+
+1. **The scripted spin is not short at 60 Hz.** CarController sets the yaw rate once per Heartbeat
+   (`PattayaRecovery.spinProfile`). Integrated frame by frame, the rear @100 spin (scripted 53.8°) delivers:
+
+   | Rate | Delivered yaw |
+   |---|---|
+   | 60 Hz | 51.6-56.1° |
+   | 30 Hz | 49.4-58.3° |
+   | 15 Hz | 45.0-62.8° |
+
+   The range depends on whether CarController's handler runs before or after PattayaTraffic's in the hit frame. A
+   yaw of 34-36° at 60 Hz therefore needs an outside torque: a contact.
+2. **The kerb is close.** On route 26 (the matrix lane), the lane centre is a median 6.5 studs from the road edge,
+   which is the 0.6-stud sidewalk kerb. On 10 % of the lane it is 3.3 studs or less (road width median 26 studs).
+   The spin swings the car's front corner to the side: 7.2 studs from the lane centre at 35°, 8.1 studs at 53°. At
+   53° the corner is over the kerb line on 73 % of route 26.
+3. **So the corner meets the kerb during the spin.** The contact stops the rotation at about 35°, and the car slides
+   on with one side over the sidewalk. The anti-roll ended at +0.92 s (0.67 + 0.25). At +1.43 s the car tipped to
+   0.82: after the anti-roll, but inside the 2 s watch.
+4. **Why only at 60 fps:** probably not the frame rate. It depends on where the target is on route 26: targets 26013
+   and 26017 failed and 26003 passed in the same session, and at 15 / 30 fps the targets were elsewhere. The new
+   diagnostics (15.4) will show it in the next run.
+
+### 15.3 The fix (arcade only, a live switch)
+
+- `PattayaRecovery.DEFAULTS.Arcade_AntiRollHeavyExtra = 1.5`: seconds after the hit window, for heavy and head-on
+  hits only.
+- New pure function `PattayaRecovery.antiRollHold(tier, window, cfg)`. It returns window + `Arcade_AntiRollExtra`,
+  and for heavy / head-on hits at least window + `Arcade_AntiRollHeavyExtra`.
+- `CarController.applyImpact` now calls `antiRollOn(chassis, up0, now + Recovery.antiRollHold(res.tier, window, cfg),
+  cfg)`. Before, it used `now + window + cfg.Arcade_AntiRollExtra`.
+- For rear @100 the anti-roll now holds to +2.17 s (0.67 + 1.5) instead of +0.92 s, so through the slide over the
+  kerb and to the end of the 2 s watch. Yaw stays free; only roll and pitch are held.
+- Unchanged: light and scrape hits (window + 0.25 s), physical mode, car physics outside arcade, the hit table and
+  the tier numbers.
+- `workspace:SetAttribute("Arcade_AntiRollHeavyExtra", 0)` brings back the round 7 behaviour live.
+- **Owner decision needed.** Round 6 limited the anti-roll to the hit window (+0.25 s). This keeps it 1.5 s longer
+  after heavy and head-on hits, in gameplay too. While it holds, the car keeps the up axis it had at the touch, so it
+  cannot follow a slope for that time (the Pattaya roads are flat).
+
+### 15.4 Diagnostics added to TK.hitTest (never a gate)
+
+- A new per-row log line: `diag: the spin reached +X deg at +T s (scripted Y); off the target's lane up to +L studs
+  (+ = right; the near kerb is on the left), at the lowest up ...; touched: <every part that is not road>`.
+- The `after:` line now names the real anti-roll hold: `+1.50 anti-roll` after heavy hits.
+- The row line shows `yaw A (spin B, scripted C)`. The result also carries `res.spinYaw`, `res.contacts` and
+  `res.laneMax`.
+- The pass criterion is unchanged: minUp ≥ 0.85 over the 2 s, and every case must match. The test driver's braking
+  stays tied to `Arcade_AntiRollExtra`, as in round 7.
+
+### 15.5 Proposal for the owner (not implemented): kerb contact after the hit window
+
+The criterion is kept as it is. A car that slides sideways into a 0.6-stud kerb at about 50 studs/s after the hit
+window is ordinary car physics, which happens without traffic too. Three ways to handle it, each needing the owner's
+yes:
+
+- **(a) Recommended: keep the criterion and the fix in 15.3.** The anti-roll covers the slide after heavy and
+  head-on hits, in gameplay too.
+- **(b) Change what the 2 s check measures.** Measure minUp ≥ 0.85 up to the end of the hit's anti-roll hold, and
+  report any tilt after it as information.
+- **(c) Change where the matrix hits.** Stage the matrix only on lanes at least about 9 studs from the kerb (the
+  corner swing of a 53° spin). This is a test-side choice, not a game change.
+
+### 15.6 Studio check (leader)
+
+1. Install PattayaRecovery, CarController, PattayaTraffic, PattayaTestKit and PattayaTestKitServer from this branch.
+2. Client, with Studio focused: `TK.hitMatrixStart({runs = 3, fps = 60, verbose = true})`. Poll `h:poll()` until
+   done. Expect `hitMatrix @60 fps: 36/36 PASS ... REPEATABLE`. Row 2's `diag:` lines show whether the kerb stopped
+   the spin.
+3. Then `TK.hitMatrixStart({runs = 3, fps = {15, 30}})`. Expect 72/72, as in round 7.

@@ -79,6 +79,10 @@ R.DEFAULTS = {
 	-- window (+ Arcade_AntiRollExtra) ends, the chassis keeps the up axis it had at the touch; yaw stays free
 	Arcade_AntiRoll = true,
 	Arcade_AntiRollExtra = 0.25,    -- s after the hit window
+	-- heavy / head-on hits only (round 8, 60 fps rear @100): their 45-120 degree spin swings the car's corner up to
+	-- 8 studs to the side, and the lanes run a median 6.5 studs from the kerb (route 26), so the slide that follows
+	-- the window crosses the sidewalk; the anti-roll holds through it. 0 = the round 7 behaviour (window + 0.25 s).
+	Arcade_AntiRollHeavyExtra = 1.5, -- s after the hit window
 	Arcade_AntiRollTorque = 1000000, -- AlignOrientation.MaxTorque
 	Arcade_AntiRollResponse = 120,  -- AlignOrientation.Responsiveness
 	Arcade_AntiRollSnapDeg = 3,     -- per step: put the up axis back when it drifted more than this
@@ -552,6 +556,16 @@ function R.nearMissStep(st, relX: number, relZ: number, halfWid: number, halfLen
 		st.near = false -- touched / overlapping: not a near miss
 	end
 	return fire
+end
+
+-- how long the anti-roll of an arcade hit holds the up axis, in s from the touch: the hit window (control / spin) plus
+-- Arcade_AntiRollExtra; for heavy / head-on hits at least Arcade_AntiRollHeavyExtra (their slide after the window)
+function R.antiRollHold(tier: string, window: number, cfg): number
+	local extra = cfg.Arcade_AntiRollExtra
+	if tier == "heavy" or tier == "headon" then
+		extra = math.max(extra, cfg.Arcade_AntiRollHeavyExtra or 0)
+	end
+	return window + extra
 end
 
 -- yaw-rate profile of the scripted spin: omega(t) = w0 * (1 - t / T) for t < T integrates to the kick angle.

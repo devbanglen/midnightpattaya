@@ -1516,12 +1516,13 @@ local function rowText(res): string
 	local label = ("%s @%d%s"):format(res.mode, res.speed, if res.angle then " a" .. res.angle
 		elseif res.offset then " off" .. res.offset else "")
 	local idText = if res.hitKey == nil then "no hit" elseif res.keyMatch then "match" else "NOT the target"
-	return ("hitTest %s [%s%s, Heartbeat %.0f Hz, render %.0f fps]: %s | target %s, hit %s, %s | impact %s, traffic %s, closing %s (planned %s) | tier %s | loss %s%% (%s -> %s) | yaw %s (scripted %s) | minUp %.2f%s | approach-min %s | touch %s, hand-off %s | lag %s%s"):format(
+	return ("hitTest %s [%s%s, Heartbeat %.0f Hz, render %.0f fps]: %s | target %s, hit %s, %s | impact %s, traffic %s, closing %s (planned %s) | tier %s | loss %s%% (%s -> %s) | yaw %s (spin %s, scripted %s) | minUp %.2f%s | approach-min %s | touch %s, hand-off %s | lag %s%s"):format(
 		label, res.model, if res.ghostedOthers then ", isolated" else "", res.hz or 0, res.render or 0,
 		if res.touched then "hit" else "MISSED (" .. tostring(res.reason) .. ")",
 		tostring(res.targetKey), tostring(res.hitKey or "-"), idText,
 		int(res.before), int(res.trafficSpeed), int(res.vc), int(res.planned and res.planned.vc),
-		tostring(res.tier or "-"), int(res.lossPct), int(res.before), int(res.after), int(res.yawDeg), int(res.scriptYaw),
+		tostring(res.tier or "-"), int(res.lossPct), int(res.before), int(res.after), int(res.yawDeg), int(res.spinYaw),
+		int(res.scriptYaw),
 		res.minUp, if res.minUp < 0.995 then (" at +%.2f s"):format(res.minUpAt or 0) else "", int(res.approachMin),
 		since(res.hitT, res.meet), since(res.handOff, res.meet),
 		if res.lag then ("%.1f studs / %.0f ms"):format(res.lag, res.lagMs or 0) else "-",
@@ -1714,6 +1715,8 @@ local function hitBody(mode: string, speed: number, opts, cleanup: {() -> ()})
 	-- extra; the test watches it plus 0.3 s, then brakes the car gently to a stop (round 6's side 150 rows went on at
 	-- ~145 studs/s for the whole 2 s, off the end of the straight into kerbs and scenery: ordinary driving, not the hit)
 	local window = if snap and type(snap.control) == "number" then snap.control else 0
+	-- (the braking time stays tied to Arcade_AntiRollExtra as in round 7: CarController's longer anti-roll after heavy
+	-- / head-on hits, Arcade_AntiRollHeavyExtra, does not change when this test's driver brakes)
 	local respond = window + (cfg.Arcade_AntiRollExtra or 0) + 0.3
 	local w = {minUp = 1, minUpAt = 0, minUpWhere = nil :: string?, minSpeed = immediate, minDist = math.huge,
 		collisionsAt = nil :: number?, blocker = nil :: string?, brakeAt = nil :: number?}
@@ -1727,16 +1730,70 @@ local function hitBody(mode: string, speed: number, opts, cleanup: {() -> ()})
 	end
 	local t1 = os.clock()
 	local yawLook = nil
+	-- diagnostics, never a gate (round 8, 60 fps rear @100: yaw 34 of a scripted 53, then minUp 0.82 over the
+	-- sidewalk): the yaw the scripted spin reached at its end (spinProfile's T + 0.05 s), every part that is not road
+	-- the car's colliders touched while watched, and how far the car went off the target's lane (+ = right of it;
+	-- the near kerb is on the left, traffic keeps left)
+	local diag = {spinT = math.clamp(math.max(window, 0.25) * 0.6, 0.15, 0.6), spinYaw = nil :: number?,
+		contacts = {} :: {string}, seen = {}, laneMax = 0, laneAtMinUp = nil :: number?, speedAtMinUp = nil :: number?}
+	local laneX, laneZ, laneTx, laneTz = nil, nil, nil, nil
+	if snap and type(snap.t) == "number" and target.route and target.k then
+		local hx, hz, hs = Rec.trafficCarAt(target.route, target.k, snap.t)
+		laneX, laneZ = hx, hz
+		laneTx, laneTz = Rec.routeTangent(target.route, hs)
+	end
+	local touchConns = {}
+	if arcade and snap and st.abort == nil then
+		local skip = {workspace:FindFirstChild("PattayaTraffic"), model, player.Character}
+		for _, part in solid do
+			table.insert(touchConns, part.Touched:Connect(function(other: BasePart)
+				if #diag.contacts >= 12 or ROAD_NAMES[other.Name] or string.sub(other.Name, 1, 4) == "Curb" then
+					return
+				end
+				for _, s in skip do
+					if s and other:IsDescendantOf(s) then
+						return
+					end
+				end
+				local name = other:GetFullName()
+				if not diag.seen[name] then
+					diag.seen[name] = true
+					table.insert(diag.contacts, ("%s (%s, top y %.1f) at +%.2f s"):format(name, part.Name,
+						other.Position.Y + other.Size.Y / 2, os.clock() - t1))
+				end
+			end))
+		end
+	end
+	table.insert(cleanup, function()
+		for _, c in touchConns do
+			c:Disconnect()
+		end
+	end)
 	if st.abort == nil then
 		while os.clock() - t1 < (opts.watch or 2) do
 			waitFrame()
 			local el = os.clock() - t1
 			local up = chassis.CFrame.UpVector.Y
+			local lat = nil
+			if laneX then
+				lat = (chassis.Position.X - laneX) * -(laneTz :: number) + (chassis.Position.Z - laneZ) * (laneTx :: number)
+				if math.abs(lat) > math.abs(diag.laneMax) then
+					diag.laneMax = lat
+				end
+			end
+			if diag.spinYaw == nil and el >= diag.spinT + 0.05 then
+				local l = flat(chassis.CFrame.LookVector)
+				if l.Magnitude > 0.1 then
+					l = l.Unit
+					diag.spinYaw = math.deg(math.atan2(st.dir:Cross(l).Y, st.dir:Dot(l)))
+				end
+			end
 			if up < w.minUp then
 				w.minUp, w.minUpAt = up, el
 				local okProbe, info = pcall(TK.probeRoadUnderCar)
 				w.minUpWhere = if okProbe and info then (if info.road then "on road " else "off road ") .. tostring(info.name)
 					else nil
+				diag.laneAtMinUp, diag.speedAtMinUp = lat, flat(chassis.AssemblyLinearVelocity).Magnitude
 			end
 			local v = flat(chassis.AssemblyLinearVelocity).Magnitude
 			if el < 0.4 then w.minSpeed = math.min(w.minSpeed, v) end
@@ -1833,7 +1890,18 @@ local function hitBody(mode: string, speed: number, opts, cleanup: {() -> ()})
 		if w.collisionsAt then ("back on at +%.2f s"):format(w.collisionsAt)
 			elseif w.blocker then "stayed off (inside " .. w.blocker .. ")" else "unchanged",
 		if w.brakeAt then ("braking from +%.2f s"):format(w.brakeAt) else "no braking", w.minUp, w.minUpAt,
-		if w.minUpWhere then " " .. w.minUpWhere else "", window, cfg.Arcade_AntiRollExtra or 0))
+		if w.minUpWhere then " " .. w.minUpWhere else "", window,
+		if snap and Rec.antiRollHold then Rec.antiRollHold(tostring(snap.tier), window, cfg) - window
+			else cfg.Arcade_AntiRollExtra or 0))
+	if snap and arcade then
+		table.insert(log, ("  diag: the spin reached %s at +%.2f s (scripted %s); off the target's lane up to %+.1f studs (+ = right; the near kerb is on the left)%s; touched: %s"):format(
+			if diag.spinYaw then ("%+d deg"):format(math.floor(diag.spinYaw + 0.5)) else "-", diag.spinT + 0.05,
+			int(snap.yaw), diag.laneMax,
+			if diag.laneAtMinUp then (", at the lowest up %+.1f studs at %d studs/s"):format(diag.laneAtMinUp,
+				math.floor((diag.speedAtMinUp or 0) + 0.5)) else "",
+			if #diag.contacts > 0 then table.concat(diag.contacts, "; ") else "nothing but road"))
+	end
+	res.spinYaw, res.contacts, res.laneMax = diag.spinYaw, diag.contacts, diag.laneMax
 	res.log = log
 	res.text = rowText(res)
 	return res
