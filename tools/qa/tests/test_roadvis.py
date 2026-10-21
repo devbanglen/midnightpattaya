@@ -98,6 +98,16 @@ class TestPilotB(unittest.TestCase):
         kinds = {m['kind'] for m in self.P['marks']}
         self.assertTrue({'lane', 'centre', 'edge', 'stop', 'zebra'} <= kinds, kinds)
 
+    def test_no_markings_inside_junction_field(self):
+        """no lane / centre / edge marking inside the junction polygon (complexes + carriageways sharing asphalt at an
+        angle); only stop lines and zebras at its boundary"""
+        self.assertEqual(self.c['marks_in_junction'], 0.0)
+        self.assertGreater(self.c['junction_field_area'], self.P['Z'].area)
+        J = self.P['J'].buffer(-0.5)
+        for m in self.P['marks']:
+            if m['kind'] in ('stop', 'zebra'):
+                self.assertLess(m['poly'].intersection(J.difference(self.P['Z'].buffer(2.0))).area, 0.5, m['kind'])
+
     def test_crossings_on_legs(self):
         xs = self.c['crossings']
         self.assertGreaterEqual(len(xs), 3)

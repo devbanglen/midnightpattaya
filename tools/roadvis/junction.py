@@ -55,7 +55,7 @@ CFG = dict(
     seam_band=40.0, seam_step=2.0,
     mouth_cap=70.0, mouth_pad=2.0, cluster_gap=1.0,
     dash=8.0, dash_gap=12.0, line_w=0.5, centre_gap=1.0, edge_inset=1.2, stop_w=1.6,
-    zebra_bar=2.0, zebra_gap=2.0, zebra_depth=10.0, zebra_inset=1.0, crossing_evidence=60.0, zebra_max_span=110.0,
+    zebra_bar=2.0, zebra_gap=2.0, zebra_depth=10.0, zebra_inset=1.0, crossing_evidence=60.0, zebra_max_span=110.0, conflict_deg=12.0, field_close=12.0, separator_simplify=2.0,
     coll_slack=0.3, coll_simplify=0.25,
     wheels=((-3.4, -5.2), (3.4, -5.2), (-3.4, 5.2), (3.4, 5.2)), wheel_step=2.0, contact_r=0.05,
 )
@@ -315,6 +315,33 @@ def junction_zones(G, chains, rib, area, cfg):
     return zones
 
 
+def junction_field(chains, rib, Z, cfg):
+    """the junction polygon for the marking rule: the intersection complexes Z plus every place where two carriageways
+    share asphalt while running at more than `conflict_deg` to each other (merging slip roads, crossing links, the
+    merged field between Pattaya Klang and the slip roads). No lane / centre / edge markings inside it; stop lines and
+    zebras sit at its boundary."""
+    parts = [Z]
+    ids = [c['id'] for c in chains]
+    tree = STRtree([rib[i][0] for i in ids])
+    for a, i in enumerate(ids):
+        for b in tree.query(rib[i][0]):
+            j = ids[int(b)]
+            if j <= i:
+                continue
+            inter = rib[i][0].intersection(rib[j][0])
+            for q in polys(inter):
+                if q.area < 2.0:
+                    continue
+                c = np.array([q.centroid.x, q.centroid.y])
+                ti = rib[i][2][int(np.argmin(np.linalg.norm(rib[i][1] - c, axis=1)))]
+                tj = rib[j][2][int(np.argmin(np.linalg.norm(rib[j][1] - c, axis=1)))]
+                ang = math.degrees(math.acos(min(1.0, abs(float(ti @ tj)))))
+                if ang > cfg['conflict_deg']:
+                    parts.append(q)
+    J = unary_union(parts)
+    return clean(closing(J, cfg['field_close']))
+
+
 # ---- 3. surfaces ---------------------------------------------------------------------------------------------------
 def closing(g, r):
     return g.buffer(r, quad_segs=8).buffer(-r, quad_segs=8)
@@ -553,7 +580,8 @@ def generate(W, cfg=None, log=print):
     own = {lab: clean(unary_union(v).buffer(0.05, join_style='mitre').buffer(-0.05, join_style='mitre').intersection(rib[lab][0]))
            for lab, v in cells.items()}
     inner_asph = S.buffer(-1.0)
-    noZ = Z.buffer(1.0)
+    J = junction_field(chains, rib, Z, cfg)
+    noZ = J.buffer(1.0)
     seam_cut = area.exterior.buffer(3.0)
     marks = []
 
@@ -608,11 +636,12 @@ def generate(W, cfg=None, log=print):
                 for d in (-cfg['centre_gap'] / 2, cfg['centre_gap'] / 2):
                     for l in lines_of(shared):
                         try:
-                            add('centre', l.offset_curve(d), 0.45)
+                            # the Voronoi split is a zigzag at seed spacing: straightened before it is drawn
+                            add('centre', l.simplify(cfg['separator_simplify']).offset_curve(d), 0.45)
                         except Exception:
                             pass
-            else:
-                add('edge', shared, cfg['line_w'])
+            # same-direction carriageways sharing asphalt (a slip road beside the main road): no separator line; each
+            # keeps its own lane dashes (a jagged split line read as stray fragments)
     # edge lines: only along kerbs (asphalt edges that meet a sidewalk or an island), never along the seam taper
     walk_or_island = unary_union([walk, islands, kept_walk])
     kerbside = walk_or_island.buffer(cfg['edge_inset'] + 1.5)
@@ -626,6 +655,8 @@ def generate(W, cfg=None, log=print):
     paved_ok = unary_union([S, islands]).buffer(0.1)
     for zi, z in enumerate(zones):
         others = unary_union([q['poly'] for qi, q in enumerate(zones) if qi != zi]) if len(zones) > 1 else Polygon()
+        # stop lines and zebras stand at this zone's boundary, never inside the rest of the junction field
+        others = unary_union([others, J.difference(z['poly'].buffer(2.0))])
         for a in z['arms']:
             c = chains[a['chain']]
             poly, Q, T, hw, s = rib[c['id']]
@@ -667,8 +698,11 @@ def generate(W, cfg=None, log=print):
             # stop line: inbound lanes, 2 studs before the crossing (or 2 studs outside the mouth)
             inbound = (a['end'] == 'b') if c['oneway'] else True
             sdist = (dist + cfg['zebra_depth'] / 2 + 2.0) if keep_x else mouth_s + 2.0
-            ks = int(np.searchsorted(sa, sdist))
-            if inbound and ks < len(Qa) - 1 and area.buffer(-cfg['seam_band'] / 2).contains(Point(Qa[ks])):
+            # the stop line moves out along the leg (up to 60 studs) until it is clear of the junction field
+            for step in range(31):
+                ks = int(np.searchsorted(sa, sdist + 2.0 * step))
+                if not (inbound and ks < len(Qa) - 1 and area.buffer(-cfg['seam_band'] / 2).contains(Point(Qa[ks]))):
+                    break
                 ps, ts = Qa[ks], Ta[ks]
                 nrm = np.array([-ts[1], ts[0]])
                 h = float(ha[ks])
@@ -678,8 +712,11 @@ def generate(W, cfg=None, log=print):
                     lft = left_of(-ts)          # drive on the left: inbound lanes are on the driver's left
                     q1, q2 = ps + lft * (cfg['centre_gap'] / 2 + 0.3), ps + lft * (h - 1.2)
                 sp = LineString([tuple(q1), tuple(q2)]).buffer(cfg['stop_w'] / 2, cap_style='flat')
-                if sp.intersection(others).area < 0.5 and not any(sp.intersects(q) for q in quads):
+                if any(sp.intersects(q) for q in quads) or not S.buffer(0.05).contains(sp):
+                    break
+                if sp.intersection(others).area < 0.5:
                     stops.append(dict(kind='stop', poly=sp, line=LineString([tuple(q1), tuple(q2)])))
+                    break
             if keep_x:
                 crossings.append(rec)
                 quads.append(rec['quad'])
@@ -722,7 +759,7 @@ def generate(W, cfg=None, log=print):
                  layers=dict(asphalt=[S], sidewalk=[walk], kerb=[kerb, island_kerb], island=[islands], median=[green]),
                  S=S, walk=walk, kerb=kerb, islands=islands, green=green, marks=marks, crossings=crossings, tris=tris,
                  walk_tris=walk_tris, isl_tris=isl_tris, coll_asphalt=coll_asphalt, replaced=rep, kept=keep,
-                 kept_asphalt=kept_asphalt, lane_corridor=lane_corr, design=cfg['design'], old_slabs=old_slabs, shoulders=shoulders, blds=blds, Z=Z, bld_cut=bld_cut, own=own)
+                 kept_asphalt=kept_asphalt, lane_corridor=lane_corr, design=cfg['design'], old_slabs=old_slabs, shoulders=shoulders, blds=blds, Z=Z, J=J, bld_cut=bld_cut, own=own)
     pilot['checks'] = checks(W, pilot, cfg)
     return pilot
 
@@ -801,7 +838,7 @@ def checks(W, P, cfg):
             bridged.append(l)
     mk = unary_union(bridged).buffer(1.5, cap_style='flat') if bridged else Polygon()
     shapely.prepare(mk)
-    Zc = P['Z'].buffer(cfg['zebra_depth'] + 6)
+    Zc = P['J'].buffer(cfg['zebra_depth'] + 6)
     S2 = S.buffer(-2)
     for g in (inner, Zc, S2):
         shapely.prepare(g)
@@ -841,6 +878,8 @@ def checks(W, P, cfg):
         meaningless_asphalt=round(meaningless, 1), fillet_and_seam_asphalt=round(fillet, 1),
         asphalt=round(S.area, 0), sidewalk=round(P['walk'].area, 0), islands=round(P['islands'].area, 0),
         layer_overlap=round(ov, 2), marking_off_asphalt=round(off_asphalt, 2),
+        marks_in_junction=round(sum(m['poly'].intersection(P['J'].buffer(-0.5)).area for m in P['marks'] if m['kind'] in ('lane', 'centre', 'edge')), 2),
+        junction_field_area=round(P['J'].area, 0),
         lane_boundary_samples=cov_n, lane_boundary_covered=cov_k, lane_boundary_coverage=round(cov_k / cov_n, 3) if cov_n else None,
         crossings=xs, crossings_all_on_legs=all(all(x['lands']) for x in xs) if xs else None,
         zones=[dict(nodes=z['nodes'], arms=len(z['arms']), area=round(z['poly'].area)) for z in P['zones']],
