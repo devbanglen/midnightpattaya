@@ -1,0 +1,100 @@
+{
+ "red_sports_original_v2.fbx": {
+  "tris": 18979,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2067,
+   4.5014,
+   1.2552
+  ],
+  "bytes": 1819116
+ },
+ "red_sports_original_v2_wheel_FL.fbx": {
+  "tris": 2120,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   0.344,
+   0.7696,
+   0.7696
+  ],
+  "bytes": 84076
+ },
+ "red_sports_original_v2_wheel_FR.fbx": {
+  "tris": 2120,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   0.344,
+   0.7696,
+   0.7696
+  ],
+  "bytes": 84316
+ },
+ "red_sports_original_v2_wheel_RL.fbx": {
+  "tris": 2120,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   0.344,
+   0.7696,
+   0.7696
+  ],
+  "bytes": 84076
+ },
+ "red_sports_original_v2_wheel_RR.fbx": {
+  "tris": 2120,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   0.344,
+   0.7696,
+   0.7696
+  ],
+  "bytes": 84316
+ },
+ "red_sports_original_v2_red.fbx": {
+  "tris": 18979,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2067,
+   4.5014,
+   1.2552
+  ],
+  "bytes": 1859132
+ },
+ "red_sports_original_v2_white.fbx": {
+  "tris": 18979,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2067,
+   4.5014,
+   1.2552
+  ],
+  "bytes": 1899676
+ }
+}

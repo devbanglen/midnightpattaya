@@ -1,6 +1,8 @@
 """GLB -> FBX for a built car (body + 4 wheels), one FBX per GLB, textures embedded. Offline only.
 
-  blender -b --factory-startup --python-exit-code 1 -P car_glb_to_fbx.py -- <car_dir> <id> <out_dir>
+  blender -b --factory-startup --python-exit-code 1 -P car_glb_to_fbx.py -- <car_dir> <id> <out_dir> [--extra a.glb,b.glb]
+
+--extra: more body GLBs in <car_dir> to convert the same way (e.g. paint variants that share the wheels).
 
 Each object keeps its own origin (body: bounding-box centre; wheel: the axle centre, axle along X), so the wheel
 pivots survive the conversion. Axes: -Z forward, Y up (the same frame as the GLBs / Roblox), scale 1 = metres.
@@ -18,6 +20,8 @@ CAR_DIR, CID, OUT = argv[0], argv[1], argv[2]
 os.makedirs(OUT, exist_ok=True)
 lay = json.load(open(os.path.join(CAR_DIR, f'{CID}_wheels.json')))
 files = [f'{CID}.glb'] + [lay['wheel_meshes'][k] for k in ('FL', 'FR', 'RL', 'RR')]
+if '--extra' in argv:
+    files += [f for f in argv[argv.index('--extra') + 1].split(',') if f]
 report = {}
 for f in files:
     bpy.ops.wm.read_factory_settings(use_empty=True)
