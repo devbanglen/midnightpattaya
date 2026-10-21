@@ -75,3 +75,11 @@ Arcade on in Play only; Heartbeat 60 Hz (render 15 fps, Studio unfocused). TK.hi
  Passing rows match the table exactly (rear 100 -48%, rear 150 -63%, rear 200 -70%, head-on 150/200 -93/-95%,
  side 70 a25 -20%, side 150 a20 -47% in run 1). No flips (min up >= 0.91).
 => FAIL (not repeatable; side rows lose speed before the hit; other traffic still gets hit). Arcade stays OFF.
+
+ROUND 5 (2026-10-21, team18/arcade-fix-3 + leader fix 'trafficNear keeps the car key'; rollback Rollback_arcadefix3_20261021)
+TK.hitMatrix({runs = 3}), arcade in Play only, 60 Hz:
+ first attempt: every row errored "PattayaTestKit:1374: table index is nil" (TK.trafficNear dropped e.key -> fixed, d? commit below).
+ second attempt: 0/36. r1 rows 1-8: "MISSED (no hit registered (overlapping))" with approach-min = full speed (the
+ target never hit -> the isolation hook ghosted the target too); from r1 row 9 on: "no traffic car with a model
+ nearby" for every row. => FAIL, arcade stays OFF. Suspected: the TK_HitTarget key (Recovery.buildTrafficRoutes
+ route index) does not match PattayaTraffic's own route index, and/or the attribute is not cleared after a row.
