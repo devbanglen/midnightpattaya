@@ -20,6 +20,7 @@ from mathutils import Vector
 
 argv = sys.argv[sys.argv.index('--') + 1:]
 scene_path, out_dir, tag = argv[0], argv[1], argv[2]
+out_dir = os.path.abspath(out_dir)   # Blender resolves a relative render path against the drive root, not the cwd
 samples = int(argv[3]) if len(argv) > 3 else 64
 scale = float(argv[4]) if len(argv) > 4 else 1.0
 engine = (argv[5] if len(argv) > 5 else 'CYCLES').upper()

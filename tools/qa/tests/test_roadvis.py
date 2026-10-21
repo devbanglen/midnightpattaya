@@ -548,9 +548,10 @@ class BuilderSource(unittest.TestCase):
         self.assertIn('Vector3.new(20000, 0, 0)', s)
         for bad in ('RunService', 'CarController', 'PathfindingService'):
             self.assertNotIn(bad, s)
-        # nothing in ShoulderChunks is ever destroyed or re-parented; only pilot / backup are destroyed
+        # nothing in ShoulderChunks is ever destroyed or re-parented; only pilot / backup are destroyed, and in city
+        # mode the batch's own folder (built), its backup (backup) and the emptied containers (root, bk)
         destroys = re.findall(r'(\w+):Destroy\(\)', s)
-        self.assertEqual(sorted(set(destroys)), ['backup', 'pilot'])
+        self.assertEqual(sorted(set(destroys)), ['backup', 'bk', 'built', 'pilot', 'root'])
 
 
 if __name__ == '__main__':
