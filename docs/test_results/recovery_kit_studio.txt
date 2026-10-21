@@ -27,3 +27,9 @@ arcade   rear 100: MISSED | rear 150: heavy 150->55 (-63%) yaw -93 | rear 200: h
 => no flips in arcade (min up 0.88), but the hit tiers and speed losses do not match the owner's table and the
    TestKit hit helper misses the target in about half the runs. Sent back to the team; CollisionModel stays
    "physical".
+
+ADDED: test 10 job + rescue (taxi from walking_street, drive at 40, test jump 30 studs sideways, rescue)
+events: start | (test jump) bump 1 at the landing of the test jump | rescue requested | rescue done | no bump after
+=> the rescue tow itself does not count as a bump (PASS). The one bump came from the TestKit sideways jump used to
+   stage the stuck car, not from the kit. (A first attempt at 90 studs/s counted 2 bumps caused by the test zeroing
+   the car's velocity from 90 to 0 and by the jump; not a kit defect.)
