@@ -1,0 +1,101 @@
+{
+ "size": [
+  2.20854,
+  1.22,
+  4.50145
+ ],
+ "radius": 0.3848,
+ "width": 0.3875,
+ "rim": [
+  62,
+  66,
+  74
+ ],
+ "wheels": {
+  "FL": [
+   -0.8878,
+   -0.3235,
+   -1.2939
+  ],
+  "FR": [
+   0.8782,
+   -0.3229,
+   -1.2939
+  ],
+  "RL": [
+   -0.8879,
+   -0.3276,
+   1.3498
+  ],
+  "RR": [
+   0.8783,
+   -0.3279,
+   1.3498
+  ]
+ },
+ "per_wheel": {
+  "FL": {
+   "r": 0.3848,
+   "w": 0.344,
+   "bbox_yz_vs_axle_m": 0.0
+  },
+  "FR": {
+   "r": 0.3848,
+   "w": 0.344,
+   "bbox_yz_vs_axle_m": 0.0
+  },
+  "RL": {
+   "r": 0.3848,
+   "w": 0.344,
+   "bbox_yz_vs_axle_m": 0.0
+  },
+  "RR": {
+   "r": 0.3848,
+   "w": 0.344,
+   "bbox_yz_vs_axle_m": 0.0
+  }
+ },
+ "wheel_meshes": {
+  "FL": "red_sports_original_v2_wheel_FL.glb",
+  "FR": "red_sports_original_v2_wheel_FR.glb",
+  "RL": "red_sports_original_v2_wheel_RL.glb",
+  "RR": "red_sports_original_v2_wheel_RR.glb"
+ },
+ "front": "-Z",
+ "units": "metres, body space (centre of the body mesh bounding box)",
+ "own_v3": {
+  "design": "own body, modelled from scratch in tools/blender/car_own_v3.py",
+  "wheels": "the v2 turbine wheels (red_sports_original_v2_wheel_*.glb), used as they are",
+  "paints": {
+   "default": {
+    "paint": "midnight blue",
+    "rgb": [
+     34,
+     52,
+     112
+    ],
+    "body": "red_sports_own_v3.glb"
+   },
+   "_red": {
+    "paint": "red",
+    "rgb": [
+     213,
+     9,
+     35
+    ],
+    "body": "red_sports_own_v3_red.glb"
+   },
+   "_white": {
+    "paint": "white",
+    "rgb": [
+     226,
+     228,
+     230
+    ],
+    "body": "red_sports_own_v3_white.glb"
+   }
+  },
+  "emblem": "MP (Midnight Pattaya), own design (v2 decal)",
+  "upload": "BLOCKED until the owner approves (own design v3; nothing uploaded or imported)"
+ }
+}

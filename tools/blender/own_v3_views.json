@@ -1,0 +1,21 @@
+[
+ {"name": "side", "az": -90, "el": 0},
+ {"name": "front34", "az": -140, "el": 16},
+ {"name": "rear34", "az": 40, "el": 16},
+ {"name": "front", "az": 180, "el": 4},
+ {"name": "rear", "az": 0, "el": 4},
+ {"name": "top", "az": 0, "el": 90},
+ {"name": "chase", "chase": true},
+ {"name": "chase_side", "chase": true, "yaw": 30},
+ {"name": "headlight", "target": [-0.58, -0.21, -2.17], "dir": [-0.35, 0.25, -1.0], "dist": 0.9},
+ {"name": "fang", "target": [-0.88, -0.29, -2.12], "dir": [-0.7, 0.15, -1.0], "dist": 0.6},
+ {"name": "nose", "target": [0.0, -0.25, -2.15], "dir": [-0.3, 0.3, -1.0], "dist": 2.2},
+ {"name": "emblem_nose", "target": [0.0, -0.212, -2.22], "dir": [0.0, 0.3, -1.0], "dist": 0.4},
+ {"name": "gills", "target": [-1.06, -0.01, -0.67], "dir": [-1.0, 0.25, -0.35], "dist": 1.2},
+ {"name": "scoop", "target": [-1.05, -0.03, 0.72], "dir": [-1.0, 0.2, 0.2], "dist": 1.4},
+ {"name": "tail", "target": [0.0, 0.0, 2.24], "dir": [0.3, 0.3, 1.0], "dist": 2.6},
+ {"name": "tail_lamp", "target": [-0.75, 0.15, 2.24], "dir": [-0.3, 0.2, 1.0], "dist": 0.9},
+ {"name": "emblem_tail", "target": [0.0, 0.06, 2.24], "dir": [0.0, 0.15, 1.0], "dist": 0.4},
+ {"name": "outlets", "target": [0.0, -0.24, 2.24], "dir": [0.25, -0.05, 1.0], "dist": 1.2},
+ {"name": "arch_front", "target": [-1.0, -0.15, -1.29], "dir": [-1.0, 0.3, -0.3], "dist": 2.0}
+]

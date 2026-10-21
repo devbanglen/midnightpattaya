@@ -1,0 +1,301 @@
+{
+ "id": "red_sports_own_v3",
+ "generator": "MIDNIGHT PATTAYA tools/blender/car_own_v3.py",
+ "upload": "BLOCKED until the owner approves (own design v3; nothing uploaded or imported)",
+ "script_sha256": "f6a50a2557b0f15a67e903060039b4df97a1cbb6662e27c17632861818269450",
+ "blender": "5.1.2",
+ "method": "control cage (RINGS) -> Catmull-Clark x2 with creases -> exact booleans (tubs, side intakes, exhaust pockets) -> closed parts -> own UVs and procedural texture -> own GLB",
+ "cage": {
+  "rings": 17,
+  "points_per_half_section": 12,
+  "subdivision_levels": 2
+ },
+ "raw_bbox_before_centring": {
+  "bbox_min": [
+   -1.10427,
+   -0.61,
+   -2.2507
+  ],
+  "bbox_max": [
+   1.10427,
+   0.61,
+   2.2507
+  ],
+  "centre_shift_m": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "z_scale": 1.000011
+ },
+ "bbox": {
+  "min": [
+   -1.10427,
+   -0.61,
+   -2.25072
+  ],
+  "max": [
+   1.10427,
+   0.61,
+   2.25072
+  ],
+  "size": [
+   2.20854,
+   1.22,
+   4.50145
+  ],
+  "centre": [
+   0.0,
+   0.0,
+   -0.0
+  ]
+ },
+ "tris": {
+  "body_shell": 11924,
+  "parts": 2128,
+  "total": 14052,
+  "welded_slivers_dropped": 0
+ },
+ "vertices": 9809,
+ "parts": [
+  {
+   "name": "headlight_R",
+   "verts": 36,
+   "tris": 68,
+   "volume_m3": 0.000421
+  },
+  {
+   "name": "fang_R",
+   "verts": 20,
+   "tris": 36,
+   "volume_m3": 3.7e-05
+  },
+  {
+   "name": "headlight_L",
+   "verts": 36,
+   "tris": 68,
+   "volume_m3": 0.000421
+  },
+  {
+   "name": "fang_L",
+   "verts": 20,
+   "tris": 36,
+   "volume_m3": 3.7e-05
+  },
+  {
+   "name": "tail_blade",
+   "verts": 84,
+   "tris": 164,
+   "volume_m3": 0.001548
+  },
+  {
+   "name": "outlet_rim_R",
+   "verts": 80,
+   "tris": 160,
+   "volume_m3": 0.000128
+  },
+  {
+   "name": "outlet_rim_L",
+   "verts": 80,
+   "tris": 160,
+   "volume_m3": 0.000128
+  },
+  {
+   "name": "gill0_R",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 0.000146
+  },
+  {
+   "name": "gill1_R",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 0.000124
+  },
+  {
+   "name": "gill2_R",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 9.9e-05
+  },
+  {
+   "name": "gill0_L",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 0.000146
+  },
+  {
+   "name": "gill1_L",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 0.000124
+  },
+  {
+   "name": "gill2_L",
+   "verts": 28,
+   "tris": 52,
+   "volume_m3": 9.9e-05
+  },
+  {
+   "name": "splitter",
+   "verts": 48,
+   "tris": 92,
+   "volume_m3": 0.003714
+  },
+  {
+   "name": "fin_-0.52",
+   "verts": 24,
+   "tris": 44,
+   "volume_m3": 0.000291
+  },
+  {
+   "name": "fin_-0.20",
+   "verts": 24,
+   "tris": 44,
+   "volume_m3": 0.000286
+  },
+  {
+   "name": "fin_+0.20",
+   "verts": 24,
+   "tris": 44,
+   "volume_m3": 0.000286
+  },
+  {
+   "name": "fin_+0.52",
+   "verts": 24,
+   "tris": 44,
+   "volume_m3": 0.000291
+  },
+  {
+   "name": "mirror_R",
+   "verts": 114,
+   "tris": 224,
+   "volume_m3": 0.000991
+  },
+  {
+   "name": "mirror_arm_R",
+   "verts": 8,
+   "tris": 12,
+   "volume_m3": 6.5e-05
+  },
+  {
+   "name": "mirror_L",
+   "verts": 114,
+   "tris": 224,
+   "volume_m3": 0.000991
+  },
+  {
+   "name": "mirror_arm_L",
+   "verts": 8,
+   "tris": 12,
+   "volume_m3": 6.5e-05
+  },
+  {
+   "name": "emblem_nose",
+   "verts": 98,
+   "tris": 192,
+   "volume_m3": 3.8e-05
+  },
+  {
+   "name": "emblem_tail",
+   "verts": 98,
+   "tris": 192,
+   "volume_m3": 4.9e-05
+  }
+ ],
+ "atlas": {
+  "size": 1024,
+  "density_px_per_m": 226.5,
+  "decal_rows": 128,
+  "islands": {
+   "side": [
+    3,
+    3
+   ],
+   "top": [
+    3,
+    233
+   ],
+   "front": [
+    3,
+    489
+   ],
+   "rear": [
+    250,
+    489
+   ]
+  },
+  "mirrored_halves": true,
+  "texels_body": 396436,
+  "glass": 40563,
+  "paint": 291722,
+  "fixed": 64151
+ },
+ "tubs": {
+  "front": {
+   "centre_zy": [
+    -1.2939,
+    -0.3232
+   ],
+   "radius": 0.445,
+   "inner_x": 0.5
+  },
+  "rear": {
+   "centre_zy": [
+    1.3498,
+    -0.3278
+   ],
+   "radius": 0.43,
+   "inner_x": 0.62
+  }
+ },
+ "paints": {
+  "midnight blue": {
+   "file": "red_sports_own_v3.glb",
+   "bytes": 529352,
+   "sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+   "texture_png_bytes": 45398
+  },
+  "red": {
+   "file": "red_sports_own_v3_red.glb",
+   "bytes": 530248,
+   "sha256": "156aea970b42bbfc194f9617c96fa0fdad93fdf44f94bc0c9e50c711000c6dc3",
+   "texture_png_bytes": 46278
+  },
+  "white": {
+   "file": "red_sports_own_v3_white.glb",
+   "bytes": 534452,
+   "sha256": "6612596fe24c2621ed093e422ef2d5e97aacd4a49ece7aa92d4243854dec7081",
+   "texture_png_bytes": 50473
+  }
+ },
+ "outputs": {
+  "default": {
+   "paint": "midnight blue",
+   "rgb": [
+    34,
+    52,
+    112
+   ],
+   "body": "red_sports_own_v3.glb"
+  },
+  "_red": {
+   "paint": "red",
+   "rgb": [
+    213,
+    9,
+    35
+   ],
+   "body": "red_sports_own_v3_red.glb"
+  },
+  "_white": {
+   "paint": "white",
+   "rgb": [
+    226,
+    228,
+    230
+   ],
+   "body": "red_sports_own_v3_white.glb"
+  }
+ }
+}

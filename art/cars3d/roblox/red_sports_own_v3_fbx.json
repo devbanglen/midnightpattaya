@@ -1,0 +1,44 @@
+{
+ "red_sports_own_v3.fbx": {
+  "tris": 14052,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2085,
+   4.5014,
+   1.22
+  ],
+  "bytes": 539692
+ },
+ "red_sports_own_v3_red.fbx": {
+  "tris": 14052,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2085,
+   4.5014,
+   1.22
+  ],
+  "bytes": 540620
+ },
+ "red_sports_own_v3_white.fbx": {
+  "tris": 14052,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2085,
+   4.5014,
+   1.22
+  ],
+  "bytes": 544844
+ }
+}
