@@ -34,6 +34,15 @@ step runs while a traffic-hit window is open (arcade mode only), plus a road-nam
   - ตัดเลนที่วกกลับตามหัวมุม (สาเหตุ route 26)
   - มีตัวจำกัด FPS สำหรับทดสอบที่ 15/30/60 พร้อมขั้นตอนทดสอบ 2 ผู้เล่น
   - ค่าเริ่มต้นยังเป็น physical เสมอ
+- **รอบ 8 (team18/arcade-econ, ข้อ 15–16, ทดสอบแบบออฟไลน์เท่านั้น ยังไม่ได้ทดสอบใน Studio):**
+  - rear @100 ไม่ผ่านที่ 60 fps ไม่ใช่เพราะสคริปต์หมุนรถ (ที่ 60 Hz หมุนได้ 52–56° ตามแผน 54°)
+    แต่มุมรถที่กำลังหมุนไปโดนขอบฟุตบาท (เลนห่างขอบเฉลี่ย 6.5 studs) จึงหมุนได้แค่ราว 35°
+    แล้วไถลขึ้นฟุตบาทหลังหมดช่วงกันเอียง
+  - แก้เฉพาะโหมดอาร์เคด: หลังชนแรง/ชนประสานงา กันเอียงต่ออีก 1.5 วินาทีหลังช่วงชน
+    (`Arcade_AntiRollHeavyExtra`, ตั้งเป็น 0 = แบบรอบ 7) **ต้องให้เจ้าของเกมอนุมัติ** เพราะรอบ 6 กำหนดให้กันเอียงเฉพาะช่วงชน
+  - เกณฑ์ minUp ≥ 0.85 ตลอด 2 วินาทีไม่เปลี่ยน ข้อเสนอเรื่องการแตะขอบฟุตบาทหลังช่วงชนอยู่ในข้อ 15.5
+  - ทดสอบงานแท็กซี่/ส่งของแบบอัตโนมัติ (`TK.jobDriveTestStart`) และทดสอบ 2 ผู้เล่นจากฝั่งเซิร์ฟเวอร์ (`S.mpCheckStart`)
+  - ทดสอบ 2 ผู้เล่น เจ้าของเกมกดเอง: แท็บ Test → Clients and Servers → 2 players → Start
 
 ## 1. What each file does now
 
@@ -759,7 +768,8 @@ PattayaTraffic stamps DrawT, and TestKit's selfCheck fails without it.
 - `TK.nearMissTest()` pays one near miss and causes 0 hits.
 - `TK.nearMissTest({gap = 9})` and `TK.nearMissTest({speed = 65, lead = 20})` pay none.
 
-**C. Taxi / Delivery economy with arcade on.**
+**C. Taxi / Delivery economy with arcade on.** (Automated since team18/arcade-econ: `TK.jobDriveTestStart`,
+section 16.2. The manual steps below still work.)
 
 1. `local w = TK.jobWatch()`.
 2. Start a taxi job. Drive into traffic once hard (a rear-end above about 100 studs/s = heavy) and once lightly. Finish
@@ -769,7 +779,8 @@ PattayaTraffic stamps DrawT, and TestKit's selfCheck fails without it.
 4. Drive by hand during a job. TK.hitTest teleports the car to its start spot, which can trip the job's 260 studs/s
    teleport check.
 
-**D. Two players (Test > Clients and Servers, 2 players).**
+**D. Two players (Test > Clients and Servers, 2 players).** (Automated from the server since team18/arcade-econ:
+`S.mpCheckStart`, section 16.4.)
 
 1. Server: `workspace:SetAttribute("CollisionModel", "arcade")`.
 2. Client 1, near traffic: `TK.hitTest("rear", 150)`. Its `Recovery_HitCount` goes up. On the server,
@@ -787,8 +798,10 @@ PattayaTraffic stamps DrawT, and TestKit's selfCheck fails without it.
 
 ### 14.5 Arcade never becomes the default
 
-`PattayaRecovery.DEFAULTS.CollisionModel = "physical"`, and no script sets the attribute (a test checks every Luau
-file). Attribute changes made in Play are not saved, so the saved place stays `CollisionModel = physical`.
+`PattayaRecovery.DEFAULTS.CollisionModel = "physical"`, and no game script sets the attribute (a test checks every
+Luau file). Attribute changes made in Play are not saved, so the saved place stays `CollisionModel = physical`.
+Since team18/arcade-econ the one exception is the server kit's test-only lease (`S.arcadeLease`, Studio / DevTest
+only, section 16.1): it sets `"arcade"` for a running test and then puts back the value from before.
 
 ### 14.6 Risks and open points
 
@@ -804,3 +817,306 @@ file). Attribute changes made in Play are not saved, so the saved place stays `C
   keeps them stable offline, but a real car's heading noise could still flip one in Studio.
 - `docs/TEST_KIT.md` (not owned by this team) could list the new TestKit functions: `TK.fpsLimit`, `TK.cleanup`,
   `TK.nearMissTest`, `TK.jobWatch`, `TK.jobPayout`, `TK.drawT`, and `TK.hitMatrix({fps = ...})`.
+
+## 15. Studio round 8 (2026-10-22, hitMatrix at 60 fps): rear @100 tips on the sidewalk (team18/arcade-econ)
+
+**Status: offline analysis and offline tests only. Nothing in this section has run in Studio.**
+
+### 15.1 What the leader saw
+
+Round 7 (Studio Play) passed: hitMatrix 72/72 at 15 and 30 fps (repeatable) and near miss 3/3. At 60 fps (Heartbeat
+60 Hz, leader run 2026-10-22), row 2 (rear @100) failed in 2 of 3 runs:
+
+| Run | Target | Row 2 | Yaw (scripted) | Lowest up |
+|---|---|---|---|---|
+| 1 | 26013 | FAIL | 34 (53) | 0.82 at +1.43 s, "off road Sidewalk" |
+| 2 | 26003 | PASS | | |
+| 3 | 26017 | FAIL | 36 (53) | 0.82 at +1.43 s, "off road Sidewalk" |
+
+In both failures the hit itself matched the table: hit key = target, heavy, closing speed 54 (planned 55), loss 48 %
+(table 48 %). The collisions came back at +0.02 s and braking started at +1.22 s. The hit window was 0.67 s, plus
+0.25 s of anti-roll.
+
+### 15.2 Cause (offline analysis)
+
+1. **The scripted spin is not short at 60 Hz.** CarController sets the yaw rate once per Heartbeat
+   (`PattayaRecovery.spinProfile`). Integrated frame by frame, the rear @100 spin (scripted 53.8°) delivers:
+
+   | Rate | Delivered yaw |
+   |---|---|
+   | 60 Hz | 51.6-56.1° |
+   | 30 Hz | 49.4-58.3° |
+   | 15 Hz | 45.0-62.8° |
+
+   The range depends on whether CarController's handler runs before or after PattayaTraffic's in the hit frame. A
+   yaw of 34-36° at 60 Hz therefore needs an outside torque: a contact.
+2. **The kerb is close.** On route 26 (the matrix lane), the lane centre is a median 6.5 studs from the road edge,
+   which is the 0.6-stud sidewalk kerb. On 10 % of the lane it is 3.3 studs or less (road width median 26 studs).
+   The spin swings the car's front corner to the side: 7.2 studs from the lane centre at 35°, 8.1 studs at 53°. At
+   53° the corner is over the kerb line on 73 % of route 26.
+3. **So the corner meets the kerb during the spin.** The contact stops the rotation at about 35°, and the car slides
+   on with one side over the sidewalk. The anti-roll ended at +0.92 s (0.67 + 0.25). At +1.43 s the car tipped to
+   0.82: after the anti-roll, but inside the 2 s watch.
+4. **Why only at 60 fps:** probably not the frame rate. It depends on where the target is on route 26: targets 26013
+   and 26017 failed and 26003 passed in the same session, and at 15 / 30 fps the targets were elsewhere. The new
+   diagnostics (15.4) will show it in the next run.
+
+### 15.3 The fix (arcade only, a live switch)
+
+- `PattayaRecovery.DEFAULTS.Arcade_AntiRollHeavyExtra = 1.5`: seconds after the hit window, for heavy and head-on
+  hits only.
+- New pure function `PattayaRecovery.antiRollHold(tier, window, cfg)`. It returns window + `Arcade_AntiRollExtra`,
+  and for heavy / head-on hits at least window + `Arcade_AntiRollHeavyExtra`.
+- `CarController.applyImpact` now calls `antiRollOn(chassis, up0, now + Recovery.antiRollHold(res.tier, window, cfg),
+  cfg)`. Before, it used `now + window + cfg.Arcade_AntiRollExtra`.
+- For rear @100 the anti-roll now holds to +2.17 s (0.67 + 1.5) instead of +0.92 s, so through the slide over the
+  kerb and to the end of the 2 s watch. Yaw stays free; only roll and pitch are held.
+- Unchanged: light and scrape hits (window + 0.25 s), physical mode, car physics outside arcade, the hit table and
+  the tier numbers.
+- `workspace:SetAttribute("Arcade_AntiRollHeavyExtra", 0)` brings back the round 7 behaviour live.
+- **Owner decision needed.** Round 6 limited the anti-roll to the hit window (+0.25 s). This keeps it 1.5 s longer
+  after heavy and head-on hits, in gameplay too. While it holds, the car keeps the up axis it had at the touch, so it
+  cannot follow a slope for that time (the Pattaya roads are flat).
+
+### 15.4 Diagnostics added to TK.hitTest (never a gate)
+
+- A new per-row log line: `diag: the spin reached +X deg at +T s (scripted Y); off the target's lane up to +L studs
+  (+ = right; the near kerb is on the left), at the lowest up ...; touched: <every part that is not road>`.
+- The `after:` line now names the real anti-roll hold: `+1.50 anti-roll` after heavy hits.
+- The row line shows `yaw A (spin B, scripted C)`. The result also carries `res.spinYaw`, `res.contacts` and
+  `res.laneMax`.
+- The pass criterion is unchanged: minUp ≥ 0.85 over the 2 s, and every case must match. The test driver's braking
+  stays tied to `Arcade_AntiRollExtra`, as in round 7.
+
+### 15.5 Proposal for the owner (not implemented): kerb contact after the hit window
+
+The criterion is kept as it is. A car that slides sideways into a 0.6-stud kerb at about 50 studs/s after the hit
+window is ordinary car physics, which happens without traffic too. Three ways to handle it, each needing the owner's
+yes:
+
+- **(a) Recommended: keep the criterion and the fix in 15.3.** The anti-roll covers the slide after heavy and
+  head-on hits, in gameplay too.
+- **(b) Change what the 2 s check measures.** Measure minUp ≥ 0.85 up to the end of the hit's anti-roll hold, and
+  report any tilt after it as information.
+- **(c) Change where the matrix hits.** Stage the matrix only on lanes at least about 9 studs from the kerb (the
+  corner swing of a 53° spin). This is a test-side choice, not a game change.
+
+### 15.6 Studio check (leader)
+
+1. Install PattayaRecovery, CarController, PattayaTraffic, PattayaTestKit and PattayaTestKitServer from this branch.
+2. Client, with Studio focused: `TK.hitMatrixStart({runs = 3, fps = 60, verbose = true})`. Poll `h:poll()` until
+   done. Expect `hitMatrix @60 fps: 36/36 PASS ... REPEATABLE`. Row 2's `diag:` lines show whether the kerb stopped
+   the spin.
+3. Then `TK.hitMatrixStart({runs = 3, fps = {15, 30}})`. Expect 72/72, as in round 7.
+
+## 16. Taxi / Delivery economy and the 2-player check, automated (team18/arcade-econ)
+
+**Status: written, compiled and run offline in a simulated client-server session (16.3). Not run in Studio.**
+
+### 16.1 What TK.jobDriveTest does
+
+One run, with no human input:
+
+1. **To the stand.** The server kit moves the car to a job stand of the kind, in anchored hops, facing along the
+   road. This happens before the job, so the job's 260 studs/s teleport check is not yet running. The car then stands
+   still in the ring.
+2. **Self-check.** `TK.selfCheck` runs once per fps level: TestKit and PattayaTraffic must agree on the traffic keys.
+3. **Request.** `TK.jobWatch` starts, and `RequestJob` is fired as the E key does. It is fired again after 1.5 s,
+   because the server drops a second request within 0.5 s.
+4. **Drive.** The autopilot drives the route from JobUpdate "start" in CFrame mode, from one PreSimulation
+   connection. It places the car one physics step short, so the car is exactly on the curve at Heartbeat.
+   - Speeds: the route at most 100 studs/s (`opts.cruise`). Staged runs and their lead-ins go up to the frame-rate
+     cap (`JM.capFor`: 76 at 17 Hz or less, 100 up to 24 Hz, 110 up to 34 Hz, 120 above).
+   - Braking is 70 studs/s². The jobs bump detector needs a loss of 55 within 0.35 s.
+   - The position never jumps: lead-ins and rejoins are Hermite curves with continuous position and velocity.
+5. **Isolation.** `TK_HitTarget = 0` makes every traffic car a ghost for this car, except a staged target
+   (`TK_HitTarget = key`). Nothing else can hit the car or pay a near miss. The car ignores scenery for the whole job,
+   including CarController's response after a hit: a kerb or wall strike would otherwise count as a speed-drop bump.
+6. **Events.** They are staged on cars whose lanes run along the route (at most 30 studs off it, 60 in the last 400
+   studs):
+   - crash first: a head-on, or a heavy rear-end at traffic speed + 60 when no oncoming car comes;
+   - a light rear-end (closing speed 20-30);
+   - a scrape (7°);
+   - a near miss, preferably past an oncoming car (5 studs off its right side), otherwise an overtake.
+
+   Each event is checked against the owner's table (`expectedStaged`) before it is staged, and gets up to 3 tries.
+   An event is staged only if the job still finishes 4 s before its time limit.
+7. **Hand-off.** At the touch the car belongs to CarController, so the impact is its real arcade response. After a
+   heavy or head-on hit comes a gentle 60 studs/s² stop, then a curve back onto the route.
+8. **Finish.** The car stops in the destination ring and the server pays.
+
+**Checks per run** (`JM.matchBumps`, `TK.jobPayout`):
+
+- every applied heavy / head-on hit was accepted by the server (`TrafficHits`) and gave exactly one bump (from 0.5 s
+  before to 1.5 s after);
+- a light or scrape hit gave no bump;
+- no two bumps within 1 s;
+- no bump without a hit (the autopilot must never trip the speed-drop detector);
+- each staged hit had its planned tier and the target's key;
+- the near miss was paid once, with no hit;
+- the pay-out = floor(fare × (1 − min(bumps × cut, 0.6))) + floor(max(0, limit − time) × tip per s) + 5 per near
+  miss;
+- `finish.bumps` equals the bump events, and Money rose by the pay-out;
+- `TK.jobWatch`'s own report agrees.
+
+**Run status:**
+
+| Status | Meaning |
+|---|---|
+| PASS | Every check passed and every event was covered. |
+| FAIL | A check failed. |
+| INCOMPLETE | Every check passed, but an event found no traffic car in time. |
+| NO JOB | The stand had no customer. The next stand is tried, up to 3. |
+
+**It never changes saved state:**
+
+- **CollisionModel lease.** CollisionModel is "arcade" only through a server kit lease (`S.arcadeLease`, holder
+  `player:<UserId>`, 120 s + 100 s per run, at most 1800 s). It is given back at the end, on error, on `h:stop()` or
+  `TK.cleanup()`, when the lease runs out and when the player leaves. The value from before comes back ("physical"
+  if it was "arcade").
+- **Jobs and progress.** A failed or stopped run cancels its job (CancelJob). Money, EXP and Level are set back
+  (`keepProgress = false` keeps the pay-outs).
+- **Cleanup.** `TK.cleanup` leaves nothing over: TK_HitTarget, the FPS cap, connections and the car's collisions.
+- **Diagnostic.** `S.speedProbe` records what the jobs speed-drop detector sees and prints it for failing runs.
+
+### 16.2 Studio procedure (leader)
+
+Server context, once per Play session:
+
+```lua
+require(game.ServerStorage.PattayaTestKitServer).start()   -- prints "[TestKit] server kit started"
+```
+
+Client context:
+
+```lua
+local TK = require(game.ReplicatedStorage.PattayaTestKit)
+print(TK.seatIn())                             -- only if the player is not in a car
+local h = TK.jobDriveTestStart({fps = 60})     -- Studio focused; {fps = 30} also works unfocused
+print(h:poll())
+```
+
+Then poll every 20-30 s: `print(require(game.ReplicatedStorage.PattayaTestKit).jobDrivePoll())`. It prints
+`running, N lines: <last line>` until the summary.
+
+**Expected output, in order:**
+
+1. `jobDriveTest: CollisionModel = arcade for this test only (lease player:<id>, 520 s; it was physical)`.
+2. Five `match key ...` lines, then `selfCheck: 5/5 keys match their models at DrawT; PattayaTraffic positions:
+   shared - OK`.
+3. Per run: `PASS jobDrive 60fps r1 taxi police_station -> <stand>: <n> studs, limit <s> s, fare <f>, done in <t> s
+   [Heartbeat 60 Hz, ...] | events: headon ok, nearOncoming ok, light ok, scrape ok | bumps 1 (accepted hits 1,
+   stray 0, doubles 0) | near misses 1 | jobPayout taxi: ... - PASS`.
+4. The summary: `jobDriveTest: 4/4 runs PASS | @60 fps: 4/4 runs PASS (autopilot: route <= 100, staged runs <= 120
+   studs/s) | events ok: crash 4, light 4, scrape 4, near 4 | CollisionModel back to physical (given back by
+   player:<id>) | cleanup: nothing left over; CollisionModel = physical - ALL PASS`. If the place has no
+   CollisionModel attribute, it says `back to nil (= physical)` and `CollisionModel = nil` instead.
+
+**Duration.** A run takes 20-45 s (routes are 900-3,200 studs) plus about 5 s of setup, so the default 2 runs × 2
+kinds take 2-4 minutes per fps level. `{fps = {30, 60}}` runs both levels (5-8 minutes); `{heavy = true}` adds a heavy
+rear-end per run.
+
+**Stands.** By default the test uses `JM.STANDS`, chosen offline for the traffic along their routes: taxi
+police_station, central_festival, terminal21, walking_street; delivery night_plaza, bua_khao, naklua_fresh,
+windy_plaza. If none of them exist in the loaded map, it uses every stand of the kind, nearest first.
+
+**When a run fails,** its line lists the problems. After it come the event lines, the jobWatch report and the server
+speed probe line. To stop the test: `h:stop()`, or from another module copy `_G.TK_LIVE.handles.jobDrive:stop()`.
+
+### 16.3 Offline session (tools/qa/tests/test_jobdrive.py) and what it found
+
+`tools/qa/tests/luau/sim_session.luau` simulates one server and N clients in the luau CLI:
+
+- a clock and scheduler: `task.wait` and `InvokeServer` yield, and an engine wait inside a Heartbeat-resumed runner
+  is an error;
+- Instances, remotes queued per direction, and server attributes replicated at the client's next frame;
+- a car the client moves, which the server sees as of the client's last frame.
+
+It runs the real PattayaJobsServer, PattayaRecoveryServer, PattayaTestKitServer, PattayaTraffic (one per client) and
+PattayaTestKit (one copy per client). The stand-ins are:
+
+- the road graph: a straight two-lane road with stands 2,600-2,700 studs apart;
+- PattayaProgress;
+- CarController's arcade hit path: the same Recovery maths and attributes, the spin applied at once, a car that
+  coasts.
+
+The TestKit FPS cap sets the client's frame time; its busy wait is not simulated.
+
+**Tests (14, about 4 s):**
+
+- JobMath: the pure parts.
+- Taxi + delivery at 60, 30 and 15 fps; 30 fps with 20 % frame jitter and 60 ms latency; 15 fps with 5 % jitter.
+- `opts.heavy`.
+- A stray bump (a 0.5 s dead stop) is caught.
+- A stop in the middle of a job cancels it and gives everything back.
+- mpCheck with two clients.
+- Static scope checks.
+
+**Findings from 30 traffic pictures per level:**
+
+- **60 and 30 fps:** every run passed, also with 20 % frame jitter and 60 ms latency. Each job had 4 events, 1 bump
+  and 1 near-miss tip.
+- **15 fps, time:** the cap (76 studs/s) is below the delivery jobs' nominal 85 studs/s. A 2,600-stud delivery (45 s
+  limit) leaves about 6 s for events, so the crash goes first. One run in 30 was INCOMPLETE (no scrape or near miss).
+- **15 fps, uneven frames:** with ±20 % frame times, about one run in four got one stray bump from the frame rate
+  alone. The server reads speed from positions every 0.1 s, and a 15 fps car moves in steps: readings run 0.57-1.33 ×
+  the true speed, and two low ones in a row need uneven frames. With ±5 % (the TestKit FPS cap paces frames evenly)
+  every run passed.
+- **Recommendation:** run the economy check at 30 or 60 fps. At 15 fps or less, a stray bump says so in its line.
+- **Time estimate:** the planned finish errs 0.5-1.2 s on the slow side.
+
+### 16.4 S.mpCheck: the 2-player check, from the server only
+
+**Owner (3 clicks):** in Studio, Test tab → Clients and Servers → 2 players → Start.
+
+**Leader, in the Server window:**
+
+```lua
+local S = require(game.ServerStorage.PattayaTestKitServer).start()
+S.mpCheckStart()
+print(S.mpCheckPoll())   -- repeat every 20 s until done (about 1 minute; 24 s offline)
+```
+
+Nothing is typed into the client windows. In Studio / DevTest, PattayaTraffic loads the TestKit and starts its agent
+when the server sets workspace `TK_ClientAgent = true`, and stops it when the attribute is cleared.
+
+**What it checks:**
+
+1. Both players are in a car (seated or given a test car). Player 1 is put 12 studs beside a straight traffic lane,
+   player 2 400 studs back along it.
+2. CollisionModel (a lease) reaches both clients as "arcade".
+3. Each player in turn makes an isolated staged rear @100 on its own client while the other watches its own client:
+   - the hitter's car takes the hit (heavy, key = target), gets its anti-roll, and the server accepts the hit;
+   - the watcher's car does not move and never gets the anti-roll;
+   - the watcher's client has no TestKit hook, and its traffic is not isolated;
+   - the car that was hit is not ghosted on the watcher's client (skipped, with a `note:`, when it is not drawn there);
+   - the watcher's Recovery_*, TrafficHits and NearMissAt attributes (client and server) do not change.
+4. Player 1 takes a job while player 2 makes an accepted heavy hit. Player 1's job runs on with 0 bumps, and is then
+   cancelled.
+5. Cleanup: each client's TK.cleanup reports "nothing left over"; CollisionModel is back as it was on both; no
+   TestKit attribute or job is left; the agents stop.
+
+**Expected end:** `mpCheck: 29 PASS, 0 FAIL - ALL PASS` (27-29 PASS when a ghost check is a `note:`). With one
+player it does not run, and says: `mpCheck: NOT RUN - needs 2 players. Owner: Studio > Test tab > Clients and
+Servers > 2 players > Start, then run it on the server again.`
+
+### 16.5 Every change outside PattayaTestKit / PattayaTestKitServer
+
+| File | Change | Can it affect normal gameplay? |
+|---|---|---|
+| `StarterPlayer/StarterPlayerScripts/PattayaTraffic.client.luau` | TestKit hook, 18 lines after `local player = ...`: when workspace `TK_ClientAgent = true`, require ReplicatedStorage.PattayaTestKit (pcall) and call `startAgent` | No. It is guarded by `IS_STUDIO or workspace DevTest`, and acts only when the server kit sets `TK_ClientAgent` |
+| `ReplicatedStorage/PattayaRecovery.luau` | `DEFAULTS.Arcade_AntiRollHeavyExtra = 1.5` and `R.antiRollHold` (round 8, section 15.3) | Arcade mode only (`CollisionModel = "arcade"`, off by default) |
+| `StarterPlayer/StarterPlayerScripts/CarController.client.luau` | `applyImpact`: the anti-roll hold comes from `Recovery.antiRollHold` (comment updated) | Arcade mode only |
+| `tools/qa/tests/test_recovery.py` | Round 8 checks; `test_arcade_never_the_default` allows the server kit's lease (exactly `"arcade"` and the value from before) | No |
+
+### 16.6 Risks and open points
+
+- **Nothing here has run in Studio.** The session test has no suspension, kerbs or scenery, uses a flat synthetic
+  road with dense two-way traffic, and models the network as fixed-latency queues. Real Pattaya traffic is sparser
+  and often one-way, so INCOMPLETE runs are likelier in Studio.
+- **The car ignores scenery for the whole job.** That is test behaviour: the economy check is about traffic hits,
+  not walls.
+- **Round 8 is unverified.** It changes the game's arcade response (15.3) and needs the owner's acceptance. If it is
+  declined, set `Arcade_AntiRollHeavyExtra = 0` (round 7 behaviour) and choose 15.5 (b) or (c).
+- **mpCheck positions.** It parks both players 12 studs to the right of a lane, which can be the oncoming lane on a
+  two-lane road. Oncoming traffic ghosts through a stopped car in its lane (PattayaTraffic's car-ahead rule).

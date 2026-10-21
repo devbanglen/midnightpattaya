@@ -95,10 +95,12 @@ local hitCount = 0
 local lastHitReport = -math.huge
 
 -- Anti-roll, part of the arcade hit response only (never the base car physics): from the touch until the hit window
--- (+ Arcade_AntiRollExtra) ends, the chassis keeps the up axis it had at the touch and only yaws. Two layers:
+-- (+ Arcade_AntiRollExtra; heavy / head-on: + Arcade_AntiRollHeavyExtra, PattayaRecovery.antiRollHold) ends, the
+-- chassis keeps the up axis it had at the touch and only yaws. Two layers:
 -- a client-side AlignOrientation (PrimaryAxisParallel, acts inside every physics substep) that is ENABLED ONLY in
 -- that window, and a per-step projection in `step` (pitch/roll rate removed, the up axis put back if it drifted more
--- than Arcade_AntiRollSnapDeg). Round 6: side hits at 150 tilted the car to up 0.70-0.79.
+-- than Arcade_AntiRollSnapDeg). Round 6: side hits at 150 tilted the car to up 0.70-0.79. Round 8: after a heavy
+-- rear-end at 60 fps the spun car slid over the sidewalk next to its lane and tipped to 0.82 at +1.43 s.
 local antiRoll = {chassis = nil :: BasePart?, att = nil :: Attachment?, align = nil :: AlignOrientation?,
 	up0 = nil :: Vector3?, untilT = 0}
 
@@ -714,7 +716,8 @@ local function applyImpact(info)
 			spinT = spinT, w0 = w0}
 	end
 	if cfg.Arcade_AntiRoll then
-		antiRollOn(chassis, up0, now + window + cfg.Arcade_AntiRollExtra, cfg)
+		-- the window + Arcade_AntiRollExtra; heavy / head-on: + Arcade_AntiRollHeavyExtra (the slide after the window)
+		antiRollOn(chassis, up0, now + Recovery.antiRollHold(res.tier, window, cfg), cfg)
 	end
 	hitCount += 1
 	-- test telemetry (TK.hitTest): the numbers of THIS hit, all set before the count so a reader sees them together.

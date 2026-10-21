@@ -42,6 +42,24 @@ end
 local NearMiss = remotes:WaitForChild("NearMiss", 30)
 local IS_STUDIO = RunService:IsStudio()
 local player = Players.LocalPlayer
+-- TestKit hook (Studio or workspace DevTest only): the server kit's 2-player check sets workspace attribute
+-- TK_ClientAgent = true; this client then loads ReplicatedStorage.PattayaTestKit and starts its agent
+-- (TK.startAgent), which stops again when the attribute is cleared. Nothing loads or runs in normal play.
+if IS_STUDIO or workspace:GetAttribute("DevTest") == true then
+	local function tkAgent()
+		local m = ReplicatedStorage:FindFirstChild("PattayaTestKit")
+		if workspace:GetAttribute("TK_ClientAgent") == true and m and m:IsA("ModuleScript") then
+			task.spawn(function()
+				local ok, kit = pcall(require, m)
+				if ok and type(kit) == "table" and rawget(kit, "enabled") == true and kit.startAgent then
+					pcall(kit.startAgent)
+				end
+			end)
+		end
+	end
+	workspace:GetAttributeChangedSignal("TK_ClientAgent"):Connect(tkAgent)
+	tkAgent()
+end
 -- shared traffic maths + arcade hits; waited for briefly so the shared positions are used whenever it is installed
 local recModule = ReplicatedStorage:WaitForChild("PattayaRecovery", 5)
 local recOk, Recovery = false, nil
