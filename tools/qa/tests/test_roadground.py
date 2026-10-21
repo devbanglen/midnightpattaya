@@ -598,11 +598,13 @@ class BuilderSource(unittest.TestCase):
         for bad in ('RunService', 'CarController', 'PathfindingService', 'FillBlock', 'ReplaceMaterial', 'ShoulderChunks'):
             self.assertNotIn(bad, s)
         destroys = re.findall(r'(\w+):Destroy\(\)', s)
-        self.assertEqual(sorted(set(destroys)), ['edges', 'folder'])        # only its own kerb folder and its backup
+        # only its own kerb folder and its backup; city mode: a registry entry (entry) and the emptied registry (r)
+        self.assertEqual(sorted(set(destroys)), ['edges', 'entry', 'folder', 'r'])
         self.assertIn('PasteRegion', s)
         self.assertIn('CopyRegion', s)
         # nothing outside its own two containers is parented or moved
-        self.assertEqual(sorted(set(re.findall(r'(\w+)\.Parent = ', s))), ['cell', 'folder', 'p', 'region', 'root'])
+        # city mode adds its registry folder (f), a registry entry (entry) and an adopted TerrainRegion copy (copy)
+        self.assertEqual(sorted(set(re.findall(r'(\w+)\.Parent = ', s))), ['cell', 'copy', 'entry', 'f', 'folder', 'p', 'region', 'root'])
 
 
 if __name__ == '__main__':
