@@ -28,3 +28,22 @@ Rollback (any time): RV.Remove() -> the 782 parts go back to their exact parents
   ServerStorage.PattayaDataRoadVis / PattayaRoadVisBuilder if wanted. Last resort: SaveNew-V3.rbxl.
 NOT YET RUN: captures from the owner's camera (Studio focused), Play-mode physics drives (shoulder harness, every open
 direction), GPS route, traffic 2 min, Street Challenge, frame times.
+
+GROUND RAISE (owner permission 2026-10-22: first +0.4, then +0.9 after the drive results below)
+Backup first: ServerStorage.RoadGroundBackup_20261022 (TerrainRegion of cells x 6048..6212, y -3..2, z 156..319;
+restore = Terrain:PasteRegion(it, Vector3int16(CornerCell), true)).
+Height model, measured: the surface is the centre of the top filled cell + 4 x its occupancy (cell -2 full -> -2.00).
+ FillBlock with a block top at +0.4 gave a surface at 2.41 (above the road!) for about a minute; restored from the
+ backup at once and rewritten with WriteVoxels (cell -1 occupancy = (h + 2) / 4).
+Step 1, +0.4 (12-stud ramp): terrain 0.41 at 11,842 samples; road->ground edges 330, steps 0.6 (327) / 0.8 (3).
+ Play (physics drivePath): off the road and back at 35 studs/s OK (min up 0.99); ground->road at 70: the car flipped
+ at the road edge (up 0.19 right at the 0.6 step).
+Step 2, +0.9 (20-stud ramp to -2 around the box): terrain 0.91 inside the box; RV.Probe: total drops 0 (680/680 flat at
+ offset 0, the hairline crack now meets ground at 0.91); road->ground edges 330, largest step 0.24, none >= 0.3.
+ Play, physics drivePath, clean paths that do not cross the median island:
+   ground->road @70: lowest up 1.00 | ground->road @100: 1.00 | road->ground @70: 1.00 | road->ground @100: 1.00
+   off-road loop @35: min up 1.00, back on the road
+ Earlier flips at this step came from a test path across the 40-stud median island: at 35 the car stopped against a
+ NameSignPost / SignalPole on the island (24429, 1016); at 70 it hit them. Crossing the island itself at 70 (kerb 0.45)
+ kept min up 1.00. Street furniture on islands is a separate (physical-crash) issue, not the road surface.
+Rollback of the ground: PasteRegion from the backup (exact); then RV.Remove() for Road B.
