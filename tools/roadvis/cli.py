@@ -59,6 +59,10 @@ def run_pilot(build_root=None, art=False, log=print, cfg=None, designs=('A', 'B'
     with open(os.path.join(out, 'compare.json'), 'w', encoding='utf-8') as f:
         json.dump(cmp_, f, ensure_ascii=False, indent=1, default=str)
     paths = scene.export(W, pilots, out)
+    if 'B' in pilots:                       # Studio data modules for PattayaRoadVisBuilder (design B)
+        from tools.roadvis import export_luau
+        lx = export_luau.export(W, pilots['B'], os.path.join(out, 'roblox'))
+        log(f"luau data: {lx['modules']} modules, {lx['parts']} parts, replace list {lx['replace']}")
     if art:
         from PIL import Image
         ad = os.path.join(REPO, 'art', 'roadvis')
