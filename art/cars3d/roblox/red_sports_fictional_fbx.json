@@ -1,0 +1,72 @@
+{
+ "red_sports_fictional.fbx": {
+  "tris": 17801,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   2.2067,
+   4.5014,
+   1.2552
+  ],
+  "bytes": 2143484
+ },
+ "red_sports_fictional_wheel_FL.fbx": {
+  "tris": 1979,
+  "bbox_centre_blender": [
+   -0.0006,
+   0.0013,
+   -0.0064
+  ],
+  "bbox_size_blender": [
+   0.3888,
+   0.7467,
+   0.7604
+  ],
+  "bytes": 332156
+ },
+ "red_sports_fictional_wheel_FR.fbx": {
+  "tris": 1980,
+  "bbox_centre_blender": [
+   0.0001,
+   0.0008,
+   -0.0052
+  ],
+  "bbox_size_blender": [
+   0.388,
+   0.7471,
+   0.7577
+  ],
+  "bytes": 323772
+ },
+ "red_sports_fictional_wheel_RL.fbx": {
+  "tris": 1980,
+  "bbox_centre_blender": [
+   0.0001,
+   -0.0033,
+   0.0027
+  ],
+  "bbox_size_blender": [
+   0.3898,
+   0.7523,
+   0.7673
+  ],
+  "bytes": 330908
+ },
+ "red_sports_fictional_wheel_RR.fbx": {
+  "tris": 1978,
+  "bbox_centre_blender": [
+   0.0003,
+   -0.0015,
+   0.0022
+  ],
+  "bbox_size_blender": [
+   0.3894,
+   0.7484,
+   0.766
+  ],
+  "bytes": 332332
+ }
+}

@@ -1,0 +1,72 @@
+{
+ "size": [
+  2.0621,
+  1.16,
+  4.4989
+ ],
+ "radius": 0.4234,
+ "width": 0.4302,
+ "rim": [
+  74,
+  74,
+  74
+ ],
+ "wheels": {
+  "FL": [
+   -0.7563,
+   -0.2842,
+   -1.2956
+  ],
+  "FR": [
+   0.7531,
+   -0.2822,
+   -1.2956
+  ],
+  "RL": [
+   -0.7556,
+   -0.251,
+   1.3988
+  ],
+  "RR": [
+   0.753,
+   -0.2525,
+   1.3988
+  ]
+ },
+ "per_wheel": {
+  "FL": {
+   "r": 0.4067,
+   "w": 0.4184,
+   "bbox_yz_vs_axle_m": 0.0298
+  },
+  "FR": {
+   "r": 0.4086,
+   "w": 0.4145,
+   "bbox_yz_vs_axle_m": 0.0293
+  },
+  "RL": {
+   "r": 0.4406,
+   "w": 0.4446,
+   "bbox_yz_vs_axle_m": 0.0056
+  },
+  "RR": {
+   "r": 0.4377,
+   "w": 0.4435,
+   "bbox_yz_vs_axle_m": 0.0337
+  }
+ },
+ "wheel_meshes": {
+  "FL": "red_sports_meshy_wheel_FL.glb",
+  "FR": "red_sports_meshy_wheel_FR.glb",
+  "RL": "red_sports_meshy_wheel_RL.glb",
+  "RR": "red_sports_meshy_wheel_RR.glb"
+ },
+ "front": "-Z",
+ "units": "metres, body space (centre of the body mesh bounding box)",
+ "arch_disc_x": {
+  "FL": -0.4871,
+  "FR": 0.4859,
+  "RL": -0.4732,
+  "RR": 0.4713
+ }
+}
