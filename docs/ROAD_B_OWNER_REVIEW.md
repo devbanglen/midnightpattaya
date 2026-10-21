@@ -5,6 +5,14 @@ Every number below comes from the offline tools (`tools/roadvis`, read only on `
 Roblox types. Every image is an offline preview (local Blender EEVEE render or PIL raster), not a Studio capture, and
 none of it is a Visual PASS.
 
+**Update 2026-10-22, after the Studio build.** Road B is built in the place (Studio: 7 cells, 1,822 parts, 782 parts
+moved). The replace list is **782, not 804**: the exporter now takes the zebra bars from the built furniture modules
+(`build/furniture/roblox`, 133 in the box) instead of the stale `furniture.json` (155). The 7 cell modules are
+unchanged. `RV.Probe` now counts float32 hairline seams between wedges apart (Studio sample 220). The kerb-contact
+expectation is now computed from the collision tops: 3 / 4 / 0, as Studio measured. Details and the ground pilot that
+fills the trenches beside the road: [ROAD_GROUND_PILOT.md](ROAD_GROUND_PILOT.md) section 5. The sections below are
+from before the build and still say 804.
+
 Regenerate: `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\cli.py pilot --art`, then
 `tools\roadvis\shoulder_proof.py --map --md`, the four local renders (spec §10) and `tools\roadvis\cli.py compose`.
 Tests: `tools\qa\tests\run_all.py` (all green: 201, of them 33 in `test_roadvis`).

@@ -7,7 +7,7 @@ Every layer is rebuilt with the existing builder ports, so the numbers describe 
   apron / corner     build/aprons (PattayaApronBuilder): asphalt aprons top 0.98, concrete corner fills top 1.58
   shoulder / taper / gap   build/shoulders (PattayaShoulderBuilder, the approved Sukhumvit pilot), concrete, top 0.985
   markings           buildEdge centre lines / lane dashes (road_fix.mark_pieces / mark_offsets / dash_segments)
-  crossings          build/furniture zebra bars (furniture.crossing_bars)
+  crossings          the zebra rows of the BUILT furniture modules (build/furniture/roblox/chunk_f*, furniture.crossing_bars)
   buildings          chunk `buildings` rows (box rotated by +yaw in x/z, as CFrame.Angles(0, -yaw, 0))
 """
 import json
@@ -120,6 +120,60 @@ def seg_poly(a, b, w):
     return Polygon([a + nn, b + nn, b - nn, a - nn])
 
 
+def built_crossings(broot, keep=None, stats=None):
+    """the zebra crossings PattayaFurnitureBuilder BUILDS: the `crossings` rows {x, z, tx, tz, n, barW, gap, depth} of
+    build/furniture/roblox/chunk_f*.luau (the modules the place is built from), as [dict(row, bars, edge, src, ds,
+    chunk)]. furniture.json is only furniture.py's side-car: on 2026-10-19 the dual-pass-2 modules (4,321 bars) were
+    copied into build/furniture/roblox from another worktree without it, so it still held the first pass (4,906 bars;
+    155 instead of 133 in the Road B box; Studio RV.Plan 2026-10-22 matched 70 of 155). Its edge / src / ds metadata is
+    kept where a row is unchanged (same x, z, tangent and bar count), else edge = None, src = 'modules'."""
+    import furniture as fm
+    sys.path.insert(0, os.path.join(REPO, 'tools', 'circuit'))
+    try:
+        import luau_table
+    finally:
+        sys.path.pop(0)
+    meta = {}
+    fp = os.path.join(broot, 'furniture', 'furniture.json')
+    n_json = 0
+    if os.path.exists(fp):
+        fur = json.load(open(fp, encoding='utf-8'))
+        for c in fur['chunks']:
+            for it in fur['chunks'][c].get('crossings', []):
+                n_json += 1
+                meta[_xkey(it['row'])] = it
+    out = []
+    d = os.path.join(broot, 'furniture', 'roblox')
+    n_mod = matched = 0
+    if os.path.isdir(d):
+        for f in sorted(os.listdir(d)):
+            if not (f.startswith('chunk_f') and f.endswith('.luau')):
+                continue
+            cd = luau_table.load(os.path.join(d, f))
+            r = cd.get('crossings') or []
+            if isinstance(r, dict):
+                r = r.get('_list', [])
+            for i in range(0, len(r) - 7, 8):
+                row = [float(v) for v in r[i:i + 8]]
+                n_mod += 1
+                bars = fm.crossing_bars(row)
+                m = meta.get(_xkey(row))
+                matched += m is not None
+                if keep is None or any(b.intersects(keep) for b in bars):
+                    out.append(dict(row=row, bars=bars, edge=m['edge'] if m else None, src=m['src'] if m else 'modules',
+                                    ds=m['ds'] if m else None, chunk=f[6:-5]))
+    if stats is not None:
+        stats['crossing rows in the built furniture modules'] = n_mod
+        stats['crossing rows in furniture.json'] = n_json
+        stats['built crossing rows also in furniture.json'] = matched
+    return out
+
+
+def _xkey(row):
+    """a crossing row's identity: centre, tangent and bar count (rounded as furniture.py writes them)"""
+    return tuple(round(float(v), 2) for v in row[:5])
+
+
 def load(broot=None, bbox=None, margin=200.0, with_furniture=True):
     """the built world. bbox (x0, z0, x1, z1) in LOCAL studs limits what is kept (edges whose line comes within
     `margin` of it); None = the whole city. Returns dict:
@@ -176,15 +230,7 @@ def load(broot=None, bbox=None, margin=200.0, with_furniture=True):
         if keep is None or s['poly'].intersects(keep):
             W['surf'].append(dict(s, top=0.985))
     if with_furniture:
-        fp = os.path.join(broot, 'furniture', 'furniture.json')
-        if os.path.exists(fp):
-            import furniture as fm
-            fur = json.load(open(fp, encoding='utf-8'))
-            for c in sorted(fur['chunks']):
-                for it in fur['chunks'][c].get('crossings', []):
-                    bars = fm.crossing_bars(it['row'])
-                    if keep is None or any(b.intersects(keep) for b in bars):
-                        W['crossings'].append(dict(row=it['row'], bars=bars, edge=it['edge'], src=it['src'], ds=it['ds']))
+        W['crossings'] = built_crossings(broot, keep, W['stats'])
     for ds, rel in rf.DATASETS:
         d = os.path.join(root, rel)
         for f in sorted(os.listdir(d)):

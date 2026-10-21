@@ -343,6 +343,25 @@ print("ABORT", RV.MoveReplaced())
 print("ABORTSTATE", ServerStorage:FindFirstChild("RoadVisBackup") == nil, ORIG[2][1].Parent == ORIG[2][2])
 print("MESH", RV.Build({mesh = true}))
 for _, w in WARN do print("WARN", w) end
+-- the seam rule (Studio 2026-10-22, sample 220): road everywhere except a 0.001-stud crack through the first footprint
+-- point of probe sample 1 at offset 0 (a seam: its 4 neighbours 0.05 away hit road) and a 0.2-stud hole at the first
+-- point of sample 3 (a real drop)
+local PS, foot = man.probe.samples, man.probe.foot
+local function fp(k)
+	local i = 6 * (k - 1) + 1
+	local cx, cz, tx, tz = PS[i] + 20000, PS[i + 1], PS[i + 2], PS[i + 3]
+	return cx + (-tz) * (-foot[1] / 2) + tx * (-foot[2] / 2), cz + tx * (-foot[1] / 2) + tz * (-foot[2] / 2)
+end
+local cx1, cz1 = fp(1)
+local cx3, cz3 = fp(3)
+function workspace:Raycast(origin)
+	if math.abs(origin.X - cx1) < 0.0005 and math.abs(origin.Z - cz1) < 0.0005 then return nil end
+	if math.abs(origin.X - cx3) < 0.1 and math.abs(origin.Z - cz3) < 0.1 then return nil end
+	return {Position = Vector3.new(origin.X, 1.0, origin.Z)}
+end
+local pr = RV.Probe()
+print("SEAMPROBE", (string.gsub(string.match(pr, "^[^\n]*"), "\t", " ")))
+print("SEAMOFF0", (string.match(pr, "offset 0: [^\n]*")))
 '''
 
 
@@ -467,6 +486,13 @@ class LuauRoadVis(unittest.TestCase):
         self.assertIn(f"{len(self.man['probe']['legs'])} legs", p)
         self.assertIn(f"{len(self.man['probe']['samples']) // 6} samples", p)
 
+    def test_probe_seam_rule(self):
+        """a ray through a hairline crack (neighbours 0.05 away hit road) is a seam, a 0.2-stud hole is a drop"""
+        head = self.line('SEAMPROBE')
+        self.assertIn('total drops 1; hairline seams 1', head)
+        off0 = self.line('SEAMOFF0')
+        self.assertIn('drop 1, blocked 0, hairline seams 1', off0)
+
     def test_mesh_opt_in_falls_back(self):
         self.assertTrue(any('EditableMesh' in l for l in self.lines if l.startswith('WARN')))
         self.assertIn('(Parts)', self.line('MESH'))
@@ -479,6 +505,39 @@ class LuauRoadVis(unittest.TestCase):
         codes = set(self.man['replace']['keys'][0::3])
         self.assertTrue(codes <= set(range(1, 10)))
         self.assertGreater(self.man['replace']['total'], 700)
+
+
+class ZebraKeysFromBuiltFurniture(unittest.TestCase):
+    """Studio 2026-10-22: RV.Plan matched only 70 of the export's 155 ZebraStripe keys; the place has 133 (Chunk_f8_1 /
+    f8_2 / f9_1). furniture.json was stale (first pass), the place is built from the dual-pass-2 chunk modules. The
+    replace list must hold exactly the bars the built modules put in the box, and the B geometry must not depend on it."""
+
+    def test_replace_zebras_equal_the_built_modules(self):
+        d = _qa.need_build('roadvis', 'roblox')
+        man = _qa.luau_table(os.path.join(d, 'manifest.luau'))
+        if 'zebraSource' not in man['replace']:
+            raise unittest.SkipTest('build/roadvis/roblox is an export from before the zebra-source fix: rerun tools/roadvis/cli.py pilot')
+        sys.path.insert(0, os.path.join(_qa.ROOT, 'tools', 'mapgen'))
+        import furniture as fm
+        from shapely.geometry import box
+        from tools.roadvis import export_luau, world
+        fd = _qa.need_build('furniture', 'roblox')
+        bars = []
+        for f in sorted(os.listdir(fd)):
+            if f.startswith('chunk_f') and f.endswith('.luau'):
+                r = _qa.luau_table(os.path.join(fd, f)).get('crossings') or []
+                r = r.get('_list', []) if isinstance(r, dict) else r
+                bars += [b for i in range(0, len(r) - 7, 8) for b in fm.crossing_bars(r[i:i + 8])]
+        bw = man['bbox']
+        sel = export_luau.replace_rule([(9, b) for b in bars], box(*world.world_bbox_local(bw)))
+        want = sorted((round(x + world.ORIGIN[0], 2), round(z, 2)) for _, x, z, _ in sel)
+        K = man['replace']['keys']
+        got = sorted((round(K[i + 1], 2), round(K[i + 2], 2)) for i in range(0, len(K), 3) if K[i] == 9)
+        self.assertEqual(len(got), len(want))
+        for a, b in zip(got, want):
+            self.assertLessEqual(max(abs(a[0] - b[0]), abs(a[1] - b[1])), 0.011, (a, b))
+        self.assertEqual(man['replace']['byName']['ZebraStripe'], len(want))
+        self.assertEqual(man['replace']['total'], sum(man['replace']['byName'].values()))
 
 
 class BuilderSource(unittest.TestCase):

@@ -206,12 +206,13 @@ def probe_samples(P):
 
 
 def probe_expected(W, P, rows):
-    """what Probe should find (offline): per offset, flat / kerb / drop counts of the 6-point footprint, in-lane only"""
-    import shapely
-    from tools.roadvis import shoulders_view
-    flat, high = shoulders_view._state(W, P)
-    shapely.prepare(flat)
-    shapely.prepare(high)
+    """what Probe should find (offline): per offset, flat / kerb / drop / blocked counts of the 6-point footprint,
+    in-lane only, read from the COLLISION tops (ground.State: B asphalt grown 0.45 under the kerbs, sidewalk / island
+    collision pulled back 0.3 from it, kept old parts, the installed shoulder chunks, buildings). The first export used
+    the visual sidewalk outline and expected 15 / 20 kerb contacts at +24 / -24; Studio RV.Probe 2026-10-22 found 4 / 0
+    (and 3 at -20), which is what the collision tops give."""
+    from tools.roadvis import ground
+    st = ground.State(W, P)
     hw_, hl = FOOT[0] / 2, FOOT[1] / 2
     pts_rel = [(-hl, -hw_), (-hl, hw_), (hl, -hw_), (hl, hw_), (0, -hw_), (0, hw_)]
     A = np.asarray(rows, float)
@@ -221,15 +222,12 @@ def probe_expected(W, P, rows):
         Q, T = A[m, 0:2], A[m, 2:4]
         N = np.stack([-T[:, 1], T[:, 0]], axis=1)
         C = Q + N * o
-        on_f = np.ones(len(C), bool)
-        on_h = np.zeros(len(C), bool)
+        worst = np.zeros(len(C), int)                 # 0 flat, 1 kerb, 2 blocked, 3 drop (RV.Probe's order)
         for lo, la in pts_rel:
-            p = C + T * lo + N * la
-            f = shapely.contains_xy(flat, p[:, 0], p[:, 1])
-            h = shapely.contains_xy(high, p[:, 0], p[:, 1])
-            on_f &= f | h
-            on_h |= h
-        out[str(o)] = dict(samples=int(len(C)), drop=int((~on_f).sum()), kerb=int((on_f & on_h).sum()))
+            y = st.at(C + T * lo + N * la)
+            worst = np.maximum(worst, np.where(y > 1.8, 2, np.where(y > 1.1, 1, np.where(y >= 0.9, 0, 3))))
+        out[str(o)] = dict(samples=int(len(C)), drop=int((worst == 3).sum()), kerb=int((worst == 1).sum()),
+                           blocked=int((worst == 2).sum()))
     return out
 
 
@@ -337,7 +335,10 @@ def export(W, P, out_dir):
                modules=sorted(mods), cells=sorted({m['cell'] for m in mods.values()}),
                counts=dict(parts=int(sum(m['parts'] for m in mods.values())), byKind=dict(counts),
                            meshTriangles=len(mesh_items)),
-               replace=dict(total=len(sel), byName=dict(cnt), keys=keys, tolerance=0.3),
+               # zebraSource: the ZebraStripe keys are the bars of the BUILT furniture modules (world.built_crossings), not
+               # furniture.json (stale since 2026-10-19: Studio RV.Plan 2026-10-22 matched only 70 of its 155 keys)
+               replace=dict(total=len(sel), byName=dict(cnt), keys=keys, tolerance=0.3,
+                            zebraSource='build/furniture/roblox chunk_f* crossings (built modules)'),
                probe=dict(offsets=list(PROBE_OFFSETS), foot=list(FOOT), samples=[x for row in rows for x in row],
                           legs=[dict(id=l['id'], name=l['name'], oneway=l['oneway'], lanes=l['lanes']) for l in legs], expected=expected))
     os.makedirs(out_dir, exist_ok=True)
