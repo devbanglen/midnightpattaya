@@ -99,3 +99,24 @@ spot (models are drawn at the 15 fps render rate; tolerance 4 studs). Direct TK.
                (r2 also tier scrape instead of light)
 => FAIL (26/36; owner rule: every case must match). Arcade stays OFF. No car flipped, but side hits at 150 roll the car
    to up 0.70-0.79. No script errors other than the TestKit row error.
+
+ROUND 7 (2026-10-21 ~17:45, team18/arcade-fix-5 installed: hit key/time from the hit event, DrawT, lane cleanup,
+arcade-only anti-roll, second-hit fix, TestKit FPS limiter; rollback ServerStorage.Rollback_arcadefix5_20261021)
+Arcade on in Play only (owner OK for testing); Edit place CollisionModel attribute = nil (default physical) after Stop.
+TK.selfCheck(): 5/5 keys match their models at DrawT (0.00 studs); drawn-vs-now lag 1.0-1.3 studs / 27 ms (diagnostic).
+TK.hitMatrixStart({runs = 3, fps = {15, 30}}), isolated rows:
+  @15 fps level: 36/36 PASS over 3 runs - REPEATABLE (actual Heartbeat 11-15 Hz, render 2-4 fps: at or below 15)
+  @30 fps level: 36/36 PASS over 3 runs - REPEATABLE (actual Heartbeat 24-30 Hz, render 6-8 fps: at or below 30)
+  total 72/72 PASS. Every row: target ID = actual hit ID (0 mismatches), impact / traffic / closing speed, tier, loss,
+  yaw, minUp. Lowest minUp 0.91 (side 150 a5, 15 fps). Examples:
+   rear 70 : target 9006 hit 9006 | impact 69 traffic 39 closing 31 | light -20% | minUp 0.97
+   rear 200: target 26015 hit 26015 | impact 198 traffic 45 closing 153 | heavy -70% | minUp 1.00
+   head 150: target 6004 hit 6004 | impact 149 traffic 43 closing 192 | headon -93% | minUp 1.00
+   side 150 a20: target 31006 hit 31006 | impact 149 traffic 52 closing 51 | heavy -47% | minUp 1.00
+   side 70 a25 : target 7011 hit 7011 | impact 69 traffic 41 closing 29 | light -20% | minUp 0.98
+  @60 fps level: NOT RUN (needs a focused Studio window; render was ~15 fps unfocused).
+TK.nearMissTest (arcade on): @110 gap 5 -> 1 near miss paid, 0 hits PASS; @110 gap 9 -> 0 paid, 0 hits PASS;
+  @150 gap 5 -> 1 paid, 0 hits PASS.
+TK.cleanup(): nothing left over (TK_HitTarget nil, TrafficGhostAll nil); CollisionModel set back to physical on the server.
+NOT RUN yet: Taxi/Delivery economy with arcade hits (needs hand driving during a job: TK.jobWatch), 2-player check
+(Test > Clients and Servers), 60 fps level. Arcade stays OFF (default physical) until those pass and the owner accepts.
