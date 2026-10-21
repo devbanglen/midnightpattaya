@@ -1,0 +1,427 @@
+{
+ "id": "red_sports_original_v2",
+ "from": "red_sports_fictional",
+ "geometry": [
+  {
+   "name": "side_scallop_L",
+   "verts_moved": 216,
+   "ring_verts": 129,
+   "ring_used": 49,
+   "fit_degree": 3,
+   "fit_rms_m": 0.0055,
+   "max_move_m": 0.0969
+  },
+  {
+   "name": "headlight_recess_L",
+   "verts_moved": 312,
+   "ring_verts": 74,
+   "ring_used": 63,
+   "fit_degree": 3,
+   "fit_rms_m": 0.0019,
+   "max_move_m": 0.0527
+  },
+  {
+   "name": "tail_pods_L",
+   "verts_moved": 677,
+   "ring_verts": 32,
+   "ring_used": 22,
+   "fit_degree": 2,
+   "fit_rms_m": 0.0052,
+   "max_move_m": 0.1664
+  },
+  {
+   "name": "exhaust_housing_L",
+   "verts_moved": 563,
+   "ring_verts": 72,
+   "ring_used": 16,
+   "fit_degree": 1,
+   "fit_rms_m": 0.0053,
+   "max_move_m": 0.2939
+  },
+  {
+   "name": "bonnet_vent_L",
+   "verts_moved": 43,
+   "ring_verts": 39,
+   "ring_used": 24,
+   "fit_degree": 2,
+   "fit_rms_m": 0.0024,
+   "max_move_m": 0.0582
+  },
+  {
+   "name": "side_scallop_R",
+   "verts_moved": 304,
+   "ring_verts": 73,
+   "ring_used": 47,
+   "fit_degree": 3,
+   "fit_rms_m": 0.0043,
+   "max_move_m": 0.1468
+  },
+  {
+   "name": "headlight_recess_R",
+   "verts_moved": 136,
+   "ring_verts": 44,
+   "ring_used": 43,
+   "fit_degree": 3,
+   "fit_rms_m": 0.0036,
+   "max_move_m": 0.1033
+  },
+  {
+   "name": "tail_pods_R",
+   "verts_moved": 590,
+   "ring_verts": 35,
+   "ring_used": 35,
+   "fit_degree": 2,
+   "fit_rms_m": 0.0239,
+   "max_move_m": 0.1246
+  },
+  {
+   "name": "exhaust_housing_R",
+   "verts_moved": 534,
+   "ring_verts": 63,
+   "ring_used": 16,
+   "fit_degree": 1,
+   "fit_rms_m": 0.0048,
+   "max_move_m": 0.2959
+  },
+  {
+   "name": "bonnet_vent_R",
+   "verts_moved": 16,
+   "ring_verts": 37,
+   "ring_used": 26,
+   "fit_degree": 2,
+   "fit_rms_m": 0.0035,
+   "max_move_m": 0.0756
+  },
+  {
+   "name": "bonnet_vent_centre",
+   "verts_moved": 196,
+   "ring_verts": 24,
+   "ring_used": 24,
+   "fit_degree": 2,
+   "fit_rms_m": 0.0051,
+   "max_move_m": 0.03
+  },
+  {
+   "name": "fog_lamp",
+   "verts_moved": 87,
+   "ring_verts": 11,
+   "ring_used": 11,
+   "fit_degree": 1,
+   "fit_rms_m": 0.0198,
+   "max_move_m": 0.0264
+  }
+ ],
+ "parts": {
+  "shells": {
+   "headlight_L": {
+    "points": 42,
+    "length_m": 0.252
+   },
+   "drl_L": {
+    "points": 16,
+    "length_m": 0.18
+   },
+   "gill0_L": {
+    "points": 28,
+    "length_m": 0.361
+   },
+   "gill1_L": {
+    "points": 24,
+    "length_m": 0.31
+   },
+   "gill2_L": {
+    "points": 20,
+    "length_m": 0.24
+   },
+   "headlight_R": {
+    "points": 42,
+    "length_m": 0.252
+   },
+   "drl_R": {
+    "points": 16,
+    "length_m": 0.18
+   },
+   "gill0_R": {
+    "points": 28,
+    "length_m": 0.361
+   },
+   "gill1_R": {
+    "points": 24,
+    "length_m": 0.31
+   },
+   "gill2_R": {
+    "points": 20,
+    "length_m": 0.24
+   },
+   "grille_blade": {
+    "points": 62,
+    "length_m": 0.88
+   },
+   "tail_blade": {
+    "points": 144,
+    "length_m": 2.095
+   }
+  },
+  "pieces": [
+   {
+    "name": "headlight_L",
+    "verts": 42,
+    "tris": 52
+   },
+   {
+    "name": "headlight_L_walls",
+    "verts": 120,
+    "tris": 60
+   },
+   {
+    "name": "drl_L",
+    "verts": 16,
+    "tris": 14
+   },
+   {
+    "name": "drl_L_walls",
+    "verts": 64,
+    "tris": 32
+   },
+   {
+    "name": "gill0_L",
+    "verts": 28,
+    "tris": 26
+   },
+   {
+    "name": "gill1_L",
+    "verts": 24,
+    "tris": 22
+   },
+   {
+    "name": "gill2_L",
+    "verts": 20,
+    "tris": 18
+   },
+   {
+    "name": "headlight_R",
+    "verts": 42,
+    "tris": 52
+   },
+   {
+    "name": "headlight_R_walls",
+    "verts": 120,
+    "tris": 60
+   },
+   {
+    "name": "drl_R",
+    "verts": 16,
+    "tris": 14
+   },
+   {
+    "name": "drl_R_walls",
+    "verts": 64,
+    "tris": 32
+   },
+   {
+    "name": "gill0_R",
+    "verts": 28,
+    "tris": 26
+   },
+   {
+    "name": "gill1_R",
+    "verts": 24,
+    "tris": 22
+   },
+   {
+    "name": "gill2_R",
+    "verts": 20,
+    "tris": 18
+   },
+   {
+    "name": "grille_blade",
+    "verts": 62,
+    "tris": 60
+   },
+   {
+    "name": "tail_blade",
+    "verts": 144,
+    "tris": 142
+   },
+   {
+    "name": "outlet_0",
+    "verts": 169,
+    "tris": 168
+   },
+   {
+    "name": "outlet_1",
+    "verts": 169,
+    "tris": 168
+   },
+   {
+    "name": "emblem_nose",
+    "verts": 65,
+    "tris": 96
+   },
+   {
+    "name": "emblem_tail",
+    "verts": 65,
+    "tris": 96
+   }
+  ]
+ },
+ "fills": [
+  {
+   "name": "old_swept_headlights",
+   "texels": 8219,
+   "fill_from": "paint",
+   "source_texels": 11830
+  },
+  {
+   "name": "old_tail_pods_and_bar",
+   "texels": 14768,
+   "fill_from": "paint",
+   "source_texels": 9309
+  },
+  {
+   "name": "old_nose_badge",
+   "texels": 22,
+   "fill_from": "paint",
+   "source_texels": 287
+  },
+  {
+   "name": "old_side_scallop_L",
+   "texels": 7164,
+   "fill_from": "paint",
+   "source_texels": 3839
+  },
+  {
+   "name": "old_side_scallop_R",
+   "texels": 5568,
+   "fill_from": "paint",
+   "source_texels": 3362
+  },
+  {
+   "name": "old_exhausts_fog_lamp",
+   "texels": 17766,
+   "fill_from": "dark",
+   "source_texels": 10727
+  },
+  {
+   "name": "old_bonnet_vents",
+   "texels": 3792,
+   "fill_from": "paint",
+   "source_texels": 4227
+  }
+ ],
+ "paint": {
+  "midnight blue": {
+   "texels": 162581,
+   "reference_rgb": [
+    213,
+    9,
+    35
+   ],
+   "target_rgb": [
+    34,
+    52,
+    112
+   ]
+  },
+  "red": {
+   "texels": 162581,
+   "reference_rgb": [
+    213,
+    9,
+    35
+   ],
+   "target_rgb": [
+    213,
+    9,
+    35
+   ]
+  },
+  "white": {
+   "texels": 162581,
+   "reference_rgb": [
+    213,
+    9,
+    35
+   ],
+   "target_rgb": [
+    226,
+    228,
+    230
+   ]
+  }
+ },
+ "upload": "BLOCKED until the owner confirms the licence (Tripo terms for the body source; see docs)",
+ "inputs": {
+  "red_sports_fictional.glb": "bdc0fb287e53f994daaed1027529599e13ae66bde1f01f8a125e47776958c883",
+  "red_sports.glb": "cfc75701c12a6f6a1d3cee8949f3c9720366f5c4bd870937ad17c7c771943513"
+ },
+ "texture_source": {
+  "file": "car.glb",
+  "sha256": "550802ba55a78c0f826d8fb8232768c5166a31bb849c3c2d4a670c3327e13f4e",
+  "size": [
+   2048,
+   2048
+  ]
+ },
+ "atlas": {
+  "islands": 3992,
+  "packer": "skyline over island bitmaps, 90-degree turns, 2 px gutter",
+  "scale_exterior": 1.275,
+  "scale_underside": 0.574,
+  "scale_interior_cabin": 0.956,
+  "packed_rows": 896,
+  "decal_rows": 128
+ },
+ "bbox_shift_m": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "tris": {
+  "body_old": 17801,
+  "new_parts": 1178,
+  "body_total": 18979
+ },
+ "wheels": {
+  "FL": {
+   "tris": 2120,
+   "bbox_centre": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "radius": 0.3848,
+   "width": 0.344
+  },
+  "FR": {
+   "tris": 2120,
+   "bbox_centre": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "radius": 0.3848,
+   "width": 0.344
+  },
+  "RL": {
+   "tris": 2120,
+   "bbox_centre": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "radius": 0.3848,
+   "width": 0.344
+  },
+  "RR": {
+   "tris": 2120,
+   "bbox_centre": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "radius": 0.3848,
+   "width": 0.344
+  }
+ }
+}

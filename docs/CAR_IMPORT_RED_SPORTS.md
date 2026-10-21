@@ -362,3 +362,202 @@ What I saw:
   median within 2 cm of the layout radius);
 - no yellow cluster on the body, no yellow on the caps, the MP navy field present on all four caps;
 - no brand words in the GLB / FBX / wheels json; upload marked BLOCKED; this section present.
+
+## Original design v2
+
+Branch `team22/car-original` (2026-10-21). Owner decision: the fictional-brand car still reads as a Ferrari 812
+Superfast, and that shape risk is not accepted. So this pass changes the **shape** cues (geometry), not only paint.
+The result is a separate set, `red_sports_original_v2*`. `red_sports` (optimised Tripo) and `red_sports_fictional`
+are untouched; the test checks their sha256 against the hashes the build recorded.
+
+**Upload BLOCKED** (see *Tripo rights evidence*). Nothing was uploaded or imported. Nothing was done in Studio,
+nothing went into the garage, and nothing changed under `roblox/src`. This is not legal advice.
+
+### How it was made
+
+| step | command / file | what |
+|---|---|---|
+| build | `python tools/gpu/car_original_v2.py build art/cars3d/roblox art/cars3d/roblox --source <scratchpad>\glb_in\car.glb` | numpy + Pillow, local. Input: `red_sports_fictional.glb` (geometry, badge-free texture), `red_sports.glb` (to find the texels team21 repainted) and the 57 MB Tripo source (only for its 2048² texture; kept out of the repo, sha256 `550802ba…3e13f4e`). Without `--source` it samples the 1024² build texture instead. Deterministic: a rebuild gives byte-identical GLBs |
+| FBX | `<bpy venv>\python tools/blender/bpy_local.py tools/blender/car_glb_to_fbx.py -- art/cars3d/roblox red_sports_original_v2 art/cars3d/roblox --extra red_sports_original_v2_red.glb,red_sports_original_v2_white.glb` | one FBX per GLB, origins kept (`--extra` is new: more bodies that share the wheels) |
+| renders | `<bpy venv>\python tools/blender/bpy_local.py tools/blender/car_debrand_render.py -- <dir> <id> <out> --views tools/blender/original_v2_views.json --tag after` | Workbench, back faces culled; views in `original_v2_views.json` |
+| sheets | `python tools/gpu/car_original_v2.py grid <out.png> view1,view2 "<dir>\|<id>\|<tag>\|<label>" ...` | before/after sheets |
+
+On 2026-10-21 the GPU box (`vast-rtx6000-1`) could not run Blender: its cgroup `cpu.max` was `1000 100000`
+(1 % of one CPU), and `gslot.sh` had a Blender cap of 0. So every Blender step ran on this PC through the PyPI
+`bpy` module (Blender 5.1.2 as a Python module, Python 3.13, installed in a scratchpad venv, not in the repo).
+`tools/blender/bpy_local.py` runs any `blender -b -P` script that way. When the box is healthy again,
+`run_debrand_render.sh` / `run_car_fbx.sh` work with these ids as before.
+
+### What changed (812 cue -> v2)
+
+| cue (812 / fictional) | v2 | kind |
+|---|---|---|
+| narrow swept-back headlights rising onto the wing | the recess is **filled**: vertices go onto a cubic surface fitted to the nose around it, with a soft 3 cm border. On top sits a **new straight lamp bar**: smoked housing, LED line, two square projectors, teal accent, 4 mm proud with side walls. A **separate vertical LED "fang"** sits at each outer bumper corner | geometry |
+| deep scallop / outlet behind the front wheel running into the door | **filled** (wing surface refit, soft border, arch kept). **Three stepped horizontal gills** with a teal top edge instead | geometry |
+| four round tail lamps in two twin-pod recesses (team21 only painted them) | recesses **filled flat**. **One full-width light blade** (2.2 cm) with turned-down ends | geometry |
+| quad round exhausts in two outboard trapezoid housings + centre fog lamp | housings flattened into dark lower panels; tips and fog lamp collapsed. **Two rectangular outlets** inboard, between the inner diffuser fins (2.5 cm lip, 7 cm deep) | geometry |
+| bonnet vents (two side slashes, centre vent) | filled | geometry |
+| grille | team21's dark slats + a **body-colour blade** across the grille | geometry + texture |
+| five twin-spoke rims, red calipers | **new procedural wheels**: tyre, **10-blade turbine rim**, hub cap with the MP emblem, slotted brake disc, **no caliper** (it would spin with the wheel) | new geometry |
+| red paint | **midnight blue default**; red and white variants | texture |
+| badges | the MP emblem (team21's own design) on a raised capsule, now in its own 224 px decal (was about 10 texels) | geometry + texture |
+
+Vertices moved per region (from `red_sports_original_v2_build.json`): side scallop L 216 / R 304, headlight
+recess L 312 / R 136, tail pods L 677 / R 590, exhaust housings L 563 / R 534, bonnet vents 43 + 16 + 196, fog lamp
+87. Nothing moved between z = -0.15 and z = 1.75 (doors, cabin, rear wheels); a test checks this. The body's
+bounding box is unchanged (vertices are clamped to it), because Roblox centres a MeshPart on its box and the wheel
+layout depends on it. Old topology and triangle order are kept; the new parts are appended.
+
+### Texture quality
+
+- The Tripo atlas used only **30 %** of the 1024² image (3,992 islands). It is **re-packed**: skyline packing of
+  the island bitmaps, 90° turns allowed, 2 px gutters.
+  - Visible islands get **1.275x** the old texel density (1.6x the texels).
+  - Islands in the cabin get 0.96x and the underside 0.57x.
+  - Texels are sampled from the **2048² Tripo source** (the build had scaled it to 1024²). Texels team21 repainted
+    (the badges) come from the fictional texture.
+- The bottom **1024 x 128 px** of the atlas holds the new parts' graphics:
+  - emblem 224 x 112 px;
+  - lamp bar 512 x 48;
+  - tail blade 780 x 24;
+  - gills, DRL, outlet metal, trims.
+- The old cue areas are repainted from the surrounding paint (inverse-distance fill in 3D). Then the paint is
+  recoloured with its shading kept and lightly smoothed.
+- Wheels: their own 512² texture (tyre, rim, blades, disc, a **256 px emblem cap**).
+- `red_sports_original_v2_emblem.png` shows both emblem decals cut out of the shipped textures at 2x.
+- Still one material and one texture per part, so the Roblox cost is unchanged: 1 x 1024² body + 1 x 512² for the
+  four wheels (they share one image).
+
+### Outputs (`art/cars3d/roblox/`)
+
+| file | bytes GLB / FBX | tris |
+|---|---|---|
+| `red_sports_original_v2.glb` / `.fbx` (midnight blue, default) | 1,843,312 / 1,819,116 | 18,979 |
+| `red_sports_original_v2_red.glb` / `.fbx` | 1,883,288 / 1,859,132 | 18,979 |
+| `red_sports_original_v2_white.glb` / `.fbx` | 1,923,808 / 1,899,676 | 18,979 |
+| `red_sports_original_v2_wheel_FL/FR/RL/RR.glb` / `.fbx` (shared by all paints; left wheels mirrored) | 89,644 / about 84,100 each | 2,120 each |
+| `red_sports_original_v2_wheels.json` | layout = `red_sports` (same axle centres, radius 0.3848), rim colour (62, 66, 74), `original_v2.upload` = BLOCKED | |
+| `red_sports_original_v2_build.json`, `_fbx.json`, `_emblem.png` | per-step numbers, input hashes, FBX check, emblem decals | |
+
+Body: 17,801 old + 1,178 new = **18,979 tris** (budget 20,000). Wheels: **2,120 tris** (budget 2,500).
+- Origin = axle centre, axle along X, bounding box centred on the origin (0.0 mm).
+- Radius **0.3848** exactly; tread round (48 segments).
+- Tyre width 0.344 m. The layout's `WheelWidth` 0.3875 only sizes the hidden cylinder.
+- Hub cap outside on both sides: -X for the left wheels, +X for the right.
+
+The FBX boxes match the GLBs.
+
+If it is installed later:
+1. Import ONE body (pick the paint) plus the four wheels. Rename the body MeshPart to `red_sports_original_v2`.
+2. Run the snippet from `python tools/gpu/car_import_wheels.py --luau art/cars3d/roblox/red_sports_original_v2_wheels.json red_sports_original_v2`.
+
+Game code is unchanged (`WheelMesh_*` path, see *Game integration*).
+
+### QA images (`art/cars3d/qa/`, looked at)
+
+- `red_sports_original_v2_overall_before_after.png`: front 3/4, rear 3/4, side, front, rear. Columns:
+  `red_sports_fictional` (812-like) | v2 midnight blue | v2 red.
+- `red_sports_original_v2_closeups_front.png`: headlight L, headlight R, nose, side intake L and R, nose emblem
+  (before | after).
+- `red_sports_original_v2_closeups_rear.png`: tail, tail lamp, diffuser, low rear 3/4, tail emblem.
+- `red_sports_original_v2_closeups_wheel.png`: rim, rim 3/4, hub.
+- `red_sports_original_v2_paints.png`: midnight blue / red / white, front 3/4, rear 3/4, side.
+
+What I saw (faults left):
+
+- Around the right headlight the facets of the 18 k-triangle decimated nose show as shading steps (the source lamp
+  area is not symmetric); the left side is clean.
+- The flattened lower outer rear panels are flat slabs. They look grey in Workbench (studio specular); the texture
+  is dark.
+- A small notch where the tail blade turns down at the outer ends: the corner of the old pod recess wraps round the
+  body corner.
+- Tripo's baked lighting is still in the texture: lighter and darker patches, most visible on white. The repainted
+  areas are smooth but softer than the rest.
+- Interior unchanged (no glass, roll-cage-like frame visible). The recolour also turns red interior parts blue or
+  white.
+- The new parts are thin shells 3-6 mm proud of the body (only the lamp bar and the DRL have side walls).
+  Invisible at game distance.
+- Not seen in Roblox (no import).
+
+### Similarity reassessment (honest; not legal advice)
+
+- **Gone:**
+  - every 812 signature graphic: the swept headlights, the scallop/outlet behind the front wheel, the twin round
+    tail lamps and their recesses, the quad exhausts in trapezoid housings, the fog lamp, the bonnet vents, the
+    five twin-spoke rims and red calipers;
+  - (team21) every badge;
+  - the red default paint.
+- **Remain** (geometry of the whole shell; changing them means a new body):
+  - long bonnet, cabin set far back, fastback roof, short tail with a lip spoiler, wing volumes over the wheels;
+  - the side-window graphic and door/shoulder lines;
+  - the outline of the wide grille with the outer intakes and corner fins;
+  - splitter, diffuser fins, mirrors.
+- **Verdict:**
+  - From the front and the rear, in the default paint, it reads as an unbranded modern GT with its own face and
+    tail. Lamp bar + fangs, gills, full-width blade, inboard outlets and turbine wheels are not 812 traits.
+  - In side profile the proportions are still those of the 812-like source shell. Someone who knows the car could
+    still call it "812-shaped".
+  - **Residual risk: low to medium**, down from medium.
+  - It is not zero, because the shell is an AI-generated near-copy of a real car's body. Removing it completely
+    needs a new body: own modelling, or a different base model.
+  - The red variant brings some of the association back. Recommend midnight blue (or white) as the shipped paint.
+
+### Tripo rights evidence
+
+What the repo and docs record (searched for "Tripo" in every text file of the repo, docs and team memory; nothing
+browsed, no personal data sent anywhere):
+
+- [x] The source file says what made it: `asset.generator = "Tripo"`, node `tripo_node_<uuid>`, material
+  `tripo_material_<uuid>`. It has **no licence, copyright or author field** (no `asset.copyright`, no `extras`).
+- [x] Where it came from: the owner's Downloads folder, `red sports car 3d model.glb` (status notes, 2026-10-21).
+  sha256 `550802ba55a78c0f826d8fb8232768c5166a31bb849c3c2d4a670c3327e13f4e`, 57,493,380 B.
+- [x] This doc already says the owner must confirm the rights before any upload (owner rule 2, *Licensing and
+  badges*).
+- [ ] **No record** of which Tripo account or plan generated it, of the terms in force that day, of a receipt, or
+  of the generation input. The only other mention is a general team note in
+  `.claude/skills/game-assets/references/common/third-party-and-ip.md`: "Paid Meshy/Tripo output is owned by the
+  payer". It comes from another project, it is not a copy of Tripo's terms, and it is not proof for this model.
+
+Proof the owner still needs before the upload block can be lifted (keep copies in a private folder, outside the
+repo):
+
+1. **Plan at generation time:** the Tripo account and plan used to make this model. Screenshot of the subscription
+   page plus the invoice or receipt with its date. A free plan may give different rights from a paid one, so this
+   decides the rest.
+2. **The terms for that plan, on that date:** a saved copy (PDF) of Tripo's terms of service / licence in force
+   then. It must cover:
+   - commercial use of generated models in a published, monetised game;
+   - who owns the output;
+   - whether outputs are public or under an open licence;
+   - whether attribution is required;
+   - any limits on redistribution inside a game platform like Roblox.
+3. **Generation record:** the Tripo history entry (task id, date) for this model, and whether it came from a
+   **text prompt or an input image**.
+4. **If it came from an image:** where that image came from and the right to use it. A photo or render of a real
+   car brings in that car's owner's rights, and would explain why the model looks like an 812.
+5. **Same file:** confirm that the downloaded file is the one used here (sha256 above).
+6. **Roblox:** the uploader warrants the rights under Roblox's terms. The owner also has to accept, separately, the
+   residual **design (shape) similarity** risk above, which a Tripo licence does not cover.
+7. **Written go-ahead** from the owner naming the paint variant. Until 1-7 are recorded, upload and import stay
+   **BLOCKED** (`red_sports_original_v2_wheels.json` -> `original_v2.upload`).
+
+### Tests
+
+`tools/qa/tests/test_car_original_v2.py` (picked up by `run_all.py`):
+
+- files, FBX and QA sheets exist;
+- tris: bodies <= 20,000, wheels <= 2,500 (GLB and FBX);
+- body bounding box = `red_sports_fictional`'s (1 mm); layout = `red_sports`;
+- wheels:
+  - bounding box centred on the axle (1 mm), axle = X, max radius = 0.3848 (1 mm);
+  - round: 10° sector max-radius spread < 3 mm;
+  - hub cap on the outside;
+  - new geometry;
+- shape edits only in their regions: none between z -0.15 and 1.75, old topology kept, tail pods and scallops really
+  moved, `bbox_shift` 0;
+- the new parts are listed in the build json;
+- emblem decal >= 200 px with navy field and silver glyph, mapped by the emblem shells; wheel cap 256 px;
+- the default and white paints have no red paint, the red variant does;
+- no brand words in GLB / FBX / wheels json;
+- upload BLOCKED in the json files; this section and the checklist are present;
+- the inputs still match the hashes the build recorded, and no v2 file is a copy of an original.
