@@ -39,7 +39,8 @@ end
 local NearMiss = remotes:WaitForChild("NearMiss", 30)
 local IS_STUDIO = RunService:IsStudio()
 local player = Players.LocalPlayer
-local recModule = ReplicatedStorage:FindFirstChild("PattayaRecovery")
+-- shared traffic maths + arcade hits; waited for briefly so the shared positions are used whenever it is installed
+local recModule = ReplicatedStorage:WaitForChild("PattayaRecovery", 5)
 local recOk, Recovery = false, nil
 if recModule then
 	recOk, Recovery = pcall(require, recModule)
@@ -58,24 +59,34 @@ local NEAR_KEEP = 200 -- studs: cars this close to my car always get a model (ta
 local FAR_GIVE = 350
 
 -- routes ------------------------------------------------------------------------------------------------------------
+-- With ReplicatedStorage.PattayaRecovery (the normal case) the loops, car keys, positions and headings come from its
+-- shared functions (buildTrafficRoutes / forEachTrafficCar / trafficHeading): the same double-precision numbers
+-- TestKit and the server's TrafficHit check use. The Vector3 build below is only the fallback without the module:
+-- Vector3 is 32-bit, and with the epoch clock its positions drift ~700 studs (median) from the shared ones
+-- (Studio rounds 3-5, docs/RECOVERY_AND_COLLISION.md section 13).
+local SHARED = Recovery ~= nil and type(Recovery.forEachTrafficCar) == "function"
 local routes = {}
-for _, r in routesData do
-	local pts, cum = {}, {0}
-	local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
-	for i = 1, #r.pts, 2 do
-		local p = Vector3.new(r.pts[i] + ORIGIN.X, ROAD_Y, r.pts[i + 1] + ORIGIN.Z)
-		table.insert(pts, p)
-		minX, maxX = math.min(minX, p.X), math.max(maxX, p.X)
-		minZ, maxZ = math.min(minZ, p.Z), math.max(maxZ, p.Z)
+if SHARED then
+	routes = Recovery.buildTrafficRoutes(routesData, Recovery.TRAFFIC_ORIGIN_X, Recovery.TRAFFIC_ORIGIN_Z)
+else
+	for _, r in routesData do
+		local pts, cum = {}, {0}
+		local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
+		for i = 1, #r.pts, 2 do
+			local p = Vector3.new(r.pts[i] + ORIGIN.X, ROAD_Y, r.pts[i + 1] + ORIGIN.Z)
+			table.insert(pts, p)
+			minX, maxX = math.min(minX, p.X), math.max(maxX, p.X)
+			minZ, maxZ = math.min(minZ, p.Z), math.max(maxZ, p.Z)
+		end
+		for i = 2, #pts do
+			cum[i] = cum[i - 1] + (pts[i] - pts[i - 1]).Magnitude
+		end
+		table.insert(routes, {pts = pts, cum = cum, length = cum[#cum], speed = r.speed, phase = r.phase, kinds = r.kinds,
+			minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ})
 	end
-	for i = 2, #pts do
-		cum[i] = cum[i - 1] + (pts[i] - pts[i - 1]).Magnitude
-	end
-	table.insert(routes, {pts = pts, cum = cum, length = cum[#cum], speed = r.speed, phase = r.phase, kinds = r.kinds,
-		minX = minX, maxX = maxX, minZ = minZ, maxZ = maxZ})
 end
 
-local function pointAt(r, s: number): Vector3
+local function pointAt(r, s: number): Vector3 -- fallback (legacy) routes only
 	s %= r.length
 	local cum = r.cum
 	local lo, hi = 1, #cum
@@ -85,6 +96,19 @@ local function pointAt(r, s: number): Vector3
 	end
 	local seg = cum[hi] - cum[lo]
 	return r.pts[lo]:Lerp(r.pts[hi], if seg > 0 then (s - cum[lo]) / seg else 0)
+end
+
+-- heading of a car at arc s (unit x, z)
+local function headingAt(r, s: number): (number, number)
+	if SHARED then
+		return Recovery.trafficHeading(r, s)
+	end
+	local p, ahead = pointAt(r, s), pointAt(r, s + 6)
+	local look = Vector3.new(ahead.X - p.X, 0, ahead.Z - p.Z)
+	if look.Magnitude > 0.01 then
+		return look.Unit.X, look.Unit.Z
+	end
+	return 0, -1
 end
 
 -- models --------------------------------------------------------------------------------------------------------
@@ -103,6 +127,8 @@ local SHAPES = {
 
 local folder = Instance.new("Folder")
 folder.Name = "PattayaTraffic"
+-- which maths placed the cars ("shared" = PattayaRecovery, as TestKit and the server; TK.selfCheck prints it)
+folder:SetAttribute("Positions", if SHARED then "shared" else "legacy")
 folder.Parent = workspace
 
 local function part(model: Model, root: BasePart?, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?,
@@ -276,6 +302,96 @@ end
 -- update --------------------------------------------------------------------------------------------------------------
 local lastNearAt = 0
 local roots, cframes = {}, {}
+-- this frame's state, read by placeCar
+local F = {car = nil :: BasePart?, carVel = Vector3.zero, carSpeed = 0, t = 0, seen = {}, ghostUntil = 0,
+	ghostAround = false, noHits = false, tkKey = nil :: number?}
+
+-- one traffic car of this frame: model (pool), CFrame, and the interaction with my car
+local function placeCar(key: number, x: number, z: number, d2: number, r, k: number, _ri: number, s: number)
+	local car, t, seen = F.car, F.t, F.seen
+	local entry = active[key]
+	if not entry then
+		local m = acquire(r.kinds[k])
+		if not m and car and d2 < NEAR_KEEP * NEAR_KEEP then
+			-- pool full: a car close to mine must exist (a car without a model is invisible and cannot be
+			-- hit), so the farthest one not yet placed this frame gives up its model
+			local farKey, farD = nil, FAR_GIVE * FAR_GIVE
+			for k2, e2 in active do
+				if not seen[k2] and (e2.d2 or 0) > farD and e2.kind == r.kinds[k] then
+					farKey, farD = k2, e2.d2
+				end
+			end
+			if farKey then
+				local e2 = active[farKey]
+				active[farKey] = nil
+				setGhost(e2, false)
+				release(e2, e2.kind)
+				m = acquire(r.kinds[k])
+			end
+		end
+		if not m then
+			return
+		end
+		entry = {model = m, root = m.PrimaryPart, kind = r.kinds[k], ghost = false, ghostUntil = 0,
+			lift = m:GetAttribute("Lift"), halfLen = m:GetAttribute("HalfLen"), halfWid = m:GetAttribute("HalfWid")}
+		entry.root.CanCollide = not arcade
+		m:SetAttribute("TrafficKey", key) -- TestKit (TK.selfCheck / hitTest) finds a car's model by its key
+		active[key] = entry
+	end
+	seen[key] = true
+	entry.d2 = d2
+	local lx, lz = headingAt(r, s)
+	local p = Vector3.new(x, ROAD_Y + entry.lift, z)
+	local cf = CFrame.lookAt(p, p + Vector3.new(lx, 0, lz))
+	table.insert(roots, entry.root)
+	table.insert(cframes, cf)
+	-- interaction with my car, in the traffic car's frame (forward = -Z)
+	if car then
+		local carVel = F.carVel
+		local rel = cf:PointToObjectSpace(car.Position)
+		local lateral = math.abs(rel.X) - entry.halfWid - 3.5 -- 3.5 ~ half my car's width
+		-- my car just ahead in its lane: ghost it rather than shove me
+		-- (only when I'm stopped or slower in its direction; driving at it head-on is a real crash)
+		local along = carVel:Dot(cf.LookVector)
+		if rel.Z < 0 and rel.Z > -(entry.halfLen + 16) and math.abs(rel.X) < entry.halfWid + 4
+			and along > -10 and along < r.speed - 5 then
+			entry.ghostUntil = t + 1.5
+		end
+		if F.tkKey and key ~= F.tkKey then
+			entry.ghostUntil = math.max(entry.ghostUntil, t + 0.25) -- TestKit: only the target is real
+		end
+		-- just rescued: everything close to me stays a ghost until TrafficGhostUntil
+		if F.ghostAround and math.abs(rel.X) < entry.halfWid + 20 and math.abs(rel.Z) < entry.halfLen + 30 then
+			entry.ghostUntil = math.max(entry.ghostUntil, F.ghostUntil)
+		end
+		-- arcade: a touch is a scripted hit (no physics), then the car ghosts so it cannot hit twice
+		if arcade and not F.noHits and t >= entry.ghostUntil
+			and arcadeHit(entry, cf, rel, car, carVel, r.speed, t) then
+			entry.ghostUntil = t + Recovery.get("Arcade_HitGhost")
+			entry.near = false -- touched: not a near miss
+		end
+		entry.lastRel = Vector2.new(rel.X, rel.Z)
+		setGhost(entry, t < entry.ghostUntil)
+		-- near miss: my car goes from one end of it to the other within NEAR_GAP of its side, without a knock
+		local side = if rel.Z < -entry.halfLen then -1 elseif rel.Z > entry.halfLen then 1 else 0
+		if side ~= 0 then
+			if entry.side and entry.side ~= 0 and side ~= entry.side and entry.near and F.carSpeed > NEAR_SPEED
+				and t - lastNearAt > 0.6 then
+				lastNearAt = t
+				if NearMiss then
+					NearMiss:FireServer()
+				end
+			end
+			entry.side = side
+			entry.near = nil
+		elseif lateral > 0 and lateral < NEAR_GAP and not entry.ghost then
+			entry.near = if entry.near == nil then true else entry.near
+		elseif lateral <= 0 then
+			entry.near = false -- touched / overlapping: not a near miss
+		end
+	end
+end
+
 RunService.Heartbeat:Connect(function()
 	local cam = workspace.CurrentCamera
 	local car = myCar()
@@ -290,109 +406,35 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 	local ghostUntil = player:GetAttribute("TrafficGhostUntil")
-	local ghostAround = type(ghostUntil) == "number" and ghostUntil > t
-	local noHits = player:GetAttribute("TrafficGhostAll") == true
+	F.ghostAround = type(ghostUntil) == "number" and ghostUntil > t
+	F.ghostUntil = if F.ghostAround then ghostUntil else 0
+	F.noHits = player:GetAttribute("TrafficGhostAll") == true
 	local tkKey = player:GetAttribute("TK_HitTarget")
 	if type(tkKey) ~= "number" or not (IS_STUDIO or workspace:GetAttribute("DevTest") == true) then
 		tkKey = nil
 	end
-	local seen = {}
+	F.tkKey = tkKey
+	F.car, F.t = car, t
+	F.seen = {}
 	table.clear(roots)
 	table.clear(cframes)
-	local carVel = car and car.AssemblyLinearVelocity
-	local carSpeed = carVel and Vector3.new(carVel.X, 0, carVel.Z).Magnitude or 0
-	for ri, r in routes do
-		if focus.X < r.minX - RADIUS or focus.X > r.maxX + RADIUS or focus.Z < r.minZ - RADIUS or focus.Z > r.maxZ + RADIUS then
-			continue
-		end
-		local n = #r.kinds
-		for k = 1, n do
-			local s = r.phase + (k - 1) * r.length / n + t * r.speed
-			local p = pointAt(r, s)
-			local dx, dz = p.X - focus.X, p.Z - focus.Z
-			if dx * dx + dz * dz > RADIUS * RADIUS then
+	local carVel = if car then car.AssemblyLinearVelocity else Vector3.zero
+	F.carVel = carVel
+	F.carSpeed = Vector3.new(carVel.X, 0, carVel.Z).Magnitude
+	if SHARED then
+		Recovery.forEachTrafficCar(routes, t, focus.X, focus.Z, RADIUS, placeCar)
+	else
+		for ri, r in routes do
+			if focus.X < r.minX - RADIUS or focus.X > r.maxX + RADIUS or focus.Z < r.minZ - RADIUS or focus.Z > r.maxZ + RADIUS then
 				continue
 			end
-			local key = ri * 1000 + k
-			local entry = active[key]
-			if not entry then
-				local m = acquire(r.kinds[k])
-				if not m and car and dx * dx + dz * dz < NEAR_KEEP * NEAR_KEEP then
-					-- pool full: a car close to mine must exist (a car without a model is invisible and cannot be
-					-- hit), so the farthest one not yet placed this frame gives up its model
-					local farKey, farD = nil, FAR_GIVE * FAR_GIVE
-					for k2, e2 in active do
-						if not seen[k2] and (e2.d2 or 0) > farD and e2.kind == r.kinds[k] then
-							farKey, farD = k2, e2.d2
-						end
-					end
-					if farKey then
-						local e2 = active[farKey]
-						active[farKey] = nil
-						setGhost(e2, false)
-						release(e2, e2.kind)
-						m = acquire(r.kinds[k])
-					end
-				end
-				if not m then
-					continue
-				end
-				entry = {model = m, root = m.PrimaryPart, kind = r.kinds[k], ghost = false, ghostUntil = 0,
-					lift = m:GetAttribute("Lift"), halfLen = m:GetAttribute("HalfLen"), halfWid = m:GetAttribute("HalfWid")}
-				entry.root.CanCollide = not arcade
-				active[key] = entry
-			end
-			seen[key] = true
-			entry.d2 = dx * dx + dz * dz
-			local ahead = pointAt(r, s + 6)
-			local look = Vector3.new(ahead.X - p.X, 0, ahead.Z - p.Z)
-			local cf = if look.Magnitude > 0.01
-				then CFrame.lookAt(p + Vector3.new(0, entry.lift, 0), p + Vector3.new(look.X, entry.lift, look.Z))
-				else CFrame.new(p + Vector3.new(0, entry.lift, 0))
-			table.insert(roots, entry.root)
-			table.insert(cframes, cf)
-			-- interaction with my car, in the traffic car's frame (forward = -Z)
-			if car then
-				local rel = cf:PointToObjectSpace(car.Position)
-				local lateral = math.abs(rel.X) - entry.halfWid - 3.5 -- 3.5 ~ half my car's width
-				-- my car just ahead in its lane: ghost it rather than shove me
-				-- (only when I'm stopped or slower in its direction; driving at it head-on is a real crash)
-				local along = (carVel :: Vector3):Dot(cf.LookVector)
-				if rel.Z < 0 and rel.Z > -(entry.halfLen + 16) and math.abs(rel.X) < entry.halfWid + 4
-					and along > -10 and along < r.speed - 5 then
-					entry.ghostUntil = t + 1.5
-				end
-				if tkKey and key ~= tkKey then
-					entry.ghostUntil = math.max(entry.ghostUntil, t + 0.25) -- TestKit: only the target is real
-				end
-				-- just rescued: everything close to me stays a ghost until TrafficGhostUntil
-				if ghostAround and math.abs(rel.X) < entry.halfWid + 20 and math.abs(rel.Z) < entry.halfLen + 30 then
-					entry.ghostUntil = math.max(entry.ghostUntil, ghostUntil)
-				end
-				-- arcade: a touch is a scripted hit (no physics), then the car ghosts so it cannot hit twice
-				if arcade and not noHits and t >= entry.ghostUntil
-					and arcadeHit(entry, cf, rel, car, carVel :: Vector3, r.speed, t) then
-					entry.ghostUntil = t + Recovery.get("Arcade_HitGhost")
-					entry.near = false -- touched: not a near miss
-				end
-				entry.lastRel = Vector2.new(rel.X, rel.Z)
-				setGhost(entry, t < entry.ghostUntil)
-				-- near miss: my car goes from one end of it to the other within NEAR_GAP of its side, without a knock
-				local side = if rel.Z < -entry.halfLen then -1 elseif rel.Z > entry.halfLen then 1 else 0
-				if side ~= 0 then
-					if entry.side and entry.side ~= 0 and side ~= entry.side and entry.near and carSpeed > NEAR_SPEED
-						and t - lastNearAt > 0.6 then
-						lastNearAt = t
-						if NearMiss then
-							NearMiss:FireServer()
-						end
-					end
-					entry.side = side
-					entry.near = nil
-				elseif lateral > 0 and lateral < NEAR_GAP and not entry.ghost then
-					entry.near = if entry.near == nil then true else entry.near
-				elseif lateral <= 0 then
-					entry.near = false -- touched / overlapping: not a near miss
+			local n = #r.kinds
+			for k = 1, n do
+				local s = r.phase + (k - 1) * r.length / n + t * r.speed
+				local p = pointAt(r, s)
+				local dx, dz = p.X - focus.X, p.Z - focus.Z
+				if dx * dx + dz * dz <= RADIUS * RADIUS then
+					placeCar(ri * 1000 + k, p.X, p.Z, dx * dx + dz * dz, r, k, ri, s)
 				end
 			end
 		end
@@ -401,7 +443,7 @@ RunService.Heartbeat:Connect(function()
 		workspace:BulkMoveTo(roots, cframes, Enum.BulkMoveMode.FireCFrameChanged)
 	end
 	for key, entry in active do
-		if not seen[key] then
+		if not F.seen[key] then
 			active[key] = nil
 			setGhost(entry, false)
 			release(entry, entry.kind)

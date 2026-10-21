@@ -454,3 +454,74 @@ Investigated offline only; **not re-run in Studio.** Every row that met its targ
   "another car"). Isolation removes the case.
 - `TK.hitMatrix({runs = 3})` prints each row, a line per run and an overall line that ends with "REPEATABLE" only
   when all 36 rows passed.
+
+## 13. Studio round 5 (2026-10-21, hitMatrix 0/36): root cause of rounds 3-5, and the fix (team18/arcade-fix-4)
+
+Investigated offline only; **not re-run in Studio.**
+
+**Root cause: the same traffic car key was in two different places.** PattayaTraffic built the traffic loops with
+`Vector3` maths. Roblox `Vector3` components are 32-bit floats (20816.7 is stored as 20816.69921875), so each loop
+length differed from the double-precision length that TestKit and the server's TrafficHit check computed, by up
+to about 0.01 studs. A car's arc is `phase + t * speed` with `t` the epoch clock (about 1.8e9 s), so it wraps around
+its loop about 9 million times, and a 0.01-stud length difference moves the car hundreds of studs. Replayed offline
+on the real `pattaya_wide` traffic data (1,155 cars) with the native float32 vector type:
+
+- at 2026-10-21, the same key is a **median 711 studs** away (max 3,009);
+- **not one car** is within 4 studs of where TestKit computed it.
+
+Consequences:
+
+- **Rounds 3-4:** every "target" was a different real car that happened to sit near the computed spot on the same
+  lane. Rows that met it at a similar speed matched the table; rows where it drove differently were "another car",
+  early, or late.
+- **Round 4 run 2:** the lane check could not work either. TK.trafficNear dropped the key, so every
+  `o.key ~= e.key` compared nil with nil, the "other cars" list was always empty, and the isolation attribute was
+  set to nil, so nothing was isolated. Fixed by the leader in bc5bda9 (round 5 "table index is nil").
+- **Round 5, rows 1-8:** with the key fixed, isolation ghosted every car except the computed key. The real car at
+  the computed spot had another key, so it was ghosted and nothing could be hit ("no hit registered", approach at
+  full speed).
+- **Round 5, rows 9+ ("no traffic car with a model nearby"):** target picking needed a model within 4 studs of a
+  computed spot, which only worked by coincidence on busy lanes. As the rows moved the car around, that stopped
+  happening.
+- **The server's TrafficHit check** compared against the same wrong positions, so a real arcade heavy hit at a job
+  could be rejected as "no traffic near".
+
+**Fix: one implementation, used by all three.**
+
+- `PattayaRecovery` now provides one set of functions:
+  - `TRAFFIC_ORIGIN_X / Z` and `TRAFFIC_ROAD_Y`;
+  - `buildTrafficRoutes`;
+  - `trafficKey(ri, k)`;
+  - `trafficCarAt` and `trafficHeading`;
+  - `forEachTrafficCar`, the draw loop;
+  - `trafficNear`, built on `forEachTrafficCar`;
+  - `tkTrafficEntry`, which keeps the key.
+- **PattayaTraffic** draws its cars through `forEachTrafficCar` (double precision). The Vector3 build remains only
+  as the fallback when `PattayaRecovery` is not installed (folder attribute `Positions` = "shared" or "legacy").
+  Each model carries its key as the `TrafficKey` attribute.
+- **TestKit** and **PattayaRecoveryServer** use the same functions and the same origin. Keys, positions and
+  headings now agree by construction.
+- **TestKit:**
+  - `TK.selfCheck(n)` compares, for the 5 nearest cars, the computed key and spot with the model PattayaTraffic
+    shows. It reports a missing `TrafficKey` (old PattayaTraffic installed) and a leftover `TK_HitTarget`.
+  - `TK.hitMatrix` runs `selfCheck` first and refuses to run if it fails.
+  - Targets are found by key and must be on their computed spot and not ghosted. This is checked again on every
+    frame of the 0.3 s hold; a failed check aborts the row and it is retried with another target.
+  - `TK_HitTarget` is cleared on every path: a finally-style cleanup in hitTest, plus `hitMatrix` and `TK.stopAll`.
+  - Targets are searched around where the matrix started, and the car is stopped after each row.
+  - `TK.hitMatrixStart(opts)` runs the matrix in the background (`:poll()`), so a 3-run matrix does not depend on
+    one long execute call.
+- **Tests (`TrafficKeys`):**
+  - The old float32 drift is reproduced on synthetic and real data.
+  - The PattayaTraffic draw loop and the TestKit list give identical key, x, z and heading for every car (874
+    compared on the real data).
+  - A separate copy of the module gives the same numbers.
+  - PattayaTestKit itself is loaded in a mocked Roblox client:
+    - `TK.trafficNear` keeps key, route, s and t;
+    - `TK.selfCheck` passes on the shared drawing and fails on the old one, on untagged models and on a leftover
+      hook;
+    - an erroring hitTest leaves no `TK_HitTarget`.
+
+Re-test (leader): install PattayaRecovery, PattayaTraffic, PattayaTestKit and PattayaRecoveryServer. In Play, run
+`TK.selfCheck()` first: expect 5/5 "match" and "positions: shared". Then run `TK.hitMatrix({runs = 3})`, or
+`local h = TK.hitMatrixStart({runs = 3})` and `print(h:poll())`.
