@@ -153,6 +153,39 @@ class TestPilotB(unittest.TestCase):
         self.assertLess(pc['after']['collision_wedges'], old_asphalt)
 
 
+class TestShoulderProof(unittest.TestCase):
+    """tools/roadvis/shoulder_proof.py: the shoulder pilot still carries the wheels with design B in place"""
+
+    @classmethod
+    def setUpClass(cls):
+        from shapely.geometry import box
+        from tools.roadvis import shoulder_proof
+        W, Ps = state()
+        cls.res = shoulder_proof.run(W, Ps['B'], box(4220, 650, 4820, 1250))
+
+    def test_no_shoulder_part_replaced(self):
+        self.assertEqual(self.res['untouched']['replaced_shoulder_pieces'], 0)
+
+    def test_edges_flush_no_overlap_no_new_drop(self):
+        a, b = self.res['edges_after'], self.res['edges_before']
+        self.assertEqual(a['B_sidewalk_island_collision_on_shoulders'], 0.0)
+        self.assertEqual(a['B_visual_sidewalk_on_shoulders'], 0.0)
+        self.assertLessEqual(a['max_flush_step'], 0.02)
+        self.assertLessEqual(a['max_kerb_step'], 0.62)
+        self.assertLessEqual(a['drop'], b['drop'])
+        self.assertLessEqual(a['slot'], b['slot'] + 15.0)     # +11 studs measured (simplified kerb collision)
+
+    def test_drive_gate_not_worse(self):
+        before = {(r['dir'], r['lateral'], r['speed']): r for r in self.res['gate_before']['runs']}
+        for r in self.res['gate_after']['runs']:
+            k = (r['dir'], r['lateral'], r['speed'])
+            self.assertLessEqual(r['wheel_drops'], before[k]['wheel_drops'], k)
+            # a kerb contact tilts the car a little (up 0.998): allowed; never lower than before where that was < 0.95
+            self.assertGreaterEqual(r['min_up'] + 1e-6, min(before[k]['min_up'] - 0.001, 0.95), k)
+        self.assertGreaterEqual(self.res['gate_after']['min_up'], self.res['gate_before']['min_up'] - 0.001)
+        self.assertEqual(self.res['gate_after']['n'], 36)
+
+
 class TestPilotA(unittest.TestCase):
     def test_design_a_generated(self):
         W, Ps = state()
@@ -295,6 +328,7 @@ class LuauRoadVis(unittest.TestCase):
         cells = [l.split() for l in self.lines if l.startswith('CELL')]
         self.assertEqual(len(cells), len(self.man['cells']))
         self.assertTrue(all(c[3] == 'Atomic' for c in cells))
+        self.assertTrue(all(int(c[2]) <= 600 for c in cells), [c[1:3] for c in cells])   # every Atomic cell <= 600 parts
         self.assertIn('already exists', self.line('BUILD2'))
         self.assertFalse([l for l in self.lines if l.startswith('BADCOLLIDE')])
         kinds = {l.split()[1]: int(l.split()[2]) for l in self.lines if l.startswith('KIND')}

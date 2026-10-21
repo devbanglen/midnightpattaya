@@ -15,7 +15,7 @@ geometry), never Roblox visual acceptance and never a Visual PASS. Root cause an
 | `tools/roadvis/cli.py` | `analyze [--city]`, `pilot [--art]` |
 | `tools/roadvis/export_luau.py` | Design B pilot -> Studio data modules `build/roadvis/roblox/` (manifest + cells, <= 600 parts each, the exact replace list, probe samples + expectation) |
 | `roblox/src/ServerStorage/PattayaRoadVisBuilder.luau` | Studio builder: Plan / Build / MoveReplaced / Probe / Remove / ShoulderLook (+Revert), offline-tested only |
-| `tools/qa/tests/test_roadvis.py` | 26 offline tests (incl. the builder in the luau CLI on the real data: counts, cells, move / restore round trip, abort, shoulders untouched) |
+| `tools/qa/tests/test_roadvis.py` | 29 offline tests (incl. the shoulder proof) (incl. the builder in the luau CLI on the real data: counts, cells, move / restore round trip, abort, shoulders untouched) |
 | `build/roadvis/` (gitignored) | `analysis.json`, `compare.json`, `pilot_sukhumvit_klang_{A,B}.json`, `scene_{before,A,B}.json`, `top_*.png` |
 | `art/roadvis/` | Small preview PNGs (top-down and the 4 camera views for before / A / B) |
 
@@ -130,7 +130,7 @@ Recommendation: a (now), d (with the art team), b only after a drive test.
 | Stop lines | none | at inbound mouths | at inbound mouths |
 | Shoulder gate: drops after ≤ before at every offset (0 / ±8 / ±14 / ±20 / ±24) | baseline (0, 0/10, 0/74, 1/155, 3/247) | **fails at +14** (2 vs 0) | **passes**. In-lane drops 0 at every offset. Out-of-lane −24: 61 vs 247 |
 | Kerb contacts (0.45–0.6 step up, no drop) at ±24 in-lane | 0 | 7 / 53 | 57 / 71 (carriageway edge = kerb line) |
-| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 1,659 (53 slabs, 695 wedges, 520 sidewalk + 148 island wedges, 243 marking Parts) | **902** with visual meshes (385 asphalt + 379 sidewalk + 102 island collision wedges + 36 MeshParts, markings inside the meshes); **1,388 with the default Parts build** (collision visible + 392 marking Parts + 66 kerb + 64 grass). |
+| Parts in the area (the 799 replaced) | 799 (53 slabs, 338 fill, 27 discs, 141 aprons, 13 corner, 7 sidewalk, 63 markings, 157 zebra) | 2,090 (53 slabs, 807 wedges, 914 sidewalk + 68 island wedges, 248 marking Parts) | **1,457** with visual meshes (552 asphalt + 717 sidewalk + 146 island collision wedges + 42 MeshParts, markings inside the meshes); **1,935 with the default Parts build** (collision visible + 397 marking Parts + 64 kerb + 70 grass). The shoulder-safe collision (2026-10-21, docs/ROAD_B_OWNER_REVIEW.md section 6) costs about 550 parts over the first version. |
 | Visual triangles | | 1,276 | 603 |
 | Streaming (road-only Atomic cells, layout b: 256 studs, cap 1,500) | about 5.5 cells × 145 instances | about 310 per cell | about 165 per cell. 8 MeshParts per cell (each tile mesh streams with its cell). |
 | Installation complexity | | Medium-high: changes to PattayaBuilder / road_fix / dual / aprons rules, chunk modules regenerated, RebuildChunks per batch. Touches tested code paths citywide. | Medium: a NEW builder + a new folder. Old parts in the area are moved to a backup folder (not deleted). Visual meshes need edit-time EditableMesh → MeshPart (or uploaded mesh assets). Fallback: visual as WedgeParts (+1,200 parts). |
@@ -143,7 +143,8 @@ WedgeParts). It is 804 parts, against 799 in the surface-level count above (same
 **Recommendation: design B.** A cannot remove the main defects. They come from the merged-slab model (lane holes 248
 vs 250, invented lane layout, zebras that cannot land), and A costs more parts (Parts for every marking) and touches
 citywide code. B fixes the geometry from the graph without touching it, removes every disc and fill, keeps the
-shoulder support, and has fewer parts than today. Roll it out junction by junction with the same gates.
+shoulder support, and uses fewer parts than A (1,935 against 2,090 as Parts). Both need more parts than today's 804
+because they add sidewalks, islands and complete markings. Roll it out junction by junction with the same gates.
 
 Images (offline previews, same owner camera for all three):
 
@@ -210,18 +211,18 @@ run in Studio.
 **Data:** `build/roadvis/roblox/` (written by `tools/roadvis/cli.py pilot` or `tools/roadvis/export_luau.py`):
 
 - `manifest.luau`
-- 7 `cell_<cx>_<cz>[_k].luau` modules: at most 600 parts each.
+- 10 `cell_<cx>_<cz>[q<qx><qz>][_k].luau` modules: at most 600 parts each. A 256-stud cell over 600 parts is split into its four 128-stud quadrants.
 
-**The default build is Parts, about 1,388 parts in 7 Atomic cells (Model `Cell_<cx>_<cz>`, one per 256-stud cell):**
+**The default build is Parts, 1,935 parts in 10 Atomic cells (Model `Cell_<id>`, at most 600 parts each):**
 
 | Kind | Parts | Notes |
 |---|---|---|
-| Asphalt collision | 385 WedgeParts | Visible, named `Road` so RoadLook styles them like other roads |
-| Sidewalk | 379 WedgeParts | |
-| Island | 102 WedgeParts | |
-| Markings | 392 thin non-colliding Parts | lane 174, centre 30, edge 108, stop 6, zebra 74 |
-| Kerb strips | 66 | |
-| Grass | 64 | |
+| Asphalt collision | 550 WedgeParts | Visible, named `Road` so RoadLook styles them like other roads |
+| Sidewalk | 710 WedgeParts | Pulled back 0.3 from the asphalt only, never on a shoulder piece |
+| Island | 144 WedgeParts | |
+| Markings | 397 thin non-colliding Parts | lane 179, centre 36, edge 108, stop 6, zebra 68 |
+| Kerb strips | 64 | |
+| Grass | 70 | |
 
 The replaced set is 804 parts. This list is checked part by part.
 
@@ -229,7 +230,7 @@ The replaced set is 804 parts. This list is checked part by part.
 or published unless the mesh is uploaded as an asset, it needs the EditableMesh API enabled, and it counts against the
 EditableMesh memory budget.
 
-**Opt-in mesh build:** `Build({mesh = true})` builds invisible collision (866 wedges) plus up to 7 MeshParts per cell.
+**Opt-in mesh build:** `Build({mesh = true})` builds invisible collision (1,415 wedges) plus up to 7 MeshParts per cell.
 It is a preview only, and it falls back to Parts when the API is missing.
 
 ### Edit-mode procedure (command bar, Studio focused)
@@ -240,12 +241,12 @@ It is a preview only, and it falls back to Parts when the API is missing.
    - Create Folder `ServerStorage.PattayaDataRoadVis` with ModuleScripts `manifest` and every `cell_*`, from
      `build/roadvis/roblox/`. Use the same localhost bundle method as the other data folders.
 3. **Plan:** `local RV = require(game.ServerStorage.PattayaRoadVisBuilder) print(RV.Plan())`
-   - Expected: `7 modules, 7 cells, 1388 parts to build`.
+   - Expected: `10 modules, 10 cells, 1935 parts to build`.
    - Move plan: `Road 397, Sidewalk 7, Dash 41, Centre 22, Junction 17, Joint 10, Apron 142, CornerFill 13,
      ZebraStripe 155 -> MATCHES the data; selected 804, expected 804`.
    - **If it says DOES NOT MATCH, stop.** The place differs from the build data (e.g. a chunk was rebuilt). Report the
      printed unmatched parts and do not continue.
-4. **Build:** `print(RV.Build())`. Expected: `built 7 cells, 1388 parts (Parts)` and no warnings.
+4. **Build:** `print(RV.Build())`. Expected: `built 10 cells, 1935 parts (Parts)` and no warnings.
 5. **Move the old parts:** `print(RV.MoveReplaced())`.
    - Expected: `moved 804 parts ... to ServerStorage.RoadVisBackup`.
    - It aborts and moves nothing if the selection differs from the list. It never selects anything in
@@ -254,8 +255,8 @@ It is a preview only, and it falls back to Parts when the API is missing.
    - Each source parent gets a backup Folder with an ObjectValue `OriginalParentRef`.
 6. **Probe:** `print(RV.Probe())`.
    - Expected per offset (0, ±8, ±14, ±20, ±24, in-lane samples only): `drop 0`.
-   - Kerb contacts close to the offline values: about 3 at -20, 15 at +24, 25 at -24.
-   - Building overlaps 0. Pilot parts 1388 (data 1388). Moved parts 804.
+   - Kerb contacts close to the offline values: about 3 at -20, 15 at +24, 20 at -24.
+   - Building overlaps 0. Pilot parts 1935 (data 1935). Moved parts 804.
 7. **Optional, only if the owner approves the shoulder look:**
    `print(RV.ShoulderLook({recolour = true, hideGapFills = true}))`. Revert with `RV.ShoulderLookRevert()`.
    - Strips and tapers become gutter concrete 176, 174, 168.
@@ -314,8 +315,8 @@ This renders Cycles GPU with a Nishita sky and sun. Only the scripts and the exp
 
 ## 11. Risks
 
-- The default Parts build has more parts than it replaces (1,388 against 804) because every marking is a Part. The
-  mesh build (902) needs EditableMesh assets that persist. Uploading the tile meshes as assets is the follow-up that
+- The default Parts build has more parts than it replaces (1,935 against 804) because every marking is a Part. The
+  mesh build (1,457) needs EditableMesh assets that persist. Uploading the tile meshes as assets is the follow-up that
   brings the count down.
 
 - MeshPart creation at edit time (EditableMesh) depends on Studio API availability and limits. The WedgePart fallback
