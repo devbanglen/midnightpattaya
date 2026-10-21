@@ -9,7 +9,10 @@
 --   "physical" (default) = the solid boxes above, unchanged.
 --   "arcade" = the boxes never collide. A swept box test against my car finds the hit, CarController applies the
 --   scripted result (speed loss / spin / short loss of control from ReplicatedStorage.PattayaRecovery, never a
---   roll) through the client BindableEvent PlayerScripts.CarImpact, and the traffic car ghosts for 1.5 s.
+--   roll) through the client BindableEvent PlayerScripts.CarImpact (the payload names the car's key and the server
+--   time of the touch), and the traffic car ghosts for 1.5 s and for as long as it still overlaps my car.
+-- The folder attribute DrawT is the server time the cars were last drawn and hit-tested with (DrawHz: draws per
+-- second); TestKit compares the drawn models with the shared positions at that time.
 -- Player attribute TrafficGhostUntil (server time, set after a rescue) ghosts every car near mine until then;
 -- TrafficGhostAll = true (TestKit) skips arcade hits.
 -- TestKit hook (Studio or workspace DevTest only): player attribute TK_HitTarget = a car key (route * 1000 + index)
@@ -273,7 +276,9 @@ local function reportImpact(info)
 end
 
 -- my car against one traffic car (traffic frame cf, forward = -Z); returns true on a new hit
-local function arcadeHit(entry, cf: CFrame, rel: Vector3, car: BasePart, carVel: Vector3, speed: number, t: number): boolean
+local touches = 0
+local function arcadeHit(entry, key: number, cf: CFrame, rel: Vector3, car: BasePart, carVel: Vector3, speed: number,
+	t: number): boolean
 	local prev = entry.lastRel
 	entry.lastRel = Vector2.new(rel.X, rel.Z)
 	if math.abs(rel.Y) > 6 or math.abs(rel.X) > entry.halfWid + 12 or math.abs(rel.Z) > entry.halfLen + 14 then
@@ -294,13 +299,19 @@ local function arcadeHit(entry, cf: CFrame, rel: Vector3, car: BasePart, carVel:
 	if not info then
 		return false
 	end
-	info.trafficSpeed, info.at, info.tx, info.tz = speed, t, q.X, q.Z
+	-- the hit's own identity and time (TestKit matches hits by key, never by where a model is drawn)
+	info.key, info.trafficSpeed, info.at, info.tx, info.tz = key, speed, t, q.X, q.Z
+	touches += 1
+	player:SetAttribute("Traffic_Touches", touches) -- diagnostic: touches found here (CarController counts the applied)
+	player:SetAttribute("Traffic_TouchKey", key)
+	player:SetAttribute("Traffic_TouchT", t)
 	reportImpact(info)
 	return true
 end
 
 -- update --------------------------------------------------------------------------------------------------------------
 local lastNearAt = 0
+local draws, drawRateAt = 0, os.clock()
 local roots, cframes = {}, {}
 -- this frame's state, read by placeCar
 local F = {car = nil :: BasePart?, carVel = Vector3.zero, carSpeed = 0, t = 0, seen = {}, ghostUntil = 0,
@@ -364,30 +375,52 @@ local function placeCar(key: number, x: number, z: number, d2: number, r, k: num
 		if F.ghostAround and math.abs(rel.X) < entry.halfWid + 20 and math.abs(rel.Z) < entry.halfLen + 30 then
 			entry.ghostUntil = math.max(entry.ghostUntil, F.ghostUntil)
 		end
+		-- arcade: after a hit the car stays a ghost while it still overlaps mine (1 stud margin), so driving through
+		-- it never counts a second hit (round 6, side 70: a repeat hit 1.5 s later overwrote the first one)
+		if entry.hitHold and t >= entry.ghostUntil then
+			local ml = car.CFrame.LookVector
+			local mlf = Vector3.new(ml.X, 0, ml.Z)
+			mlf = if mlf.Magnitude > 0.1 then mlf.Unit else Vector3.new(0, 0, -1)
+			local tl = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
+			Recovery.hitGhostStep(entry, t, Recovery.carsOverlap({x = car.Position.X, z = car.Position.Z, lx = mlf.X,
+				lz = mlf.Z}, {x = cf.Position.X, z = cf.Position.Z, lx = tl.X, lz = tl.Z, halfWid = entry.halfWid,
+				halfLen = entry.halfLen}, 1))
+		end
 		-- arcade: a touch is a scripted hit (no physics), then the car ghosts so it cannot hit twice
 		if arcade and not F.noHits and t >= entry.ghostUntil
-			and arcadeHit(entry, cf, rel, car, carVel, r.speed, t) then
-			entry.ghostUntil = t + Recovery.get("Arcade_HitGhost")
+			and arcadeHit(entry, key, cf, rel, car, carVel, r.speed, t) then
+			Recovery.hitGhostStart(entry, t, Recovery.config())
 			entry.near = false -- touched: not a near miss
 		end
 		entry.lastRel = Vector2.new(rel.X, rel.Z)
 		setGhost(entry, t < entry.ghostUntil)
 		-- near miss: my car goes from one end of it to the other within NEAR_GAP of its side, without a knock
-		local side = if rel.Z < -entry.halfLen then -1 elseif rel.Z > entry.halfLen then 1 else 0
-		if side ~= 0 then
-			if entry.side and entry.side ~= 0 and side ~= entry.side and entry.near and F.carSpeed > NEAR_SPEED
-				and t - lastNearAt > 0.6 then
-				lastNearAt = t
-				if NearMiss then
-					NearMiss:FireServer()
+		local fire
+		if Recovery then
+			fire = Recovery.nearMissStep(entry, rel.X, rel.Z, entry.halfWid, entry.halfLen, entry.ghost, F.carSpeed, t,
+				lastNearAt)
+		else
+			-- fallback without PattayaRecovery: the same rule inline
+			fire = false
+			local side = if rel.Z < -entry.halfLen then -1 elseif rel.Z > entry.halfLen then 1 else 0
+			if side ~= 0 then
+				if entry.side and entry.side ~= 0 and side ~= entry.side and entry.near and F.carSpeed > NEAR_SPEED
+					and t - lastNearAt > 0.6 then
+					fire = true
 				end
+				entry.side = side
+				entry.near = nil
+			elseif lateral > 0 and lateral < NEAR_GAP and not entry.ghost then
+				entry.near = if entry.near == nil then true else entry.near
+			elseif lateral <= 0 then
+				entry.near = false -- touched / overlapping: not a near miss
 			end
-			entry.side = side
-			entry.near = nil
-		elseif lateral > 0 and lateral < NEAR_GAP and not entry.ghost then
-			entry.near = if entry.near == nil then true else entry.near
-		elseif lateral <= 0 then
-			entry.near = false -- touched / overlapping: not a near miss
+		end
+		if fire then
+			lastNearAt = t
+			if NearMiss then
+				NearMiss:FireServer()
+			end
 		end
 	end
 end
@@ -448,5 +481,14 @@ RunService.Heartbeat:Connect(function()
 			setGhost(entry, false)
 			release(entry, entry.kind)
 		end
+	end
+	-- the server time these cars were drawn and hit-tested with (TestKit computes where a car must be at this t; its
+	-- models are compared with that, and the drawn-vs-computed lag is only reported) and the draw rate
+	folder:SetAttribute("DrawT", t)
+	draws += 1
+	local clock = os.clock()
+	if clock - drawRateAt >= 1 then
+		folder:SetAttribute("DrawHz", math.floor(draws / (clock - drawRateAt) + 0.5))
+		draws, drawRateAt = 0, clock
 	end
 end)

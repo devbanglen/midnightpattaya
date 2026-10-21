@@ -26,6 +26,14 @@ step runs while a traffic-hit window is open (arcade mode only), plus a road-nam
   **รถจราจรทำให้รถพลิกคว่ำไม่ได้** ชนแรงระหว่างงานแท็กซี่ยังตัดค่าโดยสารได้ (ต้องเพิ่มโค้ดใน PattayaJobsServer
   ตามข้อ 7.2)
 - **ปิดทุกอย่างได้ทันที:** `Recovery_Enabled = false` (กลับเป็น R แบบเดิม) และ `CollisionModel = "physical"`
+- **รอบ 6 (team18/arcade-fix-5, ข้อ 14, ยังไม่ได้ทดสอบใน Studio):**
+  - เทียบตำแหน่งรถจราจรตามเวลาที่วาดจริง (DrawT) ไม่ช้าไป 1 เฟรมอีก
+  - รถที่ชนระบุจาก key ในเหตุการณ์ชนเอง ไม่ใช้ตำแหน่งโมเดล
+  - รถไม่เอียงระหว่างช่วงชน (แก้เฉพาะช่วงชนแบบอาร์เคด ฟิสิกส์รถปกติไม่เปลี่ยน)
+  - ไม่นับชนซ้ำขณะรถยังซ้อนกัน
+  - ตัดเลนที่วกกลับตามหัวมุม (สาเหตุ route 26)
+  - มีตัวจำกัด FPS สำหรับทดสอบที่ 15/30/60 พร้อมขั้นตอนทดสอบ 2 ผู้เล่น
+  - ค่าเริ่มต้นยังเป็น physical เสมอ
 
 ## 1. What each file does now
 
@@ -525,3 +533,274 @@ Consequences:
 Re-test (leader): install PattayaRecovery, PattayaTraffic, PattayaTestKit and PattayaRecoveryServer. In Play, run
 `TK.selfCheck()` first: expect 5/5 "match" and "positions: shared". Then run `TK.hitMatrix({runs = 3})`, or
 `local h = TK.hitMatrixStart({runs = 3})` and `print(h:poll())`.
+
+## 14. Studio round 6 + owner review (2026-10-21, hitMatrix 26/36): findings and fixes (team18/arcade-fix-5)
+
+Investigated and fixed offline only; **not re-run in Studio.** Every number below comes from the offline tests in
+`tools/qa/tests/test_recovery.py` (the luau CLI, with the real `pattaya_wide` traffic data where it says so). None
+of it is an in-game result.
+
+### 14.1 What was wrong, item by item
+
+**1. Models 5-6 studs behind in `hitMatrixStart` (selfCheck 0/5; run 3 row 12 "no traffic car whose model matches").**
+A traffic car's position is a pure function of the server time. The background runner is a coroutine resumed by
+TestKit's own Heartbeat connection. When that handler ran before PattayaTraffic's handler in the same frame (Roblox
+does not order handlers; later connections usually fire first), TestKit read `GetServerTimeNow()` one frame after
+the models had been drawn. At 15 fps one frame is 67 ms (about 0.1 s with a slow frame), which is 3-6 studs at the
+traffic's 38-55 studs/s. That is more than the 4 studs selfCheck and pickTarget allowed. The direct execute call ran
+after PattayaTraffic, so its lag was about 0. So the cause is a stale time, not a different Heartbeat rate: the lag
+is one frame time multiplied by the traffic speed, which is why it only showed at 15 fps. The offline simulation
+(TestKitSimulation, handlers newest first) reproduces it: the runner's selfCheck sees the models 3.5 studs / 67 ms
+behind at 15 fps, 1.6 / 33 at 30 and 0.9 / 17 at 60 (0.0 with the handlers in connection order).
+
+Fixes:
+
+- **DrawT.** PattayaTraffic stamps its folder every Heartbeat with `DrawT` (the server time it drew and hit-tested
+  with) and `DrawHz` (draws per second). TestKit computes positions at `DrawT` whenever it compares them with what
+  is drawn, which is exact whatever the handler order or frame rate. `TK.selfCheck` checks the models at DrawT
+  (within 0.5 studs). It reports the drawn-vs-now lag (studs and ms), the DrawT age and DrawHz as a diagnostic, never
+  as a failure. Every row also prints its lag.
+- **No model positions for targets or hits.** pickTarget only needs a model under the car's key that is not ghosted.
+  The hit names its own car: PattayaTraffic puts the key in the CarImpact payload (`info.key`), CarController
+  publishes `Recovery_LastHitKey` and `Recovery_LastHitT` (the server time of the touch), and
+  `PattayaRecovery.acceptStagedHit` compares keys (`targetKey` / `hitKey`).
+- **Car placed one physics step short.** TestKit put the car on the plan in PreSimulation and physics then moved it
+  one more step before PattayaTraffic tested it at Heartbeat. Touches therefore came `speed * dt / vc` early: 0.16-0.3
+  s for rear 70 at 15 fps, inside the 0.45 s slack but close to it. The car is now placed one PreSimulation step
+  short, so at Heartbeat it is exactly on the plan. Offline, every touch is now within one frame after the planned
+  time at 15, 30 and 60 fps. The "no hit registered (overlapping)" check uses the overlap at the last Heartbeat.
+
+**2. Side rows tilt the car after the hit (side 150 a5 / a20, minUp 0.70-0.79 in 3 of 6).** Fixed by changing only
+the arcade hit response:
+
+- From the touch until the end of the hit window plus `Arcade_AntiRollExtra` (0.25 s), CarController holds the up
+  axis the car had at the touch. A client-side AlignOrientation (PrimaryAxisParallel, so yaw stays free) is enabled
+  only in that window.
+- A per-step yaw-only projection runs in the same window: pitch and roll rate are removed, and the up axis is put back
+  if it drifted more than `Arcade_AntiRollSnapDeg` (3 degrees).
+- Switch: `Arcade_AntiRoll` (true; set it to false to turn this off live).
+- Grip, drift grip, suspension, damping, mass and air damping are unchanged (static test `ArcadeHitScope`).
+
+TestKit side:
+
+- minUp is still measured over 2 s. Once the hit response is over (the window + 0.3 s), the car is now braked gently
+  (120 studs/s², under the jobs bump detector).
+- Round 6's side 150 rows went on at about 145 studs/s for the whole 2 s, about 290 studs, off the end of most
+  straights into kerbs and scenery. That is ordinary driving, not the hit response, and it is the likeliest source of
+  the tilt. This cannot be verified offline, so the row now prints when (`minUp ... at +0.21 s`) and over what (on /
+  off road, part name) the car was lowest.
+- The car's collisions come back on only once it is clear of every solid part that is not road, so turning them on
+  never pops it out of a kerb or a palm.
+
+**3. side 70 a25 "speed at the hit 33/37/40" (approach-min 69), r2 tier scrape: a second hit.** After the light
+hit, my car ran alongside the traffic car while still overlapping it. When the car's 1.5 s ghost ran out,
+PattayaTraffic hit it again. My car was down to 56·e^(−0.25·1.5) ≈ 38 studs/s (a scrape). TestKit read the
+attributes 2 s after the first hit, so it saw the second hit. Reproduced offline (`LowClosingSpeed`: the second hit
+at 1.5 s, 38.5 studs/s).
+
+Fixes:
+
+- A hit traffic car now stays ghosted for as long as it still overlaps my car (1-stud margin; `R.hitGhostStart` /
+  `R.hitGhostStep`). Driving through it no longer counts again.
+- TestKit snapshots every `Recovery_LastHit*` field in the frame the hit count changes, and counts later hits. "N
+  more hit(s)" fails a row.
+- Player speed (`Recovery_LastHitBefore`), traffic speed (`Recovery_LastHitTrafficSpeed`) and closing speed
+  (`Recovery_LastHitVc`, plus the relative speed `Recovery_LastHitRel`) are now separate fields. The "speed at the
+  hit >= 90 %" check uses the player speed. The tier comes from the closing speed.
+
+**4. rear 70 on route 26 (r1 head-on vc 110 on key 26001; r2 a hit 0.38 s early on key 26012).** The generated lane
+loops double back at corners: the inner lane offset overshoots and comes back. That is 342 "swallowtails" on
+`pattaya_wide`, 10 of them across a loop seam, and 895 heading-reversal samples. A car on one is drawn facing
+backwards, so a rear-end looks head-on (vc ≈ 70 + 45). The arc between the two cars is also longer than the real gap,
+so the touch comes early.
+
+Route 26 replayed offline (1,020 rear 70 runs at 15 fps):
+
+| Lanes | Head-on | Early | Other wrong |
+| --- | --- | --- | --- |
+| Raw | 8 | 110 | 77 (curves) |
+| Cleaned | 0 | 0 | 73 (curves) |
+| Cleaned + TestKit's filter | 0 | 0 | 0 (220 runs) |
+
+Fixes:
+
+- **Lane cleanup.** `R.cleanLanePolyline` / `R.cleanLaneLoop`, used by `buildTrafficRoutes`, so PattayaTraffic,
+  TestKit and the server all use the same cleaned lanes. Every loop is cleaned across its seam too, still starts
+  where it started (or at the crossing point that replaced a cut first point), and closes exactly. 9 reversal
+  samples are left, in junction shapes. Total lane length changes by −1.5 %, so the traffic sits at slightly
+  different places than before (everyone agrees, since all of them use the shared maths).
+- **Seam and wrap.** The data closed its loops only within 0.45 studs; now it is exact.
+  - `s` wraps continuously, and `R.trafficHeading`'s point 6 studs on and `R.routeStraight` work across the seam.
+  - Tested: a rear-end planned to touch exactly on a loop seam, and a car crossing every seam of the real data
+    never turns round.
+- **Target filter.** TestKit stages a hit only where the whole approach stays within `R.STAGE_BEND_DEG` (15 degrees)
+  of one direction. For side hits, the target's heading must also stay steady within `R.SIDE_STEADY_DEG` (1 degree)
+  around the touch.
+- **Side plan.** It now runs straight at the angle to the target's heading at the touch, using the shared position
+  and heading at that time, no longer along the lane. On gently curving lanes the lane direction where my car was
+  differed from the target's heading by up to 5 degrees. side 150 a5 / a20 and side 100 a10 sit 1-3 degrees from a
+  tier threshold (offline: 10-13 wrong tiers of 3,199 before this).
+- **Low relative speed** (the owner's rear 70 review), tested at 15, 30 and 60 fps for rear vc 2, 5, 10, 20 and 25
+  on a straight and on a seam:
+  - exactly one hit, in the first frame after the planned touch;
+  - normal on the rear face;
+  - vc equal to the speed difference;
+  - the table's tier;
+  - no repeat while my car pushes on through it.
+
+**5. side 150 a5 r3 MISSED "no hit registered (overlapping)".** Not reproducible offline: no such miss on the cleaned
+lanes with the filter, in about 2,900 staged hits per frame rate. The likely causes are a lane kink (item 4), or an
+auto-upright still turning the car over (CarController ignores hits then).
+
+- TestKit now waits for an auto-upright to finish before a row.
+- A miss now says why:
+  - whether PattayaTraffic found a touch (`Traffic_Touches`, `Traffic_TouchKey`);
+  - whether CarController ignored it (`Recovery_HitIgnored`: bad payload / not driving / arcade off / car anchored /
+    auto-upright running);
+  - whether the target was real, ghosted or had no model.
+
+### 14.2 What a matrix row prints now
+
+```
+PASS 15fps r1  9 hitTest side @150 a5 [arcade, isolated, Heartbeat 15 Hz, render 15 fps]: hit | target 84002,
+  hit 84002, match | impact 148, traffic 40, closing 13 (planned 13) | tier scrape | loss 8% (148 -> 136) |
+  yaw -4 (scripted -4) | minUp 1.00 | approach-min 148 | touch meet+0.041 s, hand-off meet+0.108 s |
+  lag 2.7 studs / 67 ms | table scrape 8%
+```
+(one line in the output; this example is from the offline simulation)
+
+- Target traffic ID, actual hit ID and whether they match.
+- Impact speed: the player's speed at the touch.
+- Traffic speed, and closing speed (with the planned closing speed).
+- Hit tier, speed loss (before → after), measured yaw (and the scripted kick), minUp (and when it was lowest).
+- Heartbeat and render rates.
+- The touch time and the TestKit hand-off time against the planned meeting.
+- The drawn-vs-computed lag (diagnostic only).
+
+A failing row (or every row with `verbose = true`) is followed by its per-frame log:
+
+- the plan and the touch (key, vc, normal);
+- the last 10 approach frames and the first 6 after the hit, each with:
+  - my speed and velocity, the target's speed and velocity, the distance between the centres;
+  - the relative speed;
+  - the box overlap test on the computed boxes (vc, normal, depth);
+- when collisions came back, when the braking started, and the lowest up.
+
+Per frame-rate level: `hitMatrix @15 fps: 36/36 PASS over 3 runs (Heartbeat 15 Hz, render 15 fps) - REPEATABLE`.
+The line warns when the rates measured were below the cap.
+
+### 14.3 Offline checks (tools/qa/tests/test_recovery.py)
+
+- `LaneCleanup`: synthetic swallowtail / U-turn / corner / seam cases, plus the real data (342 cut, reversals 895 →
+  9, exact closure, starts kept, seams continuous).
+- `StagedRealRoutes` (real data): every row of the owner's table, about 2,900 staged hits at each of 15, 30 and 60
+  fps, staged like TK.hitTest and tested every frame like PattayaTraffic: all meet on time with the table's tier. The
+  raw lanes without the filter get them wrong, and route 26 rear 70 reproduces the head-on and early hits.
+- `LowClosingSpeed`: rear vc 2-25 at 15 / 30 / 60 fps, straight and on a seam; and side 70's second hit (old ghost)
+  against no second hit (hold).
+- `AntiRollAndNearMiss`: the yaw-only maths, and near misses at 15 / 30 / 60 fps:
+  - a pass 5 studs beside the car at 110 pays once;
+  - 9 studs (outside the 7-stud band), 60 studs/s (below 70), or a touch pays nothing;
+  - a second near miss within 0.6 s is not paid;
+  - the staged pass that TK.nearMissTest drives gives one near miss and no hit.
+- `ServerTwoPlayers`: PattayaRecoveryServer in a mocked server with three drivers.
+  - A real heavy or head-on hit beside a traffic car is accepted.
+  - Refused: a report far from traffic, from a stopped car, a light tier, vc 1000, NaN, a second report within 1 s,
+    and a flood of five (counted once).
+  - Only the reporting player is ever named.
+  - Reports are ignored with `CollisionModel = physical`.
+- `TestKitSimulation`: the real PattayaTestKit in a simulated client (PreSimulation → physics → Heartbeat, stand-in
+  PattayaTraffic and CarController on the shared maths), on synthetic straights and on the real map.
+  - `hitMatrixStart` 12/12 at 15, 30 and 60 fps, with every owner field on every row, also with the other handler
+    order.
+  - `hitMatrix({fps = 30})` runs capped at 30 Hz, and the cap is removed at the end and when the matrix errors.
+  - A later second hit does not replace the staged hit's numbers.
+  - A hit naming another key is rejected.
+  - A stopped matrix leaves no hook and no driven car.
+  - `nearMissTest` cases, and `jobWatch` (one bump per accepted heavy hit, pay-out, a double bump caught).
+- `ArcadeHitScope` (static):
+  - the AlignOrientation exists and is enabled only in `antiRollOn`, called only from the arcade `applyImpact`;
+  - the car physics constants are unchanged;
+  - no script sets `CollisionModel`;
+  - the hit key and telemetry are written before the count, and the misses are diagnosed;
+  - TestKit identifies hits by key;
+  - PattayaTraffic and CarController act on the local player's own car only, and the jobs hook counts per player.
+- `TrafficKeys` (TestKit in a mocked client):
+  - selfCheck passes with the models drawn 0.1 s ago, and reports the 3+ studs as a diagnostic (comparing at "now"
+    with 4 studs would have failed);
+  - it fails without DrawT;
+  - `TK.fpsLimit` / `TK.cleanup` / `TK.stopAll`;
+  - `TK.jobPayout`.
+
+### 14.4 Studio procedures (leader)
+
+Install PattayaRecovery, PattayaTraffic, CarController, PattayaRecoveryServer and PattayaTestKit together.
+PattayaTraffic stamps DrawT, and TestKit's selfCheck fails without it.
+
+**A. Hit matrix at 15 / 30 / 60 fps.**
+
+1. Server: `workspace:SetAttribute("CollisionModel", "arcade")`.
+2. Client:
+
+   ```lua
+   local TK = require(game.ReplicatedStorage.PattayaTestKit)
+   print(TK.selfCheck()) -- expect 5/5 match, positions: shared
+   local h = TK.hitMatrixStart({runs = 3, fps = {15, 30, 60}})
+   print(h:poll()) -- repeat until done; h.lines has every line
+   ```
+
+3. The 60 fps level needs the Studio window focused. Alternatively run each level on its own, e.g.
+   `TK.hitMatrixStart({runs = 3, fps = 60})` with Studio focused.
+4. Expect one "hitMatrix @N fps: 36/36 PASS ... REPEATABLE" line per level, and a summary. The FPS cap (TestKit
+   only, busy wait) is removed when the matrix ends, also on error or `h:stop()`.
+
+**B. Near miss with arcade on.**
+
+- `TK.nearMissTest()` pays one near miss and causes 0 hits.
+- `TK.nearMissTest({gap = 9})` and `TK.nearMissTest({speed = 65, lead = 20})` pay none.
+
+**C. Taxi / Delivery economy with arcade on.**
+
+1. `local w = TK.jobWatch()`.
+2. Start a taxi job. Drive into traffic once hard (a rear-end above about 100 studs/s = heavy) and once lightly. Finish
+   the job.
+3. `print(w:report())`. Expect one bump per accepted heavy / head-on hit, none for light ones, no two bumps within
+   1 s, and "jobPayout ... PASS" (money = floor(fare × (1 − min(bumps × cut, 0.6))) + tip).
+4. Drive by hand during a job. TK.hitTest teleports the car to its start spot, which can trip the job's 260 studs/s
+   teleport check.
+
+**D. Two players (Test > Clients and Servers, 2 players).**
+
+1. Server: `workspace:SetAttribute("CollisionModel", "arcade")`.
+2. Client 1, near traffic: `TK.hitTest("rear", 150)`. Its `Recovery_HitCount` goes up. On the server,
+   `game.Players.Player1:GetAttribute("TrafficHits")` goes up by 1.
+3. Client 2, watching nearby: its own `Recovery_HitCount` stays the same, and its car is not moved.
+4. Client 2, parked far from traffic: `game.ReplicatedStorage.PattayaRemotes.TrafficHit:FireServer("heavy", 90, 120)`.
+   Player2's `TrafficHits` stays nil (the fake is refused).
+5. Repeat with the roles swapped. Near misses (B) are per player too.
+
+**E. Cleanup.**
+
+1. `print(TK.cleanup())`. Expect "nothing left over" (it clears staged runs, the FPS cap, `TK_HitTarget` and
+   `TrafficGhostAll`).
+2. Server: `workspace:SetAttribute("CollisionModel", "physical")`, or stop Play.
+
+### 14.5 Arcade never becomes the default
+
+`PattayaRecovery.DEFAULTS.CollisionModel = "physical"`, and no script sets the attribute (a test checks every Luau
+file). Attribute changes made in Play are not saved, so the saved place stays `CollisionModel = physical`.
+
+### 14.6 Risks and open points
+
+- Nothing in this section has been run in Studio.
+- The anti-roll is a constraint plus a CFrame snap during the hit window. How it feels with real contacts (kerb
+  strikes inside the window) is unverified. `Arcade_AntiRoll = false` turns it off live, and the window length is
+  `Arcade_AntiRollExtra`.
+- The lane cleanup moves every traffic car slightly from where it was drawn before. It is consistent everywhere, but
+  it changes the traffic's look at about 340 inner corners (no more backwards-facing cars).
+- The target filter excludes cars on bends. If a row errors with "no traffic car to stage the hit on nearby (N
+  without a model, N ghosted, N on a bend, ...)", start the matrix on a long straight (Beach Road, Second Road).
+- The side rows are 1-3 degrees from a tier threshold by design of the owner's table. The 1-degree heading filter
+  keeps them stable offline, but a real car's heading noise could still flip one in Studio.
+- `docs/TEST_KIT.md` (not owned by this team) could list the new TestKit functions: `TK.fpsLimit`, `TK.cleanup`,
+  `TK.nearMissTest`, `TK.jobWatch`, `TK.jobPayout`, `TK.drawT`, and `TK.hitMatrix({fps = ...})`.

@@ -94,6 +94,46 @@ local impact = nil :: any
 local hitCount = 0
 local lastHitReport = -math.huge
 
+-- Anti-roll, part of the arcade hit response only (never the base car physics): from the touch until the hit window
+-- (+ Arcade_AntiRollExtra) ends, the chassis keeps the up axis it had at the touch and only yaws. Two layers:
+-- a client-side AlignOrientation (PrimaryAxisParallel, acts inside every physics substep) that is ENABLED ONLY in
+-- that window, and a per-step projection in `step` (pitch/roll rate removed, the up axis put back if it drifted more
+-- than Arcade_AntiRollSnapDeg). Round 6: side hits at 150 tilted the car to up 0.70-0.79.
+local antiRoll = {chassis = nil :: BasePart?, att = nil :: Attachment?, align = nil :: AlignOrientation?,
+	up0 = nil :: Vector3?, untilT = 0}
+
+local function antiRollOff()
+	antiRoll.up0, antiRoll.untilT = nil, 0
+	if antiRoll.align then
+		antiRoll.align.Enabled = false
+	end
+end
+
+local function antiRollOn(chassis: BasePart, up0: Vector3, untilT: number, cfg)
+	if antiRoll.chassis ~= chassis or not (antiRoll.align and antiRoll.align.Parent == chassis) then
+		if antiRoll.align then antiRoll.align:Destroy() end
+		if antiRoll.att then antiRoll.att:Destroy() end
+		local att = Instance.new("Attachment")
+		att.Name = "ArcadeAntiRollAtt"
+		att.CFrame = CFrame.fromMatrix(Vector3.zero, Vector3.yAxis, Vector3.xAxis) -- primary (X) axis = chassis up
+		att.Parent = chassis
+		local align = Instance.new("AlignOrientation")
+		align.Name = "ArcadeAntiRoll"
+		align.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		align.AlignType = Enum.AlignType.PrimaryAxisParallel
+		align.Attachment0 = att
+		align.Enabled = false
+		align.Parent = chassis
+		antiRoll.chassis, antiRoll.att, antiRoll.align = chassis, att, align
+	end
+	local align = antiRoll.align :: AlignOrientation
+	align.MaxTorque = cfg.Arcade_AntiRollTorque
+	align.Responsiveness = cfg.Arcade_AntiRollResponse
+	align.PrimaryAxis = up0
+	align.Enabled = true
+	antiRoll.up0, antiRoll.untilT = up0, untilT
+end
+
 local params = RaycastParams.new()
 params.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -451,10 +491,26 @@ local function step(dt)
 		chassis.AssemblyAngularVelocity = yawPart + (av - yawPart) * (1 - math.min(1, CONFIG.airUpright * dt))
 	end
 
-	if hitWin then
-		-- traffic hits never roll the car: only the yaw part of the spin is kept
-		local av = chassis.AssemblyAngularVelocity
-		chassis.AssemblyAngularVelocity = up * av:Dot(up)
+	if antiRoll.up0 then
+		if hitNow >= antiRoll.untilT then
+			antiRollOff()
+		else
+			-- traffic hits never roll the car: only the yaw about the up axis it had at the touch is kept
+			local u0 = antiRoll.up0 :: Vector3
+			local av = chassis.AssemblyAngularVelocity
+			local ax, ay, az = Recovery.yawOnlyRate(av.X, av.Y, av.Z, u0.X, u0.Y, u0.Z)
+			chassis.AssemblyAngularVelocity = Vector3.new(ax, ay, az)
+			local cfNow = chassis.CFrame
+			local u = cfNow.UpVector
+			if Recovery.tiltFrom(u.X, u.Y, u.Z, u0.X, u0.Y, u0.Z) > Recovery.get("Arcade_AntiRollSnapDeg") then
+				local l = cfNow.LookVector
+				local lx, ly, lz = Recovery.yawOnlyLook(l.X, l.Y, l.Z, u0.X, u0.Y, u0.Z)
+				if lx then
+					local pos = cfNow.Position
+					chassis.CFrame = CFrame.lookAt(pos, pos + Vector3.new(lx, ly :: number, lz :: number), u0)
+				end
+			end
+		end
 	end
 
 	-- nitro gauge
@@ -616,18 +672,31 @@ local function reportHit(tier: string, vc: number, speedBefore: number)
 	end
 end
 
+-- a touch PattayaTraffic found but this script did not apply (diagnostic for TestKit: "touch not applied")
+local function ignored(why: string)
+	player:SetAttribute("Recovery_HitIgnored", why)
+	player:SetAttribute("Recovery_HitIgnoredAt", workspace:GetServerTimeNow())
+end
+
 local function applyImpact(info)
-	if not (current and Recovery and Recovery.arcade()) or type(info) ~= "table" or type(info.vc) ~= "number" then
+	if type(info) ~= "table" or type(info.vc) ~= "number" or info.vc ~= info.vc then
+		ignored("bad payload")
+		return
+	end
+	if not (current and Recovery and Recovery.arcade()) then
+		ignored(if not current then "not driving" else "arcade off")
 		return
 	end
 	local chassis = current.chassis
 	if chassis.Anchored or rec.anim then
+		ignored(if chassis.Anchored then "car anchored" else "auto-upright running")
 		return
 	end
 	local cfg = Recovery.config()
 	local res = Recovery.classifyHit(info, cfg)
 	local v = chassis.AssemblyLinearVelocity
 	local before = Vector3.new(v.X, 0, v.Z).Magnitude
+	local up0 = chassis.CFrame.UpVector -- the up axis at the touch (held by the anti-roll)
 	local nx, nz = info.nx or 0, info.nz or 0
 	local wx, wz = Recovery.impactVelocity(v.X, v.Z, nx, nz, res)
 	chassis.AssemblyLinearVelocity = Vector3.new(wx, v.Y, wz)
@@ -637,17 +706,33 @@ local function applyImpact(info)
 		chassis.CFrame += Vector3.new(nx, 0, nz) * push
 	end
 	local now = os.clock()
+	local window = 0
 	if res.control > 0 or math.abs(res.yaw) > 0 then
 		local spinT, w0 = Recovery.spinProfile(res.yaw, math.max(res.control, 0.25))
-		impact = {start = now, untilT = now + math.max(res.control, spinT), steer = res.steer, slide = res.slide,
+		window = math.max(res.control, spinT)
+		impact = {start = now, untilT = now + window, steer = res.steer, slide = res.slide,
 			spinT = spinT, w0 = w0}
 	end
+	if cfg.Arcade_AntiRoll then
+		antiRollOn(chassis, up0, now + window + cfg.Arcade_AntiRollExtra, cfg)
+	end
 	hitCount += 1
-	-- test telemetry (TK.hitTest): the numbers of this hit, set before the count so a reader sees them together
+	-- test telemetry (TK.hitTest): the numbers of THIS hit, all set before the count so a reader sees them together.
+	-- Player speed, traffic speed and closing speed are separate fields (round 6 review).
+	local after = math.sqrt(wx * wx + wz * wz)
+	player:SetAttribute("Recovery_LastHitKey", info.key) -- the traffic car PattayaTraffic hit (its key)
+	player:SetAttribute("Recovery_LastHitT", info.at)     -- the server time PattayaTraffic found the touch
 	player:SetAttribute("Recovery_LastHitTier", res.tier)
-	player:SetAttribute("Recovery_LastHitBefore", before)
-	player:SetAttribute("Recovery_LastHitAfter", math.sqrt(wx * wx + wz * wz))
-	player:SetAttribute("Recovery_LastHitVc", info.vc)
+	player:SetAttribute("Recovery_LastHitBefore", before) -- player (impact) speed, horizontal
+	player:SetAttribute("Recovery_LastHitAfter", after)
+	player:SetAttribute("Recovery_LastHitTrafficSpeed", info.trafficSpeed)
+	player:SetAttribute("Recovery_LastHitVc", info.vc)     -- closing speed along the contact normal
+	player:SetAttribute("Recovery_LastHitRel", info.rel)   -- relative speed |v_me - v_traffic|
+	player:SetAttribute("Recovery_LastHitAngle", info.approachDeg)
+	player:SetAttribute("Recovery_LastHitFacing", info.facingDot)
+	player:SetAttribute("Recovery_LastHitN", Vector3.new(nx, 0, nz))
+	player:SetAttribute("Recovery_LastHitYaw", res.yaw)
+	player:SetAttribute("Recovery_LastHitControl", window)
 	if type(info.tx) == "number" and type(info.tz) == "number" then
 		player:SetAttribute("Recovery_LastHitPos", Vector3.new(info.tx, 0, info.tz))
 	end
@@ -724,6 +809,7 @@ local function enter(seat)
 	rec.enteredAt = os.clock()
 	resetRecovery()
 	impact = nil
+	antiRollOff()
 	pickTune()
 	bindActions()
 	gui.Enabled = true
@@ -733,6 +819,8 @@ local hudTelemetryReset -- forward (telemetry block below)
 
 local function exit()
 	current = nil
+	impact = nil
+	antiRollOff()
 	unbindActions()
 	gui.Enabled = false
 	hudTelemetryReset()
