@@ -14,7 +14,8 @@
 --   RV.Remove()               -- destroys RoadVisPilot and puts every backed-up part back (parent + CFrame), verified
 --   RV.ShoulderLook({recolour = true, hideGapFills = true}) / RV.ShoulderLookRevert()   -- optional, owner-approved only
 -- Default visual = the collision parts themselves, visible (asphalt "Road", "Sidewalk", "Island" WedgeParts) plus thin
--- non-colliding marking / kerb / grass Parts. Why the default is Parts, not meshes: a MeshPart made from an
+-- non-colliding marking / kerb / grass Parts, plus invisible "RoadSupport" WedgeParts (Transparency 1, CanCollide and
+-- CanQuery true, CanTouch false): road-height wheel support kept where an old part carried a wheel next to the new road. Why the default is Parts, not meshes: a MeshPart made from an
 -- EditableMesh in Edit mode (AssetService:CreateEditableMesh + CreateMeshPartAsync(Content.fromObject(...))) lives in
 -- memory only; its geometry is not saved with the place or published unless the mesh is uploaded as an asset, it
 -- needs the EditableMesh API enabled for the experience and counts against the EditableMesh memory budget. Parts always
@@ -39,8 +40,8 @@ local CANDIDATES = {
 	{folder = "ApronChunks", names = {Road = 7, Sidewalk = 8}},
 	{folder = "FurnitureChunks", names = {ZebraStripe = 9}},
 }
-local TRI_KIND = {"asphalt", "sidewalk", "island", "grass"}
-local TRI_NAME = {"Road", "Sidewalk", "Island", "Grass"}
+local TRI_KIND = {"asphalt", "sidewalk", "island", "grass", "support"}
+local TRI_NAME = {"Road", "Sidewalk", "Island", "Grass", "RoadSupport"}
 local SEG_KIND = {"lane", "centre", "edge", "stop", "zebra", "kerb"}
 local SEG_NAME = {"Dash", "Centre", "EdgeLine", "StopLine", "ZebraStripe", "Kerb"}
 
@@ -390,10 +391,10 @@ function RV.Build(opts: {mesh: boolean?}?): string
 	local O = RV.ORIGIN
 	local cells: {[string]: Model} = {}
 	local parts, wrong = 0, 0
-	local mats = {Enum.Material.Asphalt, Enum.Material.Concrete, Enum.Material.Concrete, Enum.Material.Grass}
-	local tops = {T.asphalt, T.sidewalk, T.island, T.grass}
-	local thick = {K.asphalt, K.sidewalk, K.island, K.grass}
-	local colors = {rgb(C.asphalt), rgb(C.sidewalk), rgb(C.island), rgb(C.grass)}
+	local mats = {Enum.Material.Asphalt, Enum.Material.Concrete, Enum.Material.Concrete, Enum.Material.Grass, Enum.Material.Asphalt}
+	local tops = {T.asphalt, T.sidewalk, T.island, T.grass, T.support or T.asphalt}
+	local thick = {K.asphalt, K.sidewalk, K.island, K.grass, K.support or K.asphalt}
+	local colors = {rgb(C.asphalt), rgb(C.sidewalk), rgb(C.island), rgb(C.grass), rgb(C.asphalt)}
 	local segColor = {rgb(C.white), rgb(C.yellow), rgb(C.white), rgb(C.white), rgb(C.white), rgb(C.kerb)}
 	for _, name in man.modules do
 		local m = moduleData(d, name)
@@ -408,14 +409,17 @@ function RV.Build(opts: {mesh: boolean?}?): string
 		local t = m.tris
 		for i = 1, #t, 7 do
 			local k = t[i + 6]
-			local collide = k ~= 4
+			local collide = k ~= 4 -- grass is the only visual-only triangle
 			if useMesh and k == 4 then
 				continue -- grass is in the mesh
 			end
-			local nm = if useMesh and collide then TRI_NAME[k] .. "Collision" else TRI_NAME[k]
+			-- kind 5: invisible wheel support (always Transparency 1; CanCollide / CanQuery true so the suspension rays
+			-- see it; CanTouch false): keeps the support an old part gave a wheel next to the new road, never visible
+			local invisible = k == 5 or (useMesh and collide)
+			local nm = if k == 5 then TRI_NAME[k] elseif useMesh and collide then TRI_NAME[k] .. "Collision" else TRI_NAME[k]
 			n += triangle(cell, Vector2.new(t[i] + O.X, t[i + 1] + O.Z), Vector2.new(t[i + 2] + O.X, t[i + 3] + O.Z),
 				Vector2.new(t[i + 4] + O.X, t[i + 5] + O.Z), tops[k], thick[k], nm, colors[k], mats[k], collide,
-				if useMesh and collide then 1 else 0, TRI_KIND[k])
+				if invisible then 1 else 0, TRI_KIND[k])
 		end
 		if not useMesh then
 			local s = m.segs

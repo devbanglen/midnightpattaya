@@ -56,7 +56,7 @@ CFG = dict(
     mouth_cap=70.0, mouth_pad=2.0, cluster_gap=1.0,
     dash=8.0, dash_gap=12.0, line_w=0.5, centre_gap=1.0, edge_inset=1.2, stop_w=1.6,
     zebra_bar=2.0, zebra_gap=2.0, zebra_depth=10.0, zebra_inset=1.0, crossing_evidence=60.0, zebra_max_span=110.0, conflict_deg=12.0, field_close=12.0, separator_simplify=2.0,
-    coll_slack=0.3, coll_simplify=0.25,
+    coll_slack=0.3, coll_simplify=0.25, support_reach=2.0, support_min_area=2.0, support_clear=0.3, shoulder_joint=1.0,
     wheels=((-3.4, -5.2), (3.4, -5.2), (-3.4, 5.2), (3.4, 5.2)), wheel_step=2.0, contact_r=0.05,
 )
 REPLACE_KINDS = ('road', 'fill', 'junction', 'joint', 'apron', 'sidewalk', 'corner')
@@ -560,11 +560,19 @@ def generate(W, cfg=None, log=print):
     # concrete gutter between the asphalt and the kerb, and every wheel footprint it supports keeps its support)
     shoulders = unary_union([s_['poly'] for s_ in W['surf'] if s_['kind'] in world.SHOULDER_KINDS and s_['poly'].intersects(area)])
     if cfg['keep_shoulders_flush'] and not shoulders.is_empty:
-        walk = clean(walk.difference(shoulders.difference(S)))
+        # the pilot's own joints between its pieces (up to 2 studs wide) stay as they are today: closing the pieces 1 stud
+        # keeps every sidewalk / island sliver out of them (a raised 0.6 ridge between two flush pieces is a wheel bump)
+        sh_closed = shoulders.buffer(cfg['shoulder_joint'], join_style='mitre').buffer(-cfg['shoulder_joint'], join_style='mitre')
+        sh_closed = unary_union([sh_closed, shoulders])
+        walk = clean(walk.difference(sh_closed.difference(S)))
         # no raised island on a shoulder / gap piece either: it stays flush road-height support
-        islands = clean(islands.difference(shoulders))
+        islands = clean(islands.difference(sh_closed))
         islands = clean(unary_union([q for q in polys(islands) if q.area > 4.0]))
         walk = clean(unary_union([q for q in polys(walk) if q.area > 4.0]))
+        # a sidewalk is the paved edge of the road: pieces that no longer touch the asphalt or an island (slivers left
+        # between shoulder pieces and buildings, 0.1-1.8 studs wide) go; terrain shows there, as today
+        near_paved = unary_union([S, islands]).buffer(0.5)
+        walk = clean(unary_union([q for q in polys(walk) if q.intersects(near_paved)]))
     kerb = clean(walk.intersection(paved.buffer(cfg['kerb_w'])))
     island_kerb = clean(islands.difference(islands.buffer(-cfg['kerb_w'])))
     # islands wider than 2 x (kerb + 2) get a planted (grass) middle, the rest is paved
@@ -751,37 +759,60 @@ def generate(W, cfg=None, log=print):
     marks += stops + xmarks
 
     # ---- collision
-    # collision (invisible): the asphalt grown 0.3 (it tucks under the kerb / sidewalk edge) and simplified 0.25, as
-    # constrained-Delaunay triangles (two WedgeParts each, flat top at 1.0); sidewalks and islands shrunk 0.3 (they
-    # never reach over the asphalt) and simplified the same way. Fewer, larger parts than slabs + discs + fills.
+    # Design B: the asphalt grown under the kerbs and simplified, as constrained-Delaunay triangles (two WedgeParts each,
+    # flat top at 1.0); in the default Parts build these ARE the visible asphalt. Sidewalks / islands: pulled back from
+    # the asphalt only. Invisible wheel supports: separate parts (Transparency 1, CanCollide / CanQuery true).
     keep_support = Polygon()
+    support_tris = []
     if cfg['design'] == 'A':
         # A: the kept slab Parts plus visible flat triangles (WedgeParts) for the rest: visual = collision, as today
         slab_u = unary_union(old_slabs) if old_slabs else Polygon()
         tris = triangles(S.difference(slab_u).buffer(0.05, join_style='mitre').simplify(cfg['coll_simplify']), simplify=0)
     else:
-        # no-regression support: where an old replaced road part held a wheel within 2 studs of the new asphalt and B
-        # puts no sidewalk / island there, an invisible road-height strip keeps that support (the shoulder harness at
-        # +-24 used apron spill); it is never visible and never over a kerb
+        # no-regression wheel support: where an old replaced road part held a wheel within 2 studs of the new asphalt
+        # and B puts no sidewalk / island / kerb there and no shoulder piece already carries it, an INVISIBLE road-height
+        # support keeps that support (the shoulder harness at +-24 used old apron spill). Its own parts: Transparency 1,
+        # CanCollide and CanQuery true (the suspension rays must see it), CanTouch false.
         old_rep = unary_union([s_['poly'] for s_ in rep if s_['kind'] in world.ROAD_KINDS])
-        keep_support = clean(old_rep.intersection(S.buffer(2.0)).difference(S).difference(walk).difference(islands), 0.05)
-        # asphalt collision tucks 0.45 under every kerb (never past the paved edge)
-        paved_all = unary_union([S, walk, islands, keep_support])
-        grown = unary_union([S.buffer(0.45, join_style='mitre').intersection(paved_all.buffer(cfg['coll_slack'])), keep_support])
+        # never under a kerb / sidewalk / island (0.3 clear: their simplified collision cannot reach it either), never on
+        # or under a shoulder piece
+        no_go = unary_union([unary_union([walk, islands, kerb, island_kerb]).buffer(cfg['support_clear'], join_style='mitre'),
+                             shoulders])          # it may meet a shoulder edge (no slot) but never lie on one
+        room = clean(old_rep.intersection(S.buffer(cfg['support_reach'])).difference(S).difference(no_go), 0.05)
+        pieces = []
+        for q in polys(room):
+            if q.area < cfg['support_min_area']:
+                continue
+            # it overlaps the visible asphalt by up to 0.5 (transparent, coplanar: no slot between the two); simplified
+            # 0.1 and clipped again so it stays inside its room
+            ext = unary_union([q, q.buffer(0.5, join_style='mitre').intersection(S)]).difference(no_go)
+            # beside a shoulder piece the exact edge (the simplification must not open a slot against it)
+            near = ext.intersection(shoulders.buffer(0.3, join_style='mitre')) if not shoulders.is_empty else Polygon()
+            pieces.append(clean(unary_union([ext.simplify(0.1), near]).difference(no_go), 0.05))
+        keep_support = clean(unary_union(pieces)) if pieces else Polygon()
+        support_tris = triangles(keep_support, simplify=0)
+        # visible asphalt: S grown 0.45 under the kerbs (never past the paved edge), simplified 0.25
+        paved_all = unary_union([S, walk, islands])
+        grown = S.buffer(0.45, join_style='mitre').intersection(paved_all.buffer(cfg['coll_slack']))
         tris = triangles(grown.simplify(cfg['coll_simplify']), simplify=0)
     # sidewalk / island collision: pulled back 0.3 from the asphalt only (never over it); against shoulders, terrain
-    # and buildings it keeps the visual edge, so no slot opens beside a shoulder piece
+    # and buildings it keeps the visual edge, so no slot opens beside a shoulder piece, and it never lies on a shoulder
     def flat_coll(g):
-        # pulled back 0.3 from the asphalt only: against a shoulder piece it keeps the shoulder edge (no slot beside
-        # the shoulder), and it never lies on a shoulder piece (no kerb on the shoulder)
-        c = g.difference(S.buffer(cfg['coll_slack'], join_style='mitre')).simplify(cfg['coll_simplify'])
-        return clean(c.difference(shoulders) if not shoulders.is_empty else c)
+        base = g.difference(S.buffer(cfg['coll_slack'], join_style='mitre'))
+        c = base.simplify(cfg['coll_simplify'])
+        if shoulders.is_empty:
+            return clean(c)
+        # beside a shoulder piece the exact visual edge: the simplification must not open a slot against a shoulder
+        # (a 0.1-0.2 stud sliver there dropped one wheel sample of the spot 2 gate, rev +24)
+        near = base.intersection(shoulders.buffer(0.5, join_style='mitre'))
+        return clean(unary_union([c, near]).difference(shoulders))
     walk_tris = triangles(flat_coll(walk), simplify=0)
     isl_tris = triangles(flat_coll(islands), simplify=0)
-    coll_asphalt = unary_union(tris + old_slabs)
-    pilot = dict(cfg={k: v for k, v in cfg.items() if k != 'wheels'}, keep_support=keep_support, area=area, chains=chains, rib=rib, zones=zones,
+    coll_asphalt = unary_union(tris + support_tris + old_slabs)      # every road-height collision surface of the pilot
+    pilot = dict(cfg={k: v for k, v in cfg.items() if k != 'wheels'}, keep_support=keep_support, support_tris=support_tris,
+                 area=area, chains=chains, rib=rib, zones=zones,
                  layers=dict(asphalt=[S], sidewalk=[walk], kerb=[kerb, island_kerb], island=[islands], median=[green]),
-                 S=S, walk=walk, kerb=kerb, islands=islands, green=green, marks=marks, crossings=crossings, tris=tris,
+                 S=S, walk=walk, kerb=kerb, island_kerb=island_kerb, islands=islands, green=green, marks=marks, crossings=crossings, tris=tris,
                  walk_tris=walk_tris, isl_tris=isl_tris, coll_asphalt=coll_asphalt, replaced=rep, kept=keep,
                  kept_asphalt=kept_asphalt, lane_corridor=lane_corr, design=cfg['design'], old_slabs=old_slabs, shoulders=shoulders, blds=blds, Z=Z, J=J, bld_cut=bld_cut, own=own)
     pilot['checks'] = checks(W, pilot, cfg)
@@ -800,6 +831,8 @@ def part_counts(W, P):
     before['zebra'] = sum(len(c['bars']) for c in rep_x)
     after = Counter()
     after['collision_wedges'] = sum(wedge_parts(t) for t in P['tris'])
+    if P.get('support_tris'):
+        after['support_wedges'] = sum(wedge_parts(t) for t in P['support_tris'])
     after['sidewalk_wedges'] = sum(wedge_parts(t) for t in P['walk_tris'])
     after['island_wedges'] = sum(wedge_parts(t) for t in P['isl_tris'])
     tiles = set()
@@ -822,6 +855,29 @@ def part_counts(W, P):
                 after_if_markings_are_parts=int(sum(after.values()) + after_parts_alt['markings_as_parts']),
                 shoulder_parts_kept_untouched=int(shoulders),
                 visual_triangles=int(sum(len(triangles(g)) for g in [P['S'], P['walk'], P['islands']])))
+
+
+def support_audit(P):
+    """the invisible wheel supports of design B: parts, area, patches (world centroid, area), the largest distance of any
+    support corner from the visible road, and their overlap with kerbs / sidewalks / islands and shoulder pieces (0 wanted)"""
+    st = P.get('support_tris') or []
+    if not st:
+        return dict(parts=0, triangles=0, area=0.0, patches=[], max_dist_visible_road=0.0, max_dist_S=0.0,
+                    under_kerb_visual=0.0, under_kerb_collision=0.0, on_shoulders=0.0)
+    su = unary_union(st)
+    vis = unary_union(P['tris'])                      # the visible asphalt of the default Parts build
+    corners = [c for t in st for c in list(t.exterior.coords)[:3]]
+    kerbs = unary_union([P['walk'], P['islands'], P['kerb'], P.get('island_kerb', Polygon())])
+    kcoll = unary_union(P['walk_tris'] + P['isl_tris'])
+    patches = []
+    for q in sorted(polys(su), key=lambda q: (round(q.centroid.x, 1), round(q.centroid.y, 1))):
+        patches.append(dict(world=[round(q.centroid.x + world.ORIGIN[0], 1), round(q.centroid.y, 1)], area=round(q.area, 1),
+                            parts=sum(wedge_parts(t) for t in st if q.buffer(0.01).contains(t))))
+    return dict(parts=sum(wedge_parts(t) for t in st), triangles=len(st), area=round(su.area, 1), patches=patches,
+                max_dist_visible_road=round(max(vis.distance(Point(c)) for c in corners), 2),
+                max_dist_S=round(max(P['S'].distance(Point(c)) for c in corners), 2),
+                under_kerb_visual=round(su.intersection(kerbs).area, 3), under_kerb_collision=round(su.intersection(kcoll).area, 3),
+                on_shoulders=round(su.intersection(P['shoulders']).area, 3) if not P['shoulders'].is_empty else 0.0)
 
 
 def checks(W, P, cfg):
@@ -904,6 +960,7 @@ def checks(W, P, cfg):
         asphalt=round(S.area, 0), sidewalk=round(P['walk'].area, 0), islands=round(P['islands'].area, 0),
         layer_overlap=round(ov, 2), marking_off_asphalt=round(off_asphalt, 2),
         invisible_support_strip=round(support.area, 1),
+        supports=support_audit(P),
         marks_in_junction=round(sum(m['poly'].intersection(P['J'].buffer(-0.5)).area for m in P['marks'] if m['kind'] in ('lane', 'centre', 'edge')), 2),
         junction_field_area=round(P['J'].area, 0),
         lane_boundary_samples=cov_n, lane_boundary_covered=cov_k, lane_boundary_coverage=round(cov_k / cov_n, 3) if cov_n else None,
