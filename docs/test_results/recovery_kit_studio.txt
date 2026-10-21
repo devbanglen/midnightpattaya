@@ -1,0 +1,29 @@
+Recovery Kit + arcade collision (team18/recovery + leader integration), Studio Play, 2026-10-21
+Installed: PattayaRecovery (new), PattayaRecoveryServer (new), CarController, PattayaTraffic, PattayaTestKit,
+PattayaJobsServer (arcade-hit bump hook), PattayaQARunner. Old sources: ServerStorage.Rollback_recovery_20261021.
+Default switches: Recovery_Enabled on, CollisionModel "physical" (arcade OFF).
+
+PHASE 1 RECOVERY KIT - PASS
+1 flip test (TK.flipTest): roll 180 -> upright in 1.80 s (auto-upright); roll 90 -> 1.78 s; roll 120 -> fell back
+  by itself in 0.75 s (no upright needed). Owner rule "auto upright after 1.5 s upside down": met (1.5 s + turn).
+2 kit off (Recovery_Enabled=false): roll 180 stays upside down (today's behaviour) -> switch works.
+4 stuck: car jumped 7 studs in front of a building, throttle held -> prompt "Stuck? Hold R to rescue" 6.1 s after
+  the throttle started (the 4 s no-progress window starts once the car stops against the wall); rescue towed the
+  car 129 studs back along its own trail, landed on Road, upright (up 1.00).
+5 cooldown: second request 6 s after a rescue -> "Rescue ready in 6 s"; request while driving -> "slow down first".
+7 checkpoint-skip attempt in a Street Sprint: after checkpoint 3, car wedged 30 studs sideways off the road, rescue
+  -> landed back exactly on the route point it left (route index 177 before and after), next checkpoint unchanged
+  (3), no "run invalid". Rescue never moves a car forward.
+QA runner in Play: 49 PASS, 0 FAIL, 1 WARN (Studio memory). No new errors on server or client.
+Not run: 3 (manual R key rules), 8 loop race, 9 circuit, 10 job + rescue, 16 phone, 17 perf.
+
+PHASE 2 ARCADE COLLISION - NOT ACCEPTED (left OFF)
+TK.hitTest results (one run each):
+physical rear 100: MISSED 100->24 | rear 150: hit 150->144 (-4%) | rear 200: MISSED | head 150: MISSED |
+         side 150 a5: hit 150->15 (-90%) yaw 92, minUp 0.95 | side 150 a20: MISSED
+arcade   rear 100: MISSED | rear 150: heavy 150->55 (-63%) yaw -93 | rear 200: heavy 200->192 (-4%) yaw -158,
+         minUp 0.88 | head 150: "heavy" -4% (expected head-on -85%) | side 150 a5: MISSED |
+         side 150 a20: "headon" -92% (expected heavy)
+=> no flips in arcade (min up 0.88), but the hit tiers and speed losses do not match the owner's table and the
+   TestKit hit helper misses the target in about half the runs. Sent back to the team; CollisionModel stays
+   "physical".
