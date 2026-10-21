@@ -185,6 +185,14 @@ def wedge_count(a, b, c):
     return int(seglen(foot, a) > 0.05) + int(seglen(foot, b) > 0.05)
 
 
+def detail(out, x, z, n, c, src, chunk, name):
+    """a detail item as two Items: its colliding / touching parts (name) and the rest (name + '~', no collision)"""
+    if c > 0:
+        out.append(Item(x, z, c, 'detail', src, chunk, name))
+    if n - c > 0:
+        out.append(Item(x, z, n - c, 'detail', src, chunk, name if c == 0 else name + '~'))
+
+
 # ---- builders ------------------------------------------------------------------------------------------------------
 def edge_items(e, jr, dash_gap, src, chunk, out):
     """PattayaBuilder.buildEdge: slab stripes (road), fill wedges (road), markings, sidewalks (road)"""
@@ -285,11 +293,11 @@ def prop_items(cd, src, chunk, out):
     if palms or lights or signs:
         out.append(Item(*(palms or lights or signs)[:2], 1, 'model', src, chunk, 'Props'))
     for i in range(0, len(palms) - 1, 2):
-        out.append(Item(palms[i], palms[i + 1], 6, 'detail', src, chunk, 'Palm'))
+        detail(out, palms[i], palms[i + 1], 6, 1, src, chunk, 'Palm')
     for k, i in enumerate(range(0, len(lights) - 3, 4)):
-        out.append(Item(lights[i], lights[i + 1], 3 + (1 if k % 2 == 0 else 0), 'detail', src, chunk, 'StreetLight'))
+        detail(out, lights[i], lights[i + 1], 3 + (1 if k % 2 == 0 else 0), 1, src, chunk, 'StreetLight')
     for i in range(0, len(signs) - 7, 8):
-        out.append(Item(signs[i], signs[i + 1], 2, 'detail', src, chunk, 'NeonSign'))
+        detail(out, signs[i], signs[i + 1], 2, 0, src, chunk, 'NeonSign')
 
 
 def dress_items(cd, src, chunk, out):
@@ -299,13 +307,13 @@ def dress_items(cd, src, chunk, out):
     out.append(Item(0, 0, 0, 'model', src, chunk, 'Dressing'))
     out[-1].x, out[-1].z = (trees or poles or [0, 0])[:2] if (trees or poles) else (rs or gs)[0][:2]
     for i in range(0, len(trees) - 2, 3):
-        out.append(Item(trees[i], trees[i + 1], 2, 'detail', src, chunk, 'Tree'))
+        detail(out, trees[i], trees[i + 1], 2, 1, src, chunk, 'Tree')
     for i in range(0, len(poles) - 4, 5):
-        out.append(Item(poles[i], poles[i + 1], 2 + (1 if poles[i + 4] > 0 else 0), 'detail', src, chunk, 'UtilityPole'))
+        detail(out, poles[i], poles[i + 1], 2 + (1 if poles[i + 4] > 0 else 0), 1, src, chunk, 'UtilityPole')
     for s in rs:
-        out.append(Item(s[0], s[1], 8, 'detail', src, chunk, 'RoadSign'))
+        detail(out, s[0], s[1], 8, 2, src, chunk, 'RoadSign')
     for g in gs:
-        out.append(Item(g[0], g[1], 12, 'detail', src, chunk, 'Gantry'))
+        detail(out, g[0], g[1], 12, 3, src, chunk, 'Gantry')
 
 
 def city_chunks(build, data_dir, src, folder, man, jr, skip_osm, out):
@@ -373,25 +381,26 @@ def furniture_items(build, out):
         first = len(out)
         r = lst(cd, 'signals')
         for i in range(0, len(r) - 7, 8):
-            out.append(Item(r[i], r[i + 1], 6, 'detail', 'furniture', chunk, 'Signal'))
+            detail(out, r[i], r[i + 1], 6, 1, 'furniture', chunk, 'Signal')
         r = lst(cd, 'crossings')
         for i in range(0, len(r) - 7, 8):
             out.append(Item(r[i], r[i + 1], int(r[i + 4]), 'marking', 'furniture', chunk, 'ZebraStripe'))
         for s in lst(cd, 'nameSigns'):
             lines = max(1, sum(1 for t in s[4:6] if t))
-            out.append(Item(s[0], s[1], 2 + 2 * (3 + 2 * lines), 'detail', 'furniture', chunk, 'NameSign'))
+            detail(out, s[0], s[1], 2 + 2 * (3 + 2 * lines), 1, 'furniture', chunk, 'NameSign')
         for s in lst(cd, 'shelters'):
-            out.append(Item(s[0], s[1], 8 + 2 * GUI_SIGN, 'detail', 'furniture', chunk, 'Shelter'))
+            detail(out, s[0], s[1], 8 + 2 * GUI_SIGN, 6, 'furniture', chunk, 'Shelter')
         r = lst(cd, 'taxis')
         for i in range(0, len(r) - 4, 5):
-            out.append(Item(r[i], r[i + 1], (6 if r[i + 4] == 1 else 4) + 1 + 2 * GUI_SIGN, 'detail', 'furniture', chunk, 'TaxiStand'))
+            detail(out, r[i], r[i + 1], (6 if r[i + 4] == 1 else 4) + 1 + 2 * GUI_SIGN, 2, 'furniture', chunk, 'TaxiStand')
         r = lst(cd, 'poles')
         for i in range(0, len(r) - 4, 5):
-            out.append(Item(r[i], r[i + 1], 2 + (1 if r[i + 4] > 0 else 0), 'detail', 'furniture', chunk, 'UtilityPole'))
+            detail(out, r[i], r[i + 1], 2 + (1 if r[i + 4] > 0 else 0), 1, 'furniture', chunk, 'UtilityPole')
         if len(out) > first:
             out.append(Item(out[first].x, out[first].z, 2, 'model', 'furniture', chunk, 'ChunkModel'))
 
 
+COAST_COLLIDE = {'umbrellas': 0, 'lamps': 2, 'towers': 3, 'boats': 0, 'huts': 4, 'kites': 0}  # Model + colliding parts
 COAST_PARTS = {'umbrellas': (5, 4), 'lamps': (4, 3), 'towers': (4, 7), 'boats': (5, 3), 'huts': (5, 6), 'kites': (6, 5)}
 
 
@@ -409,7 +418,7 @@ def coast_items(build, out):
             r = lst(cd, kind)
             for k, i in enumerate(range(0, len(r) - stride + 1, stride)):
                 extra = 1 + (1 if kind == 'lamps' and k % 2 == 0 else 0) + (2 if kind in ('towers', 'huts') else 0)
-                out.append(Item(r[i], r[i + 1], n + extra, 'detail', 'coast', chunk, kind))  # +1: the item's Model
+                detail(out, r[i], r[i + 1], n + extra, COAST_COLLIDE[kind], 'coast', chunk, kind)  # +1: the item's Model
         if len(out) > first:
             out.append(Item(out[first].x, out[first].z, 1, 'model', 'coast', chunk, 'ChunkModel'))
 
@@ -678,7 +687,7 @@ def layout(items, variant, cap=1500):
     for k, it in enumerate(decor):
         if it.cat == 'model':
             continue  # chunk / folder models of the old layout do not exist in the new one
-        mode = 'client' if (variant == 'c' and it.cat in DETAIL_NEAR) else 'default'
+        mode = 'client' if (variant == 'c' and it.cat in DETAIL_NEAR and not collides(it)) else 'default'
         u = Unit(f'D{k}', mode, 'decor')
         u.add(it)
         units.append(u)
@@ -969,6 +978,18 @@ def district(items, cx, cz, half=PROTO_HALF):
     return [it for it in items if abs(it.x - cx) <= half and abs(it.z - cz) <= half and it.cat != 'model']
 
 
+# detail items with no colliding / touching part (builders: NeonSign + frame, beach umbrellas + loungers, boats,
+# parasails). In Studio, StreamingPrototype decides per PART (CanCollide or CanTouch), so a palm's fronds go to the
+# client layer while its trunk stays engine-streamed; the model splits each item the same way ('~' = the part
+# without collision).
+NONCOLLIDE_DETAIL = {'NeonSign', 'umbrellas', 'boats', 'kites'}
+
+
+def collides(it):
+    """True when the item holds a part with CanCollide / CanTouch (layout C keeps it engine-streamed)"""
+    return not (it.cat == 'detail' and (it.name.endswith('~') or it.name in NONCOLLIDE_DETAIL))
+
+
 def proto_plan(items, variant, cx, cz, half=PROTO_HALF, cell=PROTO_CELL, cap=PROTO_CAP):
     """Container assignment for the prototype (same rules as StreamingPrototype.luau Plan()). Returns
     {'containers': {name: {'mode', 'layer', 'n', 'roads'}}, 'assign': [(item index, container)]}.
@@ -1003,7 +1024,7 @@ def proto_plan(items, variant, cx, cz, half=PROTO_HALF, cell=PROTO_CELL, cap=PRO
         if it.cat == 'building':
             mode = 'atomic_lod' if variant == 'D' else 'default'
             put(f'Buildings/Bld_{ck[0]}_{ck[1]}', mode, 'decor', k, it)
-        elif variant == 'C':
+        elif variant == 'C' and not collides(it):
             put(f'Detail/Det_{ck[0]}_{ck[1]}', 'client', 'detail', k, it)
         else:
             put(f'Props/Prop_{ck[0]}_{ck[1]}', 'default', 'decor', k, it)
@@ -1093,7 +1114,7 @@ def proto_parity(items, cx, cz, half=PROTO_HALF):
     """per source folder (the PattayaWorld child) {variant: (parts, instances)} for the prototype variants A and B:
     they must be identical (the same source parts are copied; only grouping and streaming mode differ)"""
     out = {}
-    for v in ('A', 'B'):
+    for v in ('A', 'B', 'C', 'D'):
         p = proto_plan(items, v, cx, cz, half)
         t = defaultdict(lambda: [0, 0])
         for k, _name in p['assign']:

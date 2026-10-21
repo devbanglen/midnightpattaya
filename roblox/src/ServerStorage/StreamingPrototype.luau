@@ -98,7 +98,7 @@ local function devAllowed(): boolean
 end
 
 -- ---- source collection ------------------------------------------------------------------------------------------
-type Src = {part: BasePart, cat: string, root: string, chunk: string, n: number, x: number, z: number}
+type Src = {part: BasePart, cat: string, root: string, chunk: string, n: number, x: number, z: number, collide: boolean?}
 
 -- every top-level BasePart (its parent is not a BasePart) of the source folders inside the district, with its
 -- category and the instances it brings (itself + its Textures / lights / GUIs)
@@ -121,7 +121,7 @@ local function collect(): {Src}
 					end
 					local chunkName = if LOOSE[rootName] or chunk == d then rootName else rootName .. "_" .. chunk.Name
 					table.insert(out, {part = d, cat = category(d, rootName), root = rootName, chunk = chunkName,
-						n = 1 + #d:GetDescendants(), x = pos.X, z = pos.Z})
+						n = 1 + #d:GetDescendants(), x = pos.X, z = pos.Z, collide = d.CanCollide or d.CanTouch})
 				end
 			end
 		end
@@ -210,7 +210,11 @@ function P.MakePlan(variant: string, items: {Src}?): ({[string]: Container}, {Sr
 		local i, j = math.floor((it.x - x0) / cfg.cell), math.floor((it.z - z0) / cfg.cell)
 		if it.cat == "building" then
 			put("Buildings", "Bld_" .. i .. "_" .. j, if variant == "D" then "AtomicLOD" else "Default", "decor", it)
-		elseif variant == "C" then
+		elseif variant == "C" and not it.collide then
+			-- C: only NON-colliding detail (fronds, lamp heads, arms, boards, canopies, neon signs, ...) is built by
+			-- the client. Every part with CanCollide / CanTouch (poles, trunks, posts, shelters, hut walls, ...)
+			-- stays engine-streamed in Props, so the server, other players' cars and traffic see the same collision
+			-- as in A and B (no client-only collision anywhere; P.CollisionAudit checks it)
 			put("Detail", "Det_" .. i .. "_" .. j, "Client", "detail", it)
 		else
 			put("Props", "Prop_" .. i .. "_" .. j, "Default", "decor", it)
@@ -297,67 +301,137 @@ local function ground(root: Instance)
 	g.Parent = root
 end
 
--- the drive path: the named road with the most slab length in the district, slab centres ordered along its main
--- direction, one point per 40 studs (nearest to the previous point, so a dual carriageway is not zig-zagged)
-local function drivePath(src: {Src}): {Vector3}
-	local byName: {[string]: {Src}} = {}
-	local len: {[string]: number} = {}
-	for _, it in src do
-		local p = it.part
-		local parent = p.Parent
-		if p.Name == "Road" and not p:GetAttribute("RoadFill") and parent and parent:GetAttribute("EdgeId") then
-			local nm = parent.Name
-			byName[nm] = byName[nm] or {}
-			table.insert(byName[nm], it)
-			len[nm] = (len[nm] or 0) + p.Size.Z
+-- the drive path comes from the road graph (ServerStorage.PattayaRoute: nearestNode, dijkstra, polylineOf, toWorld),
+-- not from slab centres (those crossed ground and buildings: leader A/B run 2026-10-21, 58% of samples off road).
+-- PickRoute chooses the LONGEST graph route that lies fully inside the district and whose samples every `spacing`
+-- (4) studs are 100% on copied road parts; if no checked route reaches 100%, the best one is returned only when it
+-- reaches `need` (0.99), otherwise nil + the reason (Build then fails). Pure logic: `Route` and `onRoad` are passed in
+-- (unit-tested with a mock graph in the luau CLI).
+--   box = {minx, maxx, minz, maxz} map-local; onRoad(p: Vector3) -> boolean, p in PROTO world coordinates
+--   opts: shift (Vector3 added to Route.toWorld, default +offsetX), spacing 4, margin 40, need 0.99, seeds 12,
+--         maxRoutes 300 (polylines measured), maxCheck 60 (routes sampled), minLen 800, from / to (map-local Vector2:
+--         a fixed route between the nodes nearest to them, e.g. the leader's (1800, 1700) -> (4500, 1800))
+local function polyLen(pts: {any}): number
+	local L = 0
+	for i = 2, #pts do
+		L += math.sqrt((pts[i].X - pts[i - 1].X) ^ 2 + (pts[i].Y - pts[i - 1].Y) ^ 2)
+	end
+	return L
+end
+
+local function samplePoly(pts: {any}, spacing: number): {{number}}
+	local out = {{pts[1].X, pts[1].Y}}
+	local carry = 0
+	for i = 2, #pts do
+		local ax, az, bx, bz = pts[i - 1].X, pts[i - 1].Y, pts[i].X, pts[i].Y
+		local L = math.sqrt((bx - ax) ^ 2 + (bz - az) ^ 2)
+		local s = spacing - carry
+		while s <= L do
+			local t = s / L
+			table.insert(out, {ax + (bx - ax) * t, az + (bz - az) * t})
+			s += spacing
 		end
+		carry = L - (s - spacing)
 	end
-	local best, bestLen = nil, 0
-	for nm, l in len do
-		if l > bestLen or (l == bestLen and best and nm < best) then best, bestLen = nm, l end
-	end
-	if not best then return {} end
-	local items = byName[best]
-	-- main direction: the two farthest-apart centres (from the first, then from that one)
-	local function farthest(from: Src): Src
-		local f, fd = from, -1
-		for _, it in items do
-			local d = (it.x - from.x) ^ 2 + (it.z - from.z) ^ 2
-			if d > fd then f, fd = it, d end
-		end
-		return f
-	end
-	local a = farthest(items[1])
-	local b = farthest(a)
-	local dir = Vector2.new(b.x - a.x, b.z - a.z)
-	if dir.Magnitude < 1 then return {} end
-	dir = dir.Unit
-	local buckets: {[number]: {Src}} = {}
-	local maxk = 0
-	for _, it in items do
-		local s = (it.x - a.x) * dir.X + (it.z - a.z) * dir.Y
-		local k = math.floor(s / 40)
-		buckets[k] = buckets[k] or {}
-		table.insert(buckets[k], it)
-		maxk = math.max(maxk, k)
-	end
-	local out = {}
-	local prev: Vector3? = nil
-	for k = 0, maxk do
-		local bk = buckets[k]
-		if bk then
-			local pick, pd = bk[1], math.huge
-			for _, it in bk do
-				local d = if prev then (it.x - prev.X) ^ 2 + (it.z - prev.Z) ^ 2 else 0
-				if d < pd then pick, pd = it, d end
-			end
-			local top = pick.part.Position.Y + pick.part.Size.Y / 2
-			local pt = Vector3.new(pick.x + P.CONFIG.offsetX, top, pick.z)
-			table.insert(out, pt)
-			prev = pt
-		end
-	end
+	local last = pts[#pts]
+	table.insert(out, {last.X, last.Y})
 	return out
+end
+
+function P.RouteCoverage(Route: any, onRoad: (Vector3) -> boolean, pts: {any}, shift: Vector3, spacing: number?): (number, number)
+	local samples = samplePoly(pts, spacing or 4)
+	local ok = 0
+	for _, s in samples do
+		local w = Route.toWorld({X = s[1], Y = s[2]}, 1)
+		if onRoad(Vector3.new(w.X + shift.X, w.Y + shift.Y, w.Z + shift.Z)) then ok += 1 end
+	end
+	return ok / #samples, #samples
+end
+
+function P.PickRoute(Route: any, onRoad: (Vector3) -> boolean, box: {number}, opts: any?): (any?, string)
+	local o = opts or {}
+	local shift: Vector3 = o.shift or Vector3.new(P.CONFIG.offsetX, 0, 0)
+	local spacing, margin, need = o.spacing or 4, o.margin or 40, o.need or 0.99
+	local function inside(p: any): boolean
+		return p.X >= box[1] + margin and p.X <= box[2] - margin and p.Y >= box[3] + margin and p.Y <= box[4] - margin
+	end
+	local function allInside(pts: {any}): boolean
+		for _, p in pts do
+			if not inside(p) then return false end
+		end
+		return true
+	end
+	local routes = {} -- {pts, len}
+	if o.from and o.to then
+		local s = Route.nearestNode(o.from, 400)
+		local t = Route.nearestNode(o.to, 400)
+		if not (s and t) then return nil, "no graph node near from / to" end
+		local _, prev = Route.dijkstra(s)
+		local pts = Route.polylineOf(prev, s, t)
+		table.insert(routes, {pts = pts, len = polyLen(pts)})
+	else
+		local cand = {}
+		for i = 1, (Route.baseNodes or #Route.nodes) do
+			local n = Route.nodes[i]
+			if n and inside(n) then table.insert(cand, i) end
+		end
+		if #cand < 2 then return nil, "fewer than 2 graph nodes inside the district" end
+		-- seeds spread over the district (farthest-point sampling, deterministic)
+		local seeds = {cand[1]}
+		local dmin = {}
+		for _, c in cand do dmin[c] = math.huge end
+		while #seeds < math.min(o.seeds or 12, #cand) do
+			local last = Route.nodes[seeds[#seeds]]
+			local best, bd = nil, -1
+			for _, c in cand do
+				local n = Route.nodes[c]
+				dmin[c] = math.min(dmin[c], (n.X - last.X) ^ 2 + (n.Y - last.Y) ^ 2)
+				if dmin[c] > bd then best, bd = c, dmin[c] end
+			end
+			if not best or bd <= 0 then break end
+			table.insert(seeds, best)
+		end
+		-- every (seed, node) pair ranked by graph cost; the maxRoutes best become polylines
+		local pairsList = {}
+		local prevOf = {}
+		for _, s in seeds do
+			local dist, prev = Route.dijkstra(s)
+			prevOf[s] = prev
+			for _, t in cand do
+				if t ~= s and dist[t] then table.insert(pairsList, {s, t, dist[t]}) end
+			end
+		end
+		table.sort(pairsList, function(a, b)
+			if a[3] ~= b[3] then return a[3] > b[3] end
+			if a[1] ~= b[1] then return a[1] < b[1] end
+			return a[2] < b[2]
+		end)
+		for k = 1, math.min(#pairsList, o.maxRoutes or 300) do
+			local pr = pairsList[k]
+			local pts = Route.polylineOf(prevOf[pr[1]], pr[1], pr[2])
+			if #pts >= 2 and allInside(pts) then
+				local len = polyLen(pts)
+				if len >= (o.minLen or 800) then table.insert(routes, {pts = pts, len = len}) end
+			end
+		end
+	end
+	if #routes == 0 then return nil, "no graph route fully inside the district" end
+	table.sort(routes, function(a, b) return a.len > b.len end)
+	local best, bestFrac = nil, -1
+	for k = 1, math.min(#routes, o.maxCheck or 60) do
+		local r = routes[k]
+		local frac, n = P.RouteCoverage(Route, onRoad, r.pts, shift, spacing)
+		r.frac, r.samples = frac, n
+		if frac >= 1 then
+			return r, ("route %.0f studs, %d samples, 100%% on road"):format(r.len, n)
+		end
+		if frac > bestFrac then best, bestFrac = r, frac end
+	end
+	if best and bestFrac >= need then
+		return best, ("route %.0f studs, %d samples, %.1f%% on road (no 100%% route among the checked)"):format(best.len,
+			best.samples, bestFrac * 100)
+	end
+	return nil, ("best route only %.1f%% on road (< %.0f%%)"):format(math.max(bestFrac, 0) * 100, need * 100)
 end
 
 local function packPath(pts: {Vector3}): string
@@ -434,7 +508,7 @@ end
 function P.Parity(items: {Src}?): {[string]: {[string]: {number}}}
 	local src = items or collect()
 	local out = {}
-	for _, v in {"A", "B"} do
+	for _, v in {"A", "B", "C", "D"} do
 		local conts = P.MakePlan(v, src)
 		local t: {[string]: {number}} = {}
 		for _, c in conts do
@@ -452,38 +526,54 @@ end
 
 function P.ParityText(items: {Src}?): string
 	local par = P.Parity(items)
-	local roots = {}
-	for r in par.A do table.insert(roots, r) end
-	for r in par.B do
-		if not par.A[r] then table.insert(roots, r) end
+	local V = {"A", "B", "C", "D"}
+	local seen, roots = {}, {}
+	for _, v in V do
+		for r in par[v] do
+			if not seen[r] then seen[r] = true; table.insert(roots, r) end
+		end
 	end
 	table.sort(roots)
-	local lines = {("%-16s %8s %9s %8s %9s  %s"):format("source", "A parts", "A inst", "B parts", "B inst", "same")}
+	local head = ("%-16s"):format("source")
+	for _, v in V do head ..= ("  %s parts %8s"):format(v, v .. " inst") end
+	local lines = {head .. "  same"}
 	local ok = true
-	local ta, tb = {0, 0}, {0, 0}
+	local tot = {A = {0, 0}, B = {0, 0}, C = {0, 0}, D = {0, 0}}
 	for _, r in roots do
-		local a, b = par.A[r] or {0, 0}, par.B[r] or {0, 0}
-		local same = a[1] == b[1] and a[2] == b[2]
+		local line = ("%-16s"):format(r)
+		local a = par.A[r] or {0, 0}
+		local same = true
+		for _, v in V do
+			local x = par[v][r] or {0, 0}
+			same = same and x[1] == a[1] and x[2] == a[2]
+			tot[v][1] += x[1]
+			tot[v][2] += x[2]
+			line ..= ("  %7d %8d"):format(x[1], x[2])
+		end
 		ok = ok and same
-		ta[1] += a[1]
-		ta[2] += a[2]
-		tb[1] += b[1]
-		tb[2] += b[2]
-		table.insert(lines, ("%-16s %8d %9d %8d %9d  %s"):format(r, a[1], a[2], b[1], b[2], if same then "yes" else "NO"))
+		table.insert(lines, line .. "  " .. (if same then "yes" else "NO"))
 	end
-	table.insert(lines, ("%-16s %8d %9d %8d %9d  %s"):format("total", ta[1], ta[2], tb[1], tb[2],
-		if ok and ta[2] == tb[2] then "PARITY OK" else "PARITY FAILED"))
+	local line = ("%-16s"):format("total")
+	for _, v in V do
+		line ..= ("  %7d %8d"):format(tot[v][1], tot[v][2])
+		ok = ok and tot[v][2] == tot.A[2] and tot[v][1] == tot.A[1]
+	end
+	table.insert(lines, line .. "  " .. (if ok then "PARITY OK" else "PARITY FAILED"))
 	return table.concat(lines, "\n")
 end
 
 -- what the boot scripts do in the next Play (Edit mode): "cold", "teleport" or "off"
-function P.SetBoot(kind: string, coldSeconds: number?): string
+function P.SetBoot(kind: string, coldSeconds: number?, driveModes: string?): string
 	assert(isEdit(), "SetBoot: Edit mode")
 	assert(kind == "cold" or kind == "teleport" or kind == "off", "SetBoot: cold | teleport | off")
 	local root = workspace:FindFirstChild(ROOT)
 	assert(root, "SetBoot: Build() first")
 	root:SetAttribute("Boot", kind)
 	root:SetAttribute("ColdSeconds", coldSeconds or 30)
+	if driveModes then
+		assert(driveModes == "both" or driveModes == "cframe" or driveModes == "physics", "driveModes: both | cframe | physics")
+		root:SetAttribute("DriveModes", driveModes)
+	end
 	return "StreamingProto.Boot = " .. kind .. " (save, then a fresh Play)"
 end
 
@@ -494,6 +584,7 @@ local root = workspace:FindFirstChild("StreamingProto")
 if not (game:GetService("RunService"):IsStudio() and root and root:GetAttribute("Boot") ~= "off") then return end
 local P = require(game:GetService("ServerStorage"):WaitForChild("StreamingPrototype"))
 P.Server.start()
+P.Server.check()
 P.Server.boot(root:GetAttribute("Boot"))
 ]]
 
@@ -521,8 +612,28 @@ local function installBoot()
 	end
 end
 
-function P.Build(variant: string?): string
+-- client-only collision audit: every template of the client-built layer (variant C) must have CanCollide = false
+-- and CanTouch = false. Returns the offending parts ("" = none). Build("C") fails when it is not empty.
+function P.CollisionAudit(): string
+	local det = ReplicatedStorage:FindFirstChild(DETAIL)
+	if not det then return "" end
+	local bad = {}
+	for _, d in det:GetDescendants() do
+		if d:IsA("BasePart") and (d.CanCollide or d.CanTouch) then
+			table.insert(bad, d:GetFullName())
+		end
+	end
+	table.sort(bad)
+	return table.concat(bad, "\n")
+end
+
+function P.Build(variant: string?, opts: any?): string
 	assert(isEdit(), "StreamingPrototype.Build: Edit mode only")
+	local bo = opts or {}
+	local okRoute, Route = pcall(function()
+		return require(game:GetService("ServerStorage"):WaitForChild("PattayaRoute", 5) :: any)
+	end)
+	assert(okRoute and Route, "StreamingPrototype.Build: needs ServerStorage.PattayaRoute (the road graph) for the drive path")
 	local v = string.upper(variant or "B")
 	local t0 = os.clock()
 	local conts, src = P.MakePlan(v)
@@ -595,24 +706,42 @@ function P.Build(variant: string?): string
 	root:SetAttribute("Index", HttpService:JSONEncode(index))
 	root.Parent = workspace
 	if detailRoot then (detailRoot :: Instance).Parent = ReplicatedStorage end
-	-- the drive path, kept only where a downward ray hits a proto road part (built now, so this is the baseline)
-	local raw = drivePath(src)
+	-- the drive path: the longest road-graph route fully inside the district whose 4-stud samples are on copied
+	-- road parts (PickRoute); fewer than 99% on road fails the build (the prototype is removed again)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = {root}
-	local path = {}
-	for _, p in raw do
+	local function onRoad(p: Vector3): boolean
 		local hit = workspace:Raycast(p + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), params)
-		if hit and hit.Instance:GetAttribute("ProtoCat") == "road" then table.insert(path, p) end
+		return hit ~= nil and hit.Instance:GetAttribute("ProtoCat") == "road"
+	end
+	local origin: Vector3 = Route.ORIGIN or Vector3.new(20000, 0, 0)
+	local mc = cfg.centre - origin
+	local box = {mc.X - cfg.half, mc.X + cfg.half, mc.Z - cfg.half, mc.Z + cfg.half}
+	local picked, why = P.PickRoute(Route, onRoad, box, {shift = shift, from = bo.pathFrom, to = bo.pathTo})
+	if not picked then
+		P.Remove()
+		error("StreamingPrototype.Build: no usable drive path (" .. why .. "); the prototype was removed again")
+	end
+	local path = {}
+	for _, q in picked.pts do
+		table.insert(path, Route.toWorld(q, 1) + shift)
 	end
 	root:SetAttribute("ProtoPath", packPath(path))
-	root:SetAttribute("ProtoPathDropped", #raw - #path)
+	root:SetAttribute("ProtoPathInfo", why)
+	root:SetAttribute("ProtoPathCoverage", picked.frac)
 	root:SetAttribute("Boot", "off")
 	root:SetAttribute("ColdSeconds", 30)
+	root:SetAttribute("DriveModes", "both")
+	local audit = P.CollisionAudit()
+	if audit ~= "" then
+		P.Remove()
+		error("StreamingPrototype.Build: client-layer parts with collision (must be none):\n" .. audit)
+	end
 	installClientCopy()
 	installBoot()
-	return planText(v, conts, src) .. ("\nbuilt %d parts (%d not clonable) in %.1f s; drive path %d points (%d dropped: no road under them);"
-		.. " workspace.%s%s; boot scripts installed (Boot = off, see P.SetBoot); SAVE the place, then Play"):format(cloned, failed, os.clock() - t0, #path, #raw - #path, ROOT,
+	return planText(v, conts, src) .. ("\nbuilt %d parts (%d not clonable) in %.1f s; drive path %d points (%s);"
+		.. " workspace.%s%s; boot scripts installed (Boot = off, see P.SetBoot); SAVE the place, then Play"):format(cloned, failed, os.clock() - t0, #path, why, ROOT,
 		if v == "C" then " + ReplicatedStorage." .. DETAIL else "")
 end
 
@@ -728,6 +857,51 @@ function P.Server.start(): string
 		return false, "unknown action"
 	end
 	return "StreamingPrototype server remote ready"
+end
+
+-- server-side check (Play, server; the boot Script runs it): the server sees every part, so this is the collision a
+-- server, other players' cars and traffic get. (1) client-layer templates with collision (must be 0); (2) the drive
+-- path sampled every 4 studs against the copied road layer on the server (must be 100%); (3) colliding parts in
+-- workspace.StreamingProto per category (A, B, C, D must give the same numbers: C moves no colliding part)
+function P.Server.check(): string
+	local root = workspace:FindFirstChild(ROOT)
+	if not root then return "[StreamProto] server check: no workspace." .. ROOT end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = {root}
+	local path = unpackPath(root:GetAttribute("ProtoPath"))
+	local ok, n = 0, 0
+	for i = 2, #path do
+		local a, b = path[i - 1], path[i]
+		local L = (Vector3.new(b.X, 0, b.Z) - Vector3.new(a.X, 0, a.Z)).Magnitude
+		local steps = math.max(1, math.floor(L / 4))
+		for k = 0, steps - 1 do
+			local q = a:Lerp(b, k / steps)
+			local hit = workspace:Raycast(q + Vector3.new(0, 40, 0), Vector3.new(0, -80, 0), params)
+			n += 1
+			if hit and hit.Instance:GetAttribute("ProtoCat") == "road" then ok += 1 end
+		end
+	end
+	local collide: {[string]: number} = {}
+	for _, d in root:GetDescendants() do
+		if d:IsA("BasePart") and d.CanCollide then
+			local c = d:GetAttribute("ProtoCat") or "?"
+			collide[c] = (collide[c] or 0) + 1
+		end
+	end
+	local keys = {}
+	for k in collide do table.insert(keys, k) end
+	table.sort(keys)
+	local parts = {}
+	for _, k in keys do table.insert(parts, k .. " " .. collide[k]) end
+	local audit = P.CollisionAudit()
+	local nAudit = 0
+	for _ in string.gmatch(audit, "[^\n]+") do nAudit += 1 end
+	local line = ("[StreamProto] server check variant %s: client-only collision parts %d; path on road (server) %d/%d = %.1f%%;"
+		.. " colliding parts: %s"):format(tostring(root:GetAttribute("Variant")), nAudit, ok, n,
+		if n > 0 then ok / n * 100 else 0, table.concat(parts, ", "))
+	print(line)
+	return line
 end
 
 -- boot sequence (the boot Script): seat the first player in the nearest race car; "cold": move it into the proto at
@@ -854,6 +1028,9 @@ local function startNearLayer(focus: () -> Vector3?): (() -> number, () -> ())
 			local d = math.sqrt((t.pos.X - f.X) ^ 2 + (t.pos.Z - f.Z) ^ 2)
 			if not t.live and d <= R then
 				local c = t.tpl:Clone()
+				c.CanCollide = false
+				c.CanTouch = false
+				c.CanQuery = false
 				c.Parent = folder
 				t.live = c
 				spent += t.n
@@ -997,7 +1174,7 @@ function P.Client.measure(o: any): any
 		end
 		drive = TK.drivePath(path, {speed = speed, physics = o.physics == true, name = "streamproto", holdEnd = 0.5})
 	end
-	local seconds = o.seconds or (if moving then cum[#cum] / speed + 10 else 20)
+	local seconds = o.seconds or (if moving then cum[#cum] / speed + (if o.physics then 25 else 10) else 20)
 	local stopAt = t0 + seconds
 	while os.clock() < stopAt do
 		if drive and drive.done and os.clock() - t0 > 3 then break end
@@ -1036,6 +1213,7 @@ function P.Client.measure(o: any): any
 	for _, n in clientAdded do clientMax = math.max(clientMax, n) end
 	local res = {
 		variant = variant, mode = mode, speed = if moving then speed else nil, prestream = o.prestream ~= false,
+		physics = moving and o.physics == true,
 		stats = st, roadMissingUnderCar = missUnder, roadChecks = checks, roadMissingAhead05s = missAhead5,
 		roadMissingAhead1s = missAhead10, firstRoadUnderCarS = firstRoad, arrivedInProtoS = arrived,
 		completeMin = complete(cfg.minRadius), completeTarget = complete(cfg.targetRadius), clientLayerMax = clientMax,
@@ -1048,7 +1226,7 @@ function P.Client.measure(o: any): any
 	res.summary = ("[StreamProto] %s %s%s | avg %.1f fps, p99 %.0f ms, 1%% low %.1f fps, worst %.0f ms, >50ms %d, >100ms %d,"
 		.. " %d frames | added/frame max %d p99 %d total %d%s | road missing under car %d/%d, ahead 0.5s %d, 1s %d;"
 		.. " in proto at %.1fs, first road %.1fs | complete min %s target %s | mem total %.0f MB (%+.0f): %s")
-		:format(tostring(variant), mode, if moving then (" v=%d"):format(speed) else "", st.avgFps, st.p99Ms,
+		:format(tostring(variant), mode, if moving then (" v=%d %s"):format(speed, if o.physics then "physics" else "cframe") else "", st.avgFps, st.p99Ms,
 			st.low1Fps, st.worstMs, st.over50, st.over100, st.frames, st.addedMax, st.addedP99, st.addedTotal,
 			if variant == "C" then (" (client layer max %d)"):format(clientMax) else "", missUnder, checks, missAhead5,
 			missAhead10, arrived or -1, firstRoad or -1,
@@ -1083,9 +1261,16 @@ function P.Client.sequence(kind: string): string
 		task.wait(math.max(0, 15 - (os.clock() - tStart))) -- the city around the spawn settles first
 		P.Client.measure({mode = "teleport", seconds = 20})
 	end
-	for i, v in {100, 150, 200} do
-		task.wait(2)
-		P.Client.measure({mode = "drive", speed = v, reverse = i % 2 == 0})
+	-- DriveModes (root attribute): "both" (default: CFrame then physics at each speed), "cframe" or "physics"
+	local dm = (root and root:GetAttribute("DriveModes")) or "both"
+	local modes = if dm == "cframe" then {false} elseif dm == "physics" then {true} else {false, true}
+	local k = 0
+	for _, v in {100, 150, 200} do
+		for _, phys in modes do
+			task.wait(2)
+			k += 1
+			P.Client.measure({mode = "drive", speed = v, physics = phys, reverse = k % 2 == 0})
+		end
 	end
 	local rep = P.Client.report()
 	print(rep)

@@ -94,7 +94,7 @@ prototype district is centred on world (23140, 1761), the target the leader name
 | a | everything in 256-stud Atomic chunks (still mixed) | 1,945 | 1,566 | 0 | 0 |
 | b | roads + markings Atomic per 256 cell (cap 1,500, quadrant split); buildings and props Default (each part streams on its own) | 1,628 | 537 | 0 | 0 |
 | b2 | b, with the road layer Persistent | 0 | 0 | **67,493** | 0 |
-| c | b, with detail props built by the client within 384 studs (200 instances per frame) | 1,628 | 537 | 0 | 35,944 |
+| c | b, with the NON-colliding detail parts built by the client within 384 studs (200 instances per frame); every colliding part stays engine-streamed | 1,628 | 537 | 0 | 30,141 |
 | d | b, with buildings Atomic per 256 cell, LevelOfDetail = StreamingMesh, TargetRadius 896 | 3,060 | 1,487 | 0 | 0 |
 
 **Teleport** (empty client stream, then a teleport onto the road nearest world (23140, 1761)):
@@ -168,13 +168,14 @@ p99 frame, b is about 55% below A.
 2. **Decoration non-atomic.** Buildings (body + Textures) and props are Default Models (each part streams on its own)
    in cells of 256 studs. A building whose parts must appear together, such as a vis-slice building Model, stays one
    small Atomic Model, which is still far smaller than a chunk.
-3. **Progressive detail layer (layout c).** Detail props (furniture, palms, lights, signs, coast props) are not
-   streamed by the engine. The client builds them within about 384 studs at 200 instances per frame, from data rows
-   in production; the prototype uses templates in ReplicatedStorage.
-   - Expected: about -10% instances inside TargetRadius, and the client work is bounded per frame.
+3. **Progressive detail layer (layout c).** The NON-colliding parts of detail props (palm fronds, lamp heads, arms,
+   boards and their GUIs, canopies, neon signs, umbrellas, boats) are not streamed by the engine. The client builds
+   them within about 384 studs at 200 instances per frame, from data rows in production; the prototype uses
+   templates in ReplicatedStorage.
+   - Expected: about -8 to -10% instances inside TargetRadius, and the client work is bounded per frame.
    - Cost: client Lua and memory for the data.
-   - The collision of solid props (poles, trunks) becomes client-only. That is fine for the client-owned car, but
-     server-side checks no longer see them.
+   - Every part with collision (poles, trunks, posts, walls) stays engine-streamed, so the server, other cars and
+     traffic see the same collision as today. There is **no client-only collision** (owner rule; §4.2).
 4. **Fewer instances (the largest lever, unchanged from team10):**
    - Merge the aprons and corner fills (23,787 instances, 13% of the world) per junction into a few parts or meshes.
    - Replace the 33,864 facade Textures with one atlas mesh per building.
@@ -191,7 +192,14 @@ p99 frame, b is about 55% below A.
    a pre-stream before every server teleport (`RequestStreamAroundAsync`). Covering the residual teleport burst with a
    short fade is a separate UI decision.
 
-## 4. The prototype experiment (approved: variants A and B; C and D later)
+## 4. The prototype experiment (A/B measured 2026-10-21; C and D approved, separate area only, one at a time)
+
+Leader A/B results: `docs/test_results/streaming_proto_ab.txt`.
+- Parity OK in Studio: 14,795 parts / 24,791 instances per variant.
+- 0 frames with road missing under the car.
+- Most runs were unfocused at 15 fps, so their frame times are not valid; they are re-measured in a focused Studio
+  first.
+- The slab-centre drive path was a harness bug. It is replaced by the road-graph route below.
 
 ### 4.1 What the prototype is
 
@@ -200,138 +208,182 @@ p99 frame, b is about 55% below A.
   - Chunks, WideChunks;
   - Apron, Furniture, VisSlice, Coast, Landmark and **Shoulder** chunks;
   - the junction discs, VisMeshPalms and the gate.
-- The copy goes to `workspace.StreamingProto`, shifted +60,000 studs in X. It has its own flat ground (a few
-  Persistent parts, top at y = -2, no terrain).
-- **ShoulderChunks** (the Sukhumvit shoulder pilot, which includes the narrowing at about (24550, 900)) are road
-  collision in every variant, in the same layer as the roads and aprons. Every part of `ShoulderChunks` and
-  `ApronChunks` gets `ProtoCat = "road"`.
-- Variants (the tests check that the Luau planner gives the same result as the Python plan):
-  - **A** control: one Atomic Model per source chunk; discs and palms loose.
-  - **B** road layer (roads, sidewalks, discs, aprons, corner fills, shoulders, markings) Atomic per 256-stud cell,
-    capped at 1,500 instances; buildings and props Default.
-  - C and D later.
-- **Parity: A and B copy exactly the same source parts.** Only grouping and streaming mode differ. In Edit mode,
-  `P.ParityText()` prints the table below (Studio counts) and `P.Parity()` returns it. Unit tests check parity in
+- The copy goes to `workspace.StreamingProto` at +60,000 X, with its own flat Persistent ground (top y = -2, no
+  terrain).
+- **The source world is only read.** Parts are `Clone()`d; a test checks the source for this.
+- **Road layer:** roads, sidewalks, junction and joint discs, aprons, corner fills, shoulders and markings
+  (`ProtoCat = "road"` / `"marking"`). Every part of ShoulderChunks and ApronChunks counts as road.
+- Variants:
+
+  | Variant | Road layer | Buildings | Props (detail) |
+  |---|---|---|---|
+  | **A** control | as the source: one Atomic Model per source chunk (mixed), discs and palms loose | (same chunks) | (same chunks) |
+  | **B** | Atomic per 256-stud cell, cap 1,500 | Default (non-atomic) | Default |
+  | **C** | as B | Default | parts **with** CanCollide or CanTouch: Default, engine-streamed (as B). Parts **without** collision: client-built within 384 studs, 200 instances per frame, from templates in `ReplicatedStorage.StreamingProtoDetail` |
+  | **D** | as B | Atomic per 256 cell, `LevelOfDetail = StreamingMesh` | Default |
+
+- **Parity: A, B, C and D copy exactly the same source parts.** Only grouping and streaming mode differ.
+  `P.ParityText()` prints parts and instances per source folder for all four variants and ends in `PARITY OK`.
+  Model: 24,755 instances in each variant, 1,871 of them in ShoulderChunks. Studio: 24,791. Tests check parity in
   Python and in the luau CLI.
+- Instances in the district by mode (model):
 
-  Offline model of the parity table ("items" = modelled part groups; Studio counts BaseParts, so its parts column
-  will be higher where a triangle is 2 WedgeParts):
-
-  | Source folder | A items | A instances | B items | B instances |
+  | Variant | Atomic | Default | Client-built | Largest Atomic |
   |---|---|---|---|---|
-  | ApronChunks | 1,550 | 3,079 | 1,550 | 3,079 |
-  | Chunks | 3,769 | 8,547 | 3,769 | 8,547 |
-  | FurnitureChunks | 333 | 3,193 | 333 | 3,193 |
-  | Junctions | 135 | 135 | 135 | 135 |
-  | **ShoulderChunks** | 1,014 | 1,871 | 1,014 | 1,871 |
-  | VisSliceChunks | 6 | 244 | 6 | 244 |
-  | WideChunks | 3,040 | 7,483 | 3,040 | 7,483 |
-  | WideJunctions | 203 | 203 | 203 | 203 |
-  | **total** | 10,050 | **24,755** | 10,050 | **24,755** |
+  | A | 24,417 | 338 | 0 | 748 |
+  | B | 10,194 | 14,561 | 0 | 841 |
+  | C | 10,194 | 12,043 | 2,518 | 841 |
+  | D | 10,194 road + 11,603 buildings (LOD) | 2,958 | 0 | 841 |
 
-- In the copy, road instances total 8,662 (shoulders included). Largest Atomic unit: A 748, B 841 (a road cell with
-  shoulders).
-- **The source world is only read.** Parts are `Clone()`d. Nothing in PattayaWorld is moved, changed or destroyed;
-  a test checks the source for this.
-- The copy carries attributes:
-  - `ProtoCat` (road / marking / building / detail / ground) and `ProtoSrc` on every copied part.
-  - `Mode`, `Layer` and `Expect` on every container.
-  - On the root: `Index` (JSON), `Boot`, `ColdSeconds`, and `ProtoPath`. ProtoPath is a drive path along the named
-    road with the most slab length in the district. It is kept only where a downward ray hits a road part of the copy.
-- `Build` also installs:
-  - a copy of the module as `ReplicatedStorage.StreamingPrototype`;
-  - two boot scripts, `ServerScriptService.StreamingProtoBoot` and `StarterPlayerScripts.StreamingProtoBootClient`.
-    They run only in Studio and only when `StreamingProto.Boot` is not `"off"`. Build sets it to off.
+### 4.2 Collision: no client-only collision anywhere (owner rule)
 
-**`Build()` is a Place change.** It adds about 25k instances and two small scripts. The leader runs it **only after
-the owner confirms a fresh .rbxl backup.**
+The owner's rule: no client-only collision for anything a car can hit (road, kerbs, barriers, checkpoints, props)
+unless its effect on the server and in multiplayer is documented and tested.
 
-### 4.2 Run modes and what each run reports
+- **A, B and D**: every part is engine-streamed, so the server holds all of them. Server physics, other players'
+  cars and traffic see exactly the collision they see in the city.
+- **D**: buildings that are streamed out show as imposters. These have no collision, which is the same as a
+  streamed-out building today (no part on the client). The server always has the real parts.
+- **C**: only parts with `CanCollide = false` **and** `CanTouch = false` go into the client layer. Examples:
+  - palm fronds;
+  - street-light arms and lamp heads, signal arms, heads and lamps;
+  - sign boards with their GUIs, neon signs and frames;
+  - shelter roofs, taxi canopies, racks and vests;
+  - pole arms and wires, tree canopies;
+  - umbrellas and loungers, boats, parasails, hut roofs and trims, tower decks, cabins and flags.
+
+  Every part a car can hit stays engine-streamed in `Props`, exactly as in B: trunks, poles, posts, shelter pads and
+  walls, benches, hut floors and walls, tower legs, gantry posts, and all road, kerb and building parts. The client
+  clones also get CanCollide, CanTouch and CanQuery set to false.
+- **Checks:**
+  - `P.CollisionAudit()` lists every client-layer template with collision. `Build("C")` fails (and removes the
+    prototype) if it is not empty.
+  - In Play, the boot server script runs `P.Server.check()`, which prints:
+    - the client-only collision part count (**must be 0**);
+    - the drive path sampled every 4 studs against the copied road layer **on the server** (must be 100%);
+    - colliding parts per category, which must be equal for A, B, C and D (C moves no colliding part).
+- **Not affected:** checkpoints and traffic are not in the prototype. The Race folder is not copied and there is no
+  traffic in the proto area, so checkpoint triggers are unaffected by construction.
+
+### 4.3 Drive path (road graph)
+
+`Build` now picks the path from `ServerStorage.PattayaRoute` (nearestNode, dijkstra, polylineOf, toWorld).
+`P.PickRoute` does the choosing:
+- Candidates: routes between up to 12 spread seed nodes and every graph node inside the district (40-stud margin).
+  The 300 highest-cost routes become polylines; only those fully inside the district and at least 800 studs long
+  are kept.
+- The longest route whose samples every 4 studs are **100%** on copied road parts is chosen; up to 60 routes are
+  sampled.
+- If none reaches 100%, the best route is used only if it reaches 99%. Below that, **Build fails** and removes the
+  prototype again.
+- Optional fixed route, as the leader used: `P.Build("B", {pathFrom = Vector2.new(1800, 1700), pathTo =
+  Vector2.new(4500, 1800)})`, in map-local coordinates.
+- Result attributes on the root: `ProtoPath`, `ProtoPathInfo` (length, samples, % on road), `ProtoPathCoverage`.
+- Unit tests (luau CLI, mock graph): the longest route wins; a route over a road gap is skipped; below 99% fails.
+
+### 4.4 Run modes and per-run output
 
 | Mode | How it starts |
 |---|---|
-| **cold** | `P.SetBoot("cold")`, then a fresh Play. At join, the boot server script seats the first player in the nearest race car (`PattayaTestKitServer.seat`) and moves that car to the proto path start **without** `RequestStreamAroundAsync` (anchored 0.3 s). The proto has never been streamed to this client. The client records from the moment its boot script starts, right after join, for `ColdSeconds` (30 s). Road checks start once the car is inside the proto. |
-| **teleport** | `P.SetBoot("teleport")`, then a fresh Play. The car is seated where the player spawned (city). After 15 s the client asks the server to teleport it into the proto (`PattayaTestKitServer.teleport`, which pre-streams like the game) and records 20 s. |
-| **drive 100 / 150 / 200** | Run automatically after cold or teleport, in the same session. Each drive follows `ProtoPath` (PattayaTestKit.drivePath, CFrame mode), alternating forward and reverse, and each is recorded separately. |
+| **cold** (`P.SetBoot("cold")`, fresh Play) | At join, the server seats the first player in the nearest race car and moves it to the path start with **no** `RequestStreamAroundAsync`. The client records 30 s from join. |
+| **teleport** (`P.SetBoot("teleport")`, fresh Play) | The car is seated in the city. After 15 s the client asks the server to teleport it into the proto (kit teleport, with pre-stream like the game) and records 20 s. |
+| **drives** (after cold or teleport) | 100, 150 and 200 studs/s, each speed in **CFrame mode and in physics mode** (`DriveModes = "both"`, the default; `P.SetBoot(kind, 30, "cframe" or "physics")` for one mode only). Directions alternate. `o.physics = true` on `P.Client.run` by hand. |
 
-Every recorded window prints one `[StreamProto]` line (`_G.StreamProto.runs` holds them all; `P.Client.report()`
-joins them):
-- avg FPS, p99 frame ms, 1% low FPS (mean of the slowest 1% of frames), worst frame, frames over 50 ms and over
-  100 ms;
-- instances added per frame (max, p99, total);
-- road-missing frames under the car, plus 0.5 s and 1 s ahead in drives. These are counted against the copied road
-  layer (`ProtoCat == "road"`: roads, discs, aprons, corner fills, shoulders); a ray that hits the proto ground or
-  nothing counts as missing;
-- when the car entered the proto and when the first road was under it;
-- completeness inside MinRadius and inside TargetRadius;
-- memory total and by tag (Instances, PhysicsParts, PhysicsCollision, GraphicsParts, GraphicsMeshParts,
-  GraphicsTexture, GraphicsSolidModels, Gui, LuaHeap, Script), each with the change over the window.
+Each window prints one line:
 
-### 4.3 Leader run sequence (A and B, 3 fresh Play runs per variant and start mode)
-
-Edit mode, after the owner has confirmed the backup:
-
-```lua
-local P = require(game.ServerStorage.StreamingPrototype:Clone())
-print(P.ParityText())                  -- must end in "PARITY OK" (changes nothing)
-print(P.Plan("A")); print(P.Plan("B"))
-print(P.Build("A")); print(P.Probe())
-print(P.SetBoot("cold"))               -- then SAVE
+```
+[StreamProto] <variant> <mode> [v=<speed> cframe|physics] | avg <fps> fps, p99 <ms> ms, 1% low <fps> fps, worst <ms> ms,
+>50ms <n>, >100ms <n>, <frames> frames | added/frame max <n> p99 <n> total <n> [(client layer max <n>)] |
+road missing under car <n>/<checks>, ahead 0.5s <n>, 1s <n>; in proto at <s>s, first road <s>s |
+complete min <pct> target <pct> | mem total <MB> MB (<delta>): Instances .., PhysicsParts .., GraphicsParts ..,
+GraphicsMeshParts .., GraphicsTexture .., ...
 ```
 
-1. **A, cold**: 3 fresh Play sessions. Each one runs by itself: cold 30 s, then drive 100, 150, 200 (about 1 minute
-   in total). After each session, copy the four `[StreamProto]` lines from the client output, or run
-   `print(require(game.ReplicatedStorage.StreamingPrototype).Client.report())` on the client. Then stop Play.
-2. **A, teleport**: Edit `print(P.SetBoot("teleport"))`, save, then 3 fresh Play sessions: teleport 20 s, then the
-   three drives.
-3. **B**: Edit `print(P.Build("B"))` (it removes A first), `print(P.ParityText())`, `print(P.SetBoot("cold"))`,
-   save. Then 3 fresh cold sessions, then `SetBoot("teleport")`, save, and 3 fresh teleport sessions.
-4. **End**: Edit `print(P.Remove())` must end in "leftovers: none". `print(P.Leftovers())` must print an empty
-   string. Save. Or keep B for later C/D runs.
+The server prints one check line per session:
 
-That is 12 Play sessions in total: 2 variants x 2 start modes x 3, each about 1-1.5 minutes. The minimum, if time is
-short, is 3 cold sessions per variant: they also contain the drives.
+```
+[StreamProto] server check variant <v>: client-only collision parts 0; path on road (server) <n>/<n> = 100.0%; colliding parts: building <n>, detail <n>, ground <n>, road <n>
+```
 
-### 4.4 Pass / fail (B against control A, medians of 3 runs)
+`P.Client.report()` on the client joins all the lines of the session.
+
+### 4.5 Exact Studio procedure
+
+**Before C or D:** the leader re-measures A and B in a focused Studio. Use steps 1-3 with `"A"`, then `"B"`. C and D
+follow, one at a time.
+
+1. **Edit mode, once:**
+   ```lua
+   local P = require(game.ServerStorage.StreamingPrototype:Clone())
+   print(P.ParityText())     -- last line ends in "PARITY OK"
+   ```
+2. **Build one variant:**
+   ```lua
+   print(P.Build("C"))       -- or "A" / "B" / "D"; removes the previous variant first
+   print(P.Probe())
+   print(P.CollisionAudit()) -- must print an empty line
+   print(P.SetBoot("cold"))
+   ```
+   Then **save**.
+3. **Run the sessions.** Keep Studio in front (focused), or the frame numbers are invalid.
+   - 3 fresh Play sessions with cold. Each runs by itself: cold, then 6 drives (CFrame and physics at 100, 150 and
+     200), about 2-3 minutes.
+   - After each session, collect the server check line and the client lines (`print(require(game.ReplicatedStorage.
+     StreamingPrototype).Client.report())` on the client). Stop Play.
+   - Edit `print(P.SetBoot("teleport"))`, save, and run 3 fresh Play sessions the same way.
+4. **Next variant:** repeat steps 2 and 3. D can also be run once more with `StreamingTargetRadius = 896` through
+   `PattayaPerfProfile` apply and revert; that is optional and changes a world setting until reverted.
+5. **Removal check (Edit mode):**
+   ```lua
+   print(P.Remove())             -- ends in "leftovers: none"
+   print("[" .. P.Leftovers() .. "]")   -- prints "[]"
+   ```
+   Then save.
+
+**Expected outputs (model estimates, not measurements):**
+- `Build`:
+  - `variant C: ... -> ... containers (Atomic ..., Client ..., Default ...); largest Atomic about 841; road in decor 0`;
+  - then `built ... parts ...; drive path N points (route ~4000+ studs, ... samples, 100% on road); ... SAVE the place`.
+- `ParityText`: identical rows for A, B, C and D, total about 24.8k instances, `PARITY OK`.
+- Server check: `client-only collision parts 0`, `path on road (server) 100.0%`, the same colliding-part counts in
+  every variant.
+- Drives, compared with A in the model:
+  - B: max instances added per frame about 300-850 (largest road cell 841), against A's full chunks.
+  - C: about 10% fewer engine-streamed instances near the car; `client layer max` ≤ about 200 plus one template.
+  - D: about 45% fewer instances within TargetRadius only when the radius is lowered. At the pc radius, D mainly
+    groups buildings.
+- Road missing: **0** (hard fail otherwise).
+
+### 4.6 Pass / fail (each variant against the focused A control, medians of 3 runs)
 
 | Measure | Pass |
 |---|---|
-| Parity (`P.ParityText()`) | PARITY OK before every run set (hard fail otherwise) |
-| Road missing (under the car, 0.5 s ahead, 1 s ahead) in drive 100 / 150 / 200 | **0 in every run** (hard fail otherwise) |
-| Road missing under the car in cold and teleport | ≤ A, and first road under the car ≤ A |
-| Drive worst frame | ≤ 60% of A |
-| Drive p99 | ≤ 80% of A |
+| Parity (`P.ParityText()`) | PARITY OK (hard fail) |
+| Client-only collision parts (server check, `CollisionAudit`) | 0 (hard fail) |
+| Path on road on the server | 100% (hard fail) |
+| Road missing under the car / 0.5 s / 1 s ahead, every drive, CFrame and physics | **0** (hard fail) |
+| Road missing under the car, cold and teleport | ≤ A |
+| Drive worst frame / p99 | ≤ 60% / ≤ 80% of A |
 | Drive 1% low FPS | ≥ A |
-| Instances added per frame (drive): max | ≤ 900 (B's largest road cell is 841) |
-| Instances added per frame (drive): p99 | ≤ A |
-| Cold / teleport frames > 100 ms | ≤ 75% of A |
-| Cold / teleport worst frame | not worse than A + 10% |
-| Completeness inside MinRadius at the end of a window | 100% |
-| Memory total at the end | ≤ A + 5% |
+| Instances added per frame in drives: max / p99 | ≤ 900 / ≤ A |
+| Cold / teleport frames > 100 ms | ≤ 75% of A; worst frame not worse than A + 10% |
+| Completeness inside MinRadius at the end | 100% |
+| Memory total at the end | ≤ A + 5% (C: the templates in ReplicatedStorage are included) |
+| C: client layer per frame | ≤ 200 + one template; no visible gaps inside about 250 studs (screenshot) |
+| D: imposters | visible beyond the streamed area (screenshot); otherwise D is dropped |
 
-Notes on the test setup:
-- The proto lies 60,000 studs from the city. In teleport mode the city also streams out, and both variants pay that
-  the same.
-- The cold window also contains the city stream-in around the spawn during the first second or two, before the car
-  is moved. It is the same for A and B.
-- The drive path is one district long, shorter than Sukhumvit.
-- The proto has no terrain; a ray that hits the proto ground counts as "road missing".
+### 4.7 Rollback and leftover check
 
-### 4.5 Rollback
+`P.Remove()` (Edit mode) deletes:
+- `workspace.StreamingProto` and `StreamingProtoClient`;
+- `ReplicatedStorage.StreamingPrototype`, `StreamingProtoRemote` and `StreamingProtoDetail`;
+- `ServerScriptService.StreamingProtoBoot` and `StarterPlayerScripts.StreamingProtoBootClient`;
+- any `StreamProto*` attribute on workspace or ReplicatedStorage.
 
-- In Edit mode, `require(game.ServerStorage.StreamingPrototype:Clone()).Remove()`. It deletes:
-  - `workspace.StreamingProto` and `workspace.StreamingProtoClient`;
-  - `ReplicatedStorage.StreamingPrototype`, `StreamingProtoRemote` and `StreamingProtoDetail`;
-  - `ServerScriptService.StreamingProtoBoot` and `StarterPlayerScripts.StreamingProtoBootClient`;
-  - any `StreamProto*` attribute on workspace or ReplicatedStorage (none are set; checked anyway).
-
-  It returns "leftovers: none" when the place is clean. `P.Leftovers()` lists anything that remains (empty = clean).
-  A test in the luau CLI checks this with a mock place, and checks that PattayaWorld, PattayaRemotes and other
-  attributes stay.
-- Then save.
-- Player attributes (`StreamProtoSeated` / `StreamProtoArrived`) exist only during a Play session.
-- No world, streaming or lighting setting is changed by Build.
-- Full fallback: the owner's .rbxl backup.
+It ends in `leftovers: none`. `P.Leftovers()` must return an empty string. A luau mock-place test checks this,
+including that PattayaWorld, PattayaRemotes and unrelated attributes stay. Player attributes (`StreamProtoSeated`,
+`StreamProtoArrived`) exist only during Play. Build changes no world, streaming or lighting setting. Full fallback:
+the owner's .rbxl backup.
 
 ## 5. A later citywide migration (plan only; not to be executed)
 

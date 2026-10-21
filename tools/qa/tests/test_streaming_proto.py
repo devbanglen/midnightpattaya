@@ -121,10 +121,30 @@ class ProtoPlan(unittest.TestCase):
                     self.assertTrue(c['n'] <= SA.PROTO_CAP or c['items'] == 1, (v, name, c['n']))
 
     def test_variant_c_moves_only_detail(self):
+        """C: the client layer holds only non-colliding detail (owner rule: no client-only collision for anything a
+        car can hit); every colliding item stays engine-streamed"""
         p = plan('C')
+        moved = 0
         for k, name in p['assign']:
+            it = p['source'][k]
             if p['containers'][name]['mode'] == 'client':
-                self.assertEqual(p['source'][k].cat, 'detail')
+                self.assertEqual(it.cat, 'detail')
+                self.assertFalse(SA.collides(it), it.name)
+                moved += 1
+            elif it.cat in ('road', 'marking', 'building') or SA.collides(it):
+                self.assertNotEqual(p['containers'][name]['mode'], 'client')
+        self.assertGreater(moved, 0)
+
+    def test_luau_client_layer_never_collides(self):
+        """the Luau planner puts a part with CanCollide / CanTouch into the client layer never; the client clones get
+        CanCollide / CanTouch / CanQuery = false; Build fails on a colliding template (CollisionAudit)"""
+        s = _qa.strip_comments(_qa.read(PROTO))
+        self.assertIn('elseif variant == "C" and not it.collide then', s)
+        self.assertIn('collide = d.CanCollide or d.CanTouch', s)
+        for prop in ('CanCollide', 'CanTouch', 'CanQuery'):
+            self.assertIn('c.%s = false' % prop, s)
+        self.assertIn('local audit = P.CollisionAudit()', s)
+        self.assertIn('P.Server.check()', s)
 
     def test_district_is_dense(self):
         """the district covers TargetRadius around its centre and holds a city-centre amount of instances"""
@@ -181,7 +201,8 @@ class PrototypeLuau(unittest.TestCase):
             for it in p['source']:
                 root = it.chunk.split('/')[0]
                 chunk = it.chunk if it.chunk in SA.LOOSE else it.chunk.replace('/', '_')
-                rows.append('{x=%r,z=%r,n=%d,cat="%s",root="%s",chunk="%s"}' % (it.x + SA.ORIGIN_X, it.z, it.n, it.cat, root, chunk))
+                rows.append('{x=%r,z=%r,n=%d,cat="%s",root="%s",chunk="%s",collide=%s}' % (
+                    it.x + SA.ORIGIN_X, it.z, it.n, it.cat, root, chunk, 'true' if SA.collides(it) else 'false'))
             main = (_qa.read(os.path.join(_qa.HERE, 'luau', 'prelude.luau')) + '\n'
                     'game = {GetService = function() return {} end}\nscript = {}\n'
                     'local P = (function()\n' + src + '\nend)()\n'
@@ -204,7 +225,8 @@ def district_rows(p):
     for it in p['source']:
         root = it.chunk.split('/')[0]
         chunk = it.chunk if it.chunk in SA.LOOSE else it.chunk.replace('/', '_')
-        rows.append('{x=%r,z=%r,n=%d,cat="%s",root="%s",chunk="%s"}' % (it.x + SA.ORIGIN_X, it.z, it.n, it.cat, root, chunk))
+        rows.append('{x=%r,z=%r,n=%d,cat="%s",root="%s",chunk="%s",collide=%s}' % (
+            it.x + SA.ORIGIN_X, it.z, it.n, it.cat, root, chunk, 'true' if SA.collides(it) else 'false'))
     return 'local items = {' + ',\n'.join(rows) + '}\n'
 
 
@@ -251,9 +273,11 @@ class PrototypeParityAndRemove(unittest.TestCase):
     def test_parity_a_b(self):
         par = SA.proto_parity(items(), *centre())
         self.assertEqual(par['A'], par['B'])
+        self.assertEqual(par['A'], par['C'])
+        self.assertEqual(par['A'], par['D'])
         self.assertIn('ShoulderChunks', par['A'])
         self.assertGreater(par['A']['ShoulderChunks'][1], 500)  # the narrowing at about (24550, 900) is in the copy
-        for v in ('A', 'B'):
+        for v in ('A', 'B', 'C', 'D'):
             self.assertEqual(sum(n for _, n in par[v].values()), sum(c['n'] for c in plan(v)['containers'].values()))
 
     def test_shoulders_are_road_layer(self):
@@ -280,6 +304,11 @@ table.sort(roots)
 for _, r in roots do print("PAR\t" .. r .. "\t" .. par.A[r][2] .. "\t" .. par.B[r][2]) end
 local text = P.ParityText(items)
 print("PARTEXT\t" .. (string.find(text, "PARITY OK", 1, true) and "ok" or "failed"))
+for _, v in {"C", "D"} do
+	local same = true
+	for r, x in par.A do same = same and par[v][r] ~= nil and par[v][r][2] == x[2] and par[v][r][1] == x[1] end
+	print("PARCD\t" .. v .. "\t" .. tostring(same))
+end
 -- a place with the prototype built (+ things that are not the prototype's)
 local RS = game:GetService("ReplicatedStorage")
 local world = new("PattayaWorld", workspace)
@@ -308,11 +337,109 @@ print("KEPT\t" .. tostring(workspace:FindFirstChild("PattayaWorld") ~= nil and R
         got = {ln[1]: (int(ln[2]), int(ln[3])) for ln in lines if ln[0] == 'PAR'}
         want = SA.proto_parity(items(), *centre())
         self.assertEqual(got, {k: (want['A'][k][1], want['B'][k][1]) for k in want['A']})
-        tags = {ln[0]: ln[1:] for ln in lines if ln[0] != 'PAR'}
+        tags = {ln[0]: ln[1:] for ln in lines if ln[0] not in ('PAR', 'PARCD')}
+        self.assertEqual([ln[1:] for ln in lines if ln[0] == 'PARCD'], [['C', 'true'], ['D', 'true']])
         self.assertEqual(tags['PARTEXT'], ['ok'])
         self.assertEqual(tags['BEFORE'], ['8'])  # 7 instances + 1 attribute
         self.assertEqual(tags['AFTER'], ['[]'])
         self.assertEqual(tags['KEPT'], ['true'])
+
+
+
+class PickRoute(unittest.TestCase):
+    """StreamingPrototype.PickRoute on a mock road graph in the luau CLI: the longest route fully inside the
+    district with 100% of its 4-stud samples on road wins; a route over a gap is skipped; < 99% fails"""
+    GRAPH = r"""
+-- 5 x 5 grid, 200 studs apart, map-local (0..800); edges between neighbours
+local Route = {nodes = {}, ORIGIN = Vector3.new(20000, 0, 0)}
+local idx = {}
+for i = 0, 4 do for j = 0, 4 do
+	table.insert(Route.nodes, {X = i * 200, Y = j * 200}); idx[i .. "_" .. j] = #Route.nodes
+end end
+local adj = {}
+for i = 0, 4 do for j = 0, 4 do
+	local a = idx[i .. "_" .. j]; adj[a] = adj[a] or {}
+	for _, d in {{1, 0}, {0, 1}, {-1, 0}, {0, -1}} do
+		local b = idx[(i + d[1]) .. "_" .. (j + d[2])]
+		if b then table.insert(adj[a], b) end
+	end
+end end
+function Route.toWorld(p, y) return Vector3.new(p.X + 20000, y or 1, p.Y) end
+function Route.nearestNode(p, maxDist)
+	local best, bd = nil, maxDist
+	for i, n in Route.nodes do
+		local d = math.sqrt((n.X - p.X) ^ 2 + (n.Y - p.Y) ^ 2)
+		if d <= bd then best, bd = i, d end
+	end
+	return best
+end
+function Route.dijkstra(s)
+	local dist, prev, done = {[s] = 0}, {}, {}
+	while true do
+		local u, ud = nil, math.huge
+		for n, d in dist do if not done[n] and d < ud then u, ud = n, d end end
+		if not u then break end
+		done[u] = true
+		for _, v in adj[u] do
+			local nd = ud + 200
+			if nd < (dist[v] or math.huge) then dist[v] = nd; prev[v] = u end
+		end
+	end
+	return dist, prev
+end
+function Route.polylineOf(prev, s, t)
+	local pts, n = {}, t
+	while n do table.insert(pts, 1, Route.nodes[n]); if n == s then break end; n = prev[n] end
+	return pts
+end
+"""
+
+    def run_pick(self, hole, need=0.99):
+        if not _qa.find_luau('luau'):
+            self.skipTest('luau CLI not found')
+        src = _qa.read(PROTO)
+        main = (_qa.read(os.path.join(_qa.HERE, 'luau', 'prelude.luau')) + '\n' + MOCK +
+                'local P = (function()\n' + src + '\nend)()\n' + self.GRAPH + r"""
+local hole = %s
+local function onRoad(p)  -- p in proto world coordinates (+60000 X, +20000 ORIGIN)
+	local x, z = p.X - 80000, p.Z
+	for _, h in hole do
+		if x >= h[1] and x <= h[2] and z >= h[3] and z <= h[4] then return false end
+	end
+	return true
+end
+local r, why = P.PickRoute(Route, onRoad, {-100, 900, -100, 900}, {need = %r, minLen = 200, margin = 40})
+if r then
+	local ok = true
+	for _, q in r.pts do ok = ok and q.X >= -60 and q.X <= 860 and q.Y >= -60 and q.Y <= 860 end
+	print("OK\t" .. math.floor(r.len + 0.5) .. "\t" .. r.frac .. "\t" .. tostring(ok))
+else
+	print("FAIL\t" .. why)
+end
+""" % (hole, need))
+        code, out = _qa.run_luau(main)
+        self.assertEqual(code, 0, out[-1500:])
+        return out.strip().splitlines()[-1].split('\t')
+
+    def test_longest_full_route(self):
+        res = self.run_pick('{}')
+        self.assertEqual(res[0], 'OK')
+        self.assertEqual(int(res[1]), 1600)  # corner to corner on the grid
+        self.assertEqual(float(res[2]), 1.0)
+        self.assertEqual(res[3], 'true')
+
+    def test_route_over_a_gap_is_skipped(self):
+        # a gap in the road around node (400, 400): the chosen route must avoid it and still be 100% on road
+        res = self.run_pick('{{390, 410, 390, 410}}')
+        self.assertEqual(res[0], 'OK')
+        self.assertEqual(float(res[2]), 1.0)
+
+    def test_fails_below_99_percent(self):
+        # every road has a gap somewhere: no route reaches 99%
+        res = self.run_pick('{{-200, 1000, 95, 105}, {-200, 1000, 295, 305}, {-200, 1000, 495, 505}, {-200, 1000, 695, 705},'
+                            ' {95, 105, -200, 1000}, {295, 305, -200, 1000}, {495, 505, -200, 1000}, {695, 705, -200, 1000}}')
+        self.assertEqual(res[0], 'FAIL')
+        self.assertIn('on road', res[1])
 
 
 if __name__ == '__main__':
