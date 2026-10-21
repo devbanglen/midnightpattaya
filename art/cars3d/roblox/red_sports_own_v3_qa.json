@@ -1,0 +1,197 @@
+{
+ "clearance": {
+  "FL": {
+   "free_bump_travel_m": 0.0597,
+   "rest_min_clearance_m": 0.0591,
+   "rest_points_inside": 0,
+   "steer_clearance_at_full_lock_m": {
+    "+28": 0.0225,
+    "-28": 0.0225
+   },
+   "steer_min_at_deg": 28,
+   "steer_min_clearance_m": 0.0225
+  },
+  "FR": {
+   "free_bump_travel_m": 0.0591,
+   "rest_min_clearance_m": 0.059,
+   "rest_points_inside": 0,
+   "steer_clearance_at_full_lock_m": {
+    "+28": 0.0228,
+    "-28": 0.0228
+   },
+   "steer_min_at_deg": 24,
+   "steer_min_clearance_m": 0.0226
+  },
+  "RL": {
+   "free_bump_travel_m": 0.0442,
+   "rest_min_clearance_m": 0.0441,
+   "rest_points_inside": 0
+  },
+  "RR": {
+   "free_bump_travel_m": 0.0445,
+   "rest_min_clearance_m": 0.0442,
+   "rest_points_inside": 0
+  },
+  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+  "steer_deg": 28.0,
+  "tyre_envelope": {
+   "note": "closed cylinder round the v2 tyre",
+   "radius_m": 0.3848,
+   "width_m": 0.344
+  }
+ },
+ "shells": {
+  "components": 25,
+  "components_with_negative_volume": 0,
+  "duplicate_directed_edges": 0,
+  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+  "min_component_volume_m3": 3.65e-05,
+  "open_edge_uses": 0,
+  "triangles": 14052
+ },
+ "silhouette": {
+  "cabin_above_0_45m_z_fictional": [
+   -0.407,
+   1.328
+  ],
+  "cabin_above_0_45m_z_own": [
+   -0.742,
+   0.833
+  ],
+  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+  "roofline": {
+   "max_higher_at_z": 2.238,
+   "max_higher_m": 0.635,
+   "max_lower_at_z": -2.252,
+   "max_lower_m": 0.16,
+   "mean_abs_diff_m": 0.0788,
+   "roof_peak_z": {
+    "fictional": 0.303,
+    "red_sports_own_v3": -0.237
+   },
+   "samples_every_0_25m": [
+    {
+     "diff": -0.16,
+     "fictional_y": -0.208,
+     "own_y": -0.368,
+     "z": -2.25
+    },
+    {
+     "diff": -0.065,
+     "fictional_y": -0.008,
+     "own_y": -0.073,
+     "z": -2.0
+    },
+    {
+     "diff": -0.005,
+     "fictional_y": 0.122,
+     "own_y": 0.117,
+     "z": -1.75
+    },
+    {
+     "diff": 0.005,
+     "fictional_y": 0.188,
+     "own_y": 0.192,
+     "z": -1.5
+    },
+    {
+     "diff": -0.025,
+     "fictional_y": 0.237,
+     "own_y": 0.212,
+     "z": -1.25
+    },
+    {
+     "diff": 0.02,
+     "fictional_y": 0.232,
+     "own_y": 0.252,
+     "z": -1.0
+    },
+    {
+     "diff": 0.17,
+     "fictional_y": 0.277,
+     "own_y": 0.447,
+     "z": -0.75
+    },
+    {
+     "diff": 0.165,
+     "fictional_y": 0.407,
+     "own_y": 0.573,
+     "z": -0.5
+    },
+    {
+     "diff": 0.09,
+     "fictional_y": 0.517,
+     "own_y": 0.607,
+     "z": -0.25
+    },
+    {
+     "diff": 0.01,
+     "fictional_y": 0.592,
+     "own_y": 0.602,
+     "z": 0.0
+    },
+    {
+     "diff": -0.105,
+     "fictional_y": 0.622,
+     "own_y": 0.517,
+     "z": 0.25
+    },
+    {
+     "diff": -0.145,
+     "fictional_y": 0.622,
+     "own_y": 0.477,
+     "z": 0.5
+    },
+    {
+     "diff": -0.14,
+     "fictional_y": 0.597,
+     "own_y": 0.457,
+     "z": 0.75
+    },
+    {
+     "diff": -0.1,
+     "fictional_y": 0.532,
+     "own_y": 0.432,
+     "z": 1.0
+    },
+    {
+     "diff": -0.065,
+     "fictional_y": 0.477,
+     "own_y": 0.412,
+     "z": 1.25
+    },
+    {
+     "diff": -0.01,
+     "fictional_y": 0.402,
+     "own_y": 0.392,
+     "z": 1.5
+    },
+    {
+     "diff": 0.06,
+     "fictional_y": 0.312,
+     "own_y": 0.372,
+     "z": 1.75
+    },
+    {
+     "diff": 0.095,
+     "fictional_y": 0.257,
+     "own_y": 0.352,
+     "z": 2.0
+    },
+    {
+     "diff": 0.495,
+     "fictional_y": -0.302,
+     "own_y": 0.192,
+     "z": 2.25
+    }
+   ],
+   "share_of_length_diff_over_5cm": 0.6
+  },
+  "side_iou_v2_vs_fictional": 0.9965,
+  "side_iou_v2_vs_fictional_holes_filled": 0.9966,
+  "side_iou_vs_fictional": 0.8574,
+  "side_iou_vs_fictional_holes_filled": 0.89,
+  "top_iou_v2_vs_fictional": 0.9904,
+  "top_iou_vs_fictional": 0.9472
+ }
+}

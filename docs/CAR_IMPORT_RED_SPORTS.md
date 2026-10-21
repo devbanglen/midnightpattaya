@@ -561,3 +561,220 @@ repo):
 - no brand words in GLB / FBX / wheels json;
 - upload BLOCKED in the json files; this section and the checklist are present;
 - the inputs still match the hashes the build recorded, and no v2 file is a copy of an original.
+
+## Own body v3
+
+Branch `team23/car-own-body` (2026-10-22). Owner brief: v2 still reads as an 812 in side profile, so the test car
+gets a **new body, modelled from scratch by our own Blender script**. No view, and above all not the side profile,
+may read as a Ferrari 812. v3 is a drop-in alternative to `red_sports_original_v2`: same wheel layout, and the v2
+turbine wheels are used as they are. The set is `red_sports_own_v3*`. `red_sports`, `red_sports_fictional`,
+`red_sports_meshy` and every `red_sports_original_v2*` file are untouched; a test checks the sha256 of all 70
+original `red_sports*` files under `art/cars3d`.
+
+**upload BLOCKED until the owner approves.** Nothing was uploaded or imported. Nothing was done in Studio, nothing
+went into the garage or `CarSpecs`, and nothing changed under `roblox/src`. This is not legal advice.
+
+### How it was made
+
+Sources: none. No Tripo, Meshy or other AI mesh, no texture from them, no photo or reference image, no downloaded
+model. Every vertex and every texel comes from the numbers and functions in `tools/blender/car_own_v3.py`. The MP
+emblem is the v2 decal (same drawing code; team21's own design). The wheels are the v2 wheels (team22's script).
+
+1. **Control cage:** 17 cross-sections (`RINGS`) x 12 points per half section, mirrored. A quad grid closes the
+   nose; the tail ring stays open.
+2. **Subdivision:** Catmull-Clark, 2 levels, with edge creases where a line must stay sharp: the floor edge, the
+   Kamm tail edge, the shoulder character line, the roof and rear-window edges, the buttresses. Then one flat face
+   closes the tail (constrained Delaunay triangulation). Flat floor faces are merged to save triangles.
+3. **Size:** centred on its bounding box (Roblox centres a MeshPart on its box) and given red_sports' exact length,
+   4.50145 m (the game scales every body to 16 studs by its length).
+4. **Exact booleans at the red_sports wheel layout:** four wheel tubs (front radius 0.445 m, rear 0.43 m), two side
+   intakes ahead of the rear wheels, two exhaust pockets. The body stays one closed shell.
+5. **24 detail parts**, each a closed solid sunk into the body: lamp bars, LED fangs, three stepped gills per side,
+   mirrors on arms, the tail light blade, outlet rims, four diffuser fins, the splitter, two MP emblems.
+6. **Normals and UVs:** smooth by angle (32 degrees), so only creases and part edges are sharp. Own box-projection
+   UVs; left and right share texels; 226.5 px per metre on the visible body.
+7. **Texture:** one procedural 1024² image per paint: paint with soft shading, dark glass, black roof and pillars,
+   panel gaps, deck and nose vents, the intake mesh. A 1024 x 128 strip holds the lamp, blade, gill and emblem
+   graphics. One material, one texture.
+8. **Own GLB writer** (generator `MIDNIGHT PATTAYA tools/blender/car_own_v3.py`, no timestamps, sorted JSON).
+
+| step | command | notes |
+|---|---|---|
+| build | `<bpy venv>\python tools/blender/bpy_local.py tools/blender/car_own_v3.py -- build art/cars3d/roblox` | this PC, PyPI bpy 5.1.2, 12 s. Box: `bash tools/blender/run_own_v3.sh build <dir>` |
+| FBX | `... car_own_v3.py -- fbx art/cars3d/roblox` | this PC, 2 s |
+| QA numbers | `python tools/gpu/car_own_v3_qa.py silhouette art/cars3d/roblox art/cars3d/qa`, then `clearance art/cars3d/roblox` and `shells art/cars3d/roblox` | numpy + Pillow. Writes `red_sports_own_v3_qa.json`; each section carries the sha256 of the GLB it measured |
+| renders | `... car_own_v3.py -- render <dir> <id> <out> <tag> --views tools/blender/own_v3_views.json [--engine workbench\|eevee\|cycles] [--steer 28] [--wheels <json>]` | Workbench on this PC (light). Box: `bash tools/blender/run_own_v3.sh render <dir> <id> <out> <tag> <views> cycles 900` |
+| sheets | `python tools/gpu/car_own_v3_qa.py grid <out.png> view1,view2 "<dir>\|<id>\|<tag>\|<label>" ...` | one row per view, one column per car |
+
+Deterministic: two builds on this PC gave byte-identical GLBs, PNG and json files. On the GPU box
+(Blender 5.2.2) two builds were byte-identical too. Box against this PC: the same positions, triangles, UVs and
+texture; normals differ by less than 1e-16, so the GLB bytes differ.
+The official build is the one from this PC (bpy 5.1.2, recorded in `_build.json`), so anyone with the repo venv
+can rebuild it byte for byte.
+
+### Design: why this shape
+
+A **cab-forward mid-engine GT with a long tail and a flat Kamm face.** Each 812 cue from the v2 review:
+
+| 812 cue | v3 | measured (vs `red_sports_fictional`) |
+|---|---|---|
+| long bonnet | short, low front deck: the windscreen starts about 0.25 m behind the front axle line (fictional: about 0.5 m) | windscreen base z about -1.0 m (fictional about -0.8 m) |
+| cabin set far back | cab-forward canopy, then a long engine deck | cabin (side outline above 0.45 m) z -0.74 to 0.83 m, fictional -0.41 to 1.33 m: its middle is 0.42 m further forward. Roof peak 0.54 m further forward |
+| fastback roof | short canopy, steep rear window between two sail-panel buttresses, then a long flat engine deck with two vents | roofline 10 to 15 cm lower from z 0.25 to 1.0 m |
+| short tail with a lip spoiler | long tail, tall flat Kamm face, no spoiler | tail end 50 cm higher |
+| side-window graphic | dark visor canopy: black roof and A-pillars, side glass with a pointed front and a vertical rear edge, body-colour sail panel behind it | |
+| door and shoulder lines | one sharp shoulder crease from the nose corner to the tail, kicking up over the rear haunch; the doors are tucked in under it | |
+| wide grille outline | no grille shape: a slim dark mouth between two straight lamp bars on a sloped nose face; a flat splitter with a teal edge | |
+| wing volumes over the wheels | low round front fenders; wide rear haunches that run into the buttresses; a meshed side intake ahead of the rear wheel | |
+
+Kept from the v2 "MP" language: straight lamp bars, vertical LED fangs, stepped gills (behind the front wheel,
+raised, teal top edge), the full-width rear light blade with turned-down ends, inboard rectangular outlets, the MP
+emblem on the nose and the tail, the v2 turbine wheels.
+
+Top view (the top-down camera): dark canopy in the middle, a low front deck with two small vent groups, two long
+four-slot vents in the engine deck, a square tail.
+
+### Numbers
+
+- **Triangles:** body shell 11,924 + 24 parts 2,128 = **14,052** (budget 20,000, target 8 to 15 k); 9,809
+  vertices. The FBX files have the same count.
+- **Bounding box:** **2.2085 x 1.2200 x 4.5014 m** (X x Y x Z), centred (0.0 mm). red_sports: 2.2067 x 1.2552 x
+  4.5014. Width +0.1 %, height -2.8 %, length equal.
+- Frame and units as v2: X right, Y up, front -Z, metres, origin = centre of the body bounding box.
+- **Wheel layout = `red_sports`** (axle centres, radius 0.3848, track). Wheels: `red_sports_original_v2_wheel_*.glb`.
+- **Tyre clearance** (closed cylinder round the v2 tyre, radius 0.3848 m, width 0.344 m):
+
+| wheel | at rest | free bump travel | worst over steering -28 to +28 degrees |
+|---|---|---|---|
+| FL | 5.9 cm | 6.0 cm | 2.25 cm (at full lock) |
+| FR | 5.9 cm | 5.9 cm | 2.26 cm (at 24 degrees; 2.28 cm at full lock) |
+| RL | 4.4 cm | 4.4 cm | - |
+| RR | 4.4 cm | 4.5 cm | - |
+
+  The same check on `red_sports_fictional` and v2 gives -13 to -15 cm: their tyres sit inside the body shell (no
+  real wheel tubs).
+- **Closed shells:** 25 (body + 24 parts), 0 open edges, 0 duplicate edges, all wound outward. Opaque, single-sided
+  material; no interior.
+- **Silhouettes vs `red_sports_fictional`** (5 mm pixels, body meshes only):
+  - side IoU **0.857**; **0.890** with the fictional's see-through window holes filled. v2: 0.997;
+  - top IoU **0.947**. v2: 0.990;
+  - roofline: mean difference 7.9 cm; more than 5 cm apart along 60 % of the length.
+
+### Outputs (`art/cars3d/roblox/`)
+
+| file | bytes GLB / FBX | tris |
+|---|---|---|
+| `red_sports_own_v3.glb` / `.fbx` (midnight blue, default) | 529,352 / 539,692 | 14,052 |
+| `red_sports_own_v3_red.glb` / `.fbx` | 530,248 / 540,620 | 14,052 |
+| `red_sports_own_v3_white.glb` / `.fbx` | 534,452 / 544,844 | 14,052 |
+| `red_sports_own_v3_wheels.json` | layout = `red_sports`; `wheel_meshes` = the v2 wheels; `own_v3.upload` = BLOCKED | |
+| `red_sports_own_v3_build.json` | script sha256, Blender version, box, tris, atlas, paints with sha256 | |
+| `red_sports_own_v3_qa.json` | silhouette, clearance, shells | |
+| `red_sports_own_v3_emblem.png`, `_fbx.json` | the MP decal as shipped (2x); FBX check | |
+
+Roblox cost: one MeshPart of 14 k tris with one 1024² texture (v2: 19 k tris, one 1024²). Wheels as v2.
+
+If the owner approves it later:
+1. Import ONE body (pick the paint) and the four v2 wheel files. Rename the body MeshPart to `red_sports_own_v3`.
+2. Run the snippet from `python tools/gpu/car_import_wheels.py --luau art/cars3d/roblox/red_sports_own_v3_wheels.json red_sports_own_v3`.
+   The snippet now also takes wheel parts named after the car whose wheel files the json lists (here
+   `red_sports_original_v2_wheel_FL` ...), because v3 has no wheel files of its own. For every other car the snippet
+   is unchanged (checked: the v2 snippet is byte-identical).
+
+Game code is unchanged (`WheelMesh_*` path, see *Game integration*).
+
+### QA images (`art/cars3d/qa/`, looked at)
+
+- `red_sports_own_v3_compare.png`: `red_sports_fictional` | v2 | v3 in side, front 3/4, rear 3/4, front, rear,
+  top and the game's chase camera (Workbench, the same studio light for all three).
+- `red_sports_own_v3_silhouette.png`: side and top silhouettes of v3 (blue) over the fictional body (red), with the
+  IoU and roofline numbers.
+- `red_sports_own_v3_clearance.png`: steering -28 degrees / at rest / +28 degrees: top view, from below, front-left,
+  front-right and rear-left arch (Workbench), labelled with the gaps.
+- `red_sports_own_v3_closeups.png`: nose, lamp bar, fang, nose emblem, gills, front arch, side intake, tail, tail
+  lamp, tail emblem, outlets. Left Cycles (sky and sun), right Workbench (flat light: the texture as painted).
+- `red_sports_own_v3_paints.png`: midnight blue / red / white in front 3/4, rear 3/4, side, top and chase camera
+  (Cycles).
+- `red_sports_own_v3_looks.png`: v2 | v3 under the same Cycles light: front 3/4, rear 3/4, side, top, chase camera
+  straight behind and from 30 degrees.
+
+The box GPU was busy each time I checked (another project's Hunyuan job held 28 of its 32 GB), so `gslot.sh`
+gave Blender no GPU slot. The "look" renders use Cycles on a CPU slot (`gslot.sh --cpu`) instead of EEVEE.
+
+What I saw (faults left):
+
+- Workbench shows the nose mouth and the lower tail as grey bands: studio specular on a dark texture. Cycles shows
+  them dark.
+- The lamp bars (about 4 cm tall) and the fangs (2 cm wide) are thin. At game distance they read as lines, not as
+  big lamps.
+- The mouth slats are about 5 texels apart, so they are soft up close.
+- The flanks are big plain paint areas. The deck and nose vents are painted, not cut, so they have no depth up close.
+- On the red paint the red light blade has little contrast.
+- At full lock the front tyres stick out past the body in the top view. That is normal; they never touch the body.
+- Not seen in Roblox (no import).
+
+### Similarity assessment (honest; not legal advice)
+
+- **Gone:** all eight 812 cues from the v2 review (table above). The side profile is a cab-forward mid-engine
+  shape with a Kamm tail; the 812 is a front-engine, long-bonnet fastback. The canopy, the tail and the top view
+  are new.
+- **Measured:** side silhouette IoU against the fictional body 0.857 (0.890 with its window holes filled); v2
+  scores 0.997. The roofline differs by more than 5 cm along 60 % of the length. The roof peak is 0.54 m further
+  forward.
+- **Still the same, by design:** wheel positions, wheelbase, track and length, and so the overhangs (the drop-in
+  rule). Every car on this layout shares them. The front fenders stand at about the height of the fictional's
+  bonnet (within 2.5 cm between z -1.75 and -1.0 m).
+- **Other cars:** v3 belongs to the 1990s mid-engine supercar genre: long tail, cab-forward canopy, a side intake
+  ahead of the rear wheel, a slotted engine cover. It was not modelled on any car, and no reference image was used.
+  I know of no single car it copies, but people may see a family likeness to cars of that era. It has none of the
+  signature graphics I know from them (no oval mouth, no pop-up lamps, no side strakes, no big rear wing). Not
+  checked against design registrations.
+- **Verdict:** I cannot see the 812 in any view. Residual 812 shape risk: **very low** (v2: low to medium). General
+  shape risk: low (generic genre traits only). This is not legal advice.
+
+### Looks (honest)
+
+Compared with v2 under the same Cycles light (`red_sports_own_v3_looks.png`):
+
+- **Better than v2:**
+  - clean, smooth surfaces and crisp creases. v2 shows Tripo's lumpy bonnet, dents and baked light patches;
+  - real wheel tubs: the tyres sit in open arches, with room to steer;
+  - a strong, simple silhouette and a clear rear graphic at the chase camera: light blade, emblem, twin outlets,
+    slotted engine cover;
+  - 14 k instead of 19 k tris, closed shells, and a texture that is entirely ours.
+- **Worse than v2:**
+  - much less detail: big plain flanks, painted vents, thin lamps, a simple nose. Up close it looks plainer and less
+    expensive than v2;
+  - the style is retro. It reads as a 1990s concept car, a bit toy-like, more than a modern GT;
+  - v2's rear (diffuser, layered bumper) gives the chase camera more to look at.
+- **Plainly:** up close v3 looks simpler than v2, and to many eyes worse. At game distance it reads cleaner and is
+  at least as good. It is the only one of the two that is not 812-shaped.
+
+### Owner decisions
+
+1. Accept the v3 shape (cab-forward, long Kamm tail) for the test car, keep v2, or ask for changes.
+2. Pick the paint to ship: midnight blue (default), red or white.
+3. Lift the upload block for v3, or not. The body and its texture come only from our script; the wheels are v2's
+   own procedural wheels; the emblem is team21's design. No Tripo rights question applies to v3.
+4. Garage and `CarSpecs`: nothing was changed. Adding v3 is a separate step after 1 to 3.
+
+### Tests
+
+`tools/qa/tests/test_car_own_v3.py` (picked up by `run_all.py`):
+
+- the files, the FBX files and the six QA sheets exist;
+- tris <= 20,000 (and >= 8,000) per body; FBX count = GLB count;
+- one mesh, one material, one 1024² texture per body; opaque, single-sided; the paints share one geometry;
+- layout = `red_sports`; wheels, width, rim and per-wheel data = v2; the script's layout constants match;
+- box centred (0.1 mm), length = red_sports (0.1 mm), every axis within 5 % of red_sports;
+- tyre clearance recomputed: at rest > 3 cm, bump travel > 3 cm, steering > 1.5 cm, and equal to the stored numbers;
+- closed shells (no open or duplicate edges, all outward);
+- generator = our script; the GLBs are the build output of the committed script (sha256);
+- no vertex position and no texture tile shared with the Tripo, Meshy, fictional or v2 files;
+- the emblem PNG is the shipped decal and matches the v2 MP decal;
+- default and white paints have no red, the red variant does;
+- no brand or AI-service words in our GLB / FBX / json files;
+- upload BLOCKED in the json files and here; nothing under `roblox/src` names v3;
+- the Studio snippet for v3 also takes the v2 wheel part names; the v2 snippet is unchanged;
+- side and top silhouettes differ from the fictional (thresholds on the stored IoU numbers);
+- all 70 original `red_sports*` files still have their main-branch sha256, and no v3 file is a copy of one.
