@@ -1,0 +1,30 @@
+Road B pilot build in Studio (Sukhumvit / Pattaya Klang junction, world x 24220..24820, z 650..1250), 2026-10-22
+Owner go-ahead: "ทำเลยด่วน" (do it now, urgent) after the leader's road report. Place before the build = owner backup
+Documents\SaveNew-V3.rbxl (23:41, verified; the streaming prototype had been removed with no leftovers since).
+
+Install: ServerStorage.PattayaRoadVisBuilder (main) + ServerStorage.PattayaDataRoadVis (manifest + 7 cell modules from
+build/roadvis/roblox, generated 2026-10-21 17:09) through the localhost bundle; HttpEnabled back to false.
+
+RV.Plan() first said DOES NOT MATCH: every road part matched exactly (Road 397, Sidewalk 7, Dash 41, Centre 22,
+Junction 17, Joint 10, Apron 142, CornerFill 13 = 649), but only 70 of the 155 expected ZebraStripe parts
+(FurnitureChunks.Chunk_f8_1 / f8_2 / f9_1 .Crossings) were where the data expected them; the place has 133 zebras in the
+area, so its crossings were regenerated after the export.
+LEADER PATCH (Studio only, repo data unchanged): the installed manifest was renamed manifest_orig; a new `manifest`
+module requires it and swaps only the ZebraStripe keys for the place's own 133 zebras inside the bbox (total 804 -> 782).
+Zebras are thin non-colliding markings; B draws its own 68 zebras on the legs.
+RV.Plan(): MATCHES the data; selected 782, expected 782; unmatched 0, not found 0
+RV.Build(): built 7 cells, 1822 parts (Parts)
+RV.MoveReplaced(): moved 782 parts (Road 397, Sidewalk 7, Dash 41, Centre 22, Junction 17, Joint 10, Apron 142,
+  CornerFill 13, ZebraStripe 133) to ServerStorage.RoadVisBackup
+RV.Probe(): 31 legs, 680 samples; pilot parts 1822 (data 1822); building overlaps 0; moved parts 782; total drops 1
+  offset 0: flat 679, drop 1 (offline expected 0) | +-8: 625 flat each | +-14: 216 flat each | +20: 123 flat
+  -20: 120 flat, kerb 3 (offline 3) | +24: 114 flat, kerb 4 (offline 15) | -24: 118 flat, kerb 0 (offline 20)
+  The one drop: sample 220, wheel point (24504.9, 1045.4) falls through a hairline crack between two asphalt wedges to
+  the terrain (y -2.00); a 1-stud raycast grid around it (x 24498..24512, z 1038..1052) hits road everywhere.
+Ground raise (terrain from -2 to +0.4 in the area, TerrainRegion backup first): NOT DONE. The Claude Code auto-mode
+  safety check refused the terrain write ("Modify Shared Resources") before it ran; waiting for the owner's explicit
+  permission. Terrain unchanged.
+Rollback (any time): RV.Remove() -> the 782 parts go back to their exact parents and CFrames; then delete
+  ServerStorage.PattayaDataRoadVis / PattayaRoadVisBuilder if wanted. Last resort: SaveNew-V3.rbxl.
+NOT YET RUN: captures from the owner's camera (Studio focused), Play-mode physics drives (shoulder harness, every open
+direction), GPS route, traffic 2 min, Street Challenge, frame times.
