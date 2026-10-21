@@ -46,3 +46,21 @@ Physical mode, new TK.hitTest (one run each, Studio unfocused = render 15 fps):
 => the helper now reaches the target car in 4/4 runs (round 1: about half MISSED); no flips; no new script errors.
 Still open before arcade can be proposed again: arcade runs in Studio at 30 and 60 FPS (needs owner OK to switch it
 on in Play only), Near Miss and Job economy checks.
+
+ROUND 3 (2026-10-21 ~15:15) - arcade switched on in Studio Play only (owner OK); Edit place stays physical (attribute nil
+after Stop). Backup verified first: Documents\SaveNew-V1.rbxl (15:06) contains Rollback_recovery/arcadefix, ShoulderChunks.
+Studio NOT focused: render 14.8 fps (so this is a ~15 FPS run, not the owner's 30/60 FPS condition).
+  rear 70   : hit (NOT the target car) light vc=25 69->55 (-20%)
+  rear 100  : hit (NOT the target car) scrape vc=0 0->0 (-100%)       <- hit counted at speed 0 (before the approach)
+  rear 150  : hit (NOT the target car) heavy vc=153 149->44 (-70%) yaw -121 minUp 0.90
+  rear 200  : hit (NOT the target car) heavy vc=80 32->14 (-55%)
+  head 100  : hit (NOT the target car) scrape vc=0 0->0
+  head 150  : hit headon vc=192 149->10 (-93%)                        <- matches the table
+  head 200  : hit (NOT the target car) scrape vc=0 0->0
+  side 150 a5 : hit (NOT the target car) heavy vc=147 149->44 (-70%)  <- table: scrape
+  side 150 a20: hit (NOT the target car) scrape vc=0 149->137 (-8%)   <- table: heavy
+  side 70 a25 : hit scrape vc=4 37->34 (-8%)                          <- table: light -20%, and speed was 37 not 70
+  side 100 a10: hit scrape vc=0 99->91 (-8%)
+  rear 150 off2: hit (NOT the target car) heavy vc=103 149->56 (-62%)
+=> FAIL (owner rule: results not matching the table = FAIL). Arcade stays OFF. No flips (min up 0.90).
+   9/12 rows hit a car other than the target; 3 rows register a hit at speed 0 right after jumpTo.
