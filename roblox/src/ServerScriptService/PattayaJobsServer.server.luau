@@ -256,6 +256,25 @@ NearMiss.OnServerEvent:Connect(function(plr: Player)
 	plr:SetAttribute("NearMissAt", now)
 end)
 
+-- arcade traffic hits (PattayaRecoveryServer validated them, docs/RECOVERY_AND_COLLISION.md 7.2): a heavy / head-on
+-- hit is a bump. Shares lastBumpAt with the speed-drop detector so one crash never counts twice.
+task.spawn(function()
+	local hitSignal = ServerStorage:WaitForChild("PattayaTrafficHit", 60)
+	if not hitSignal then
+		return
+	end
+	hitSignal.Event:Connect(function(plr, tier)
+		local st = active[plr]
+		local now = workspace:GetServerTimeNow()
+		if st and (tier == "heavy" or tier == "headon") and now - st.lastBumpAt > 1 then
+			st.lastBumpAt, st.low = now, 0
+			st.bumps += 1
+			table.clear(st.history)
+			JobUpdate:FireClient(plr, "bump", st.bumps)
+		end
+	end)
+end)
+
 RunService.Heartbeat:Connect(function()
 	local now = workspace:GetServerTimeNow()
 	for plr, st in active do

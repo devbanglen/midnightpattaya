@@ -51,6 +51,16 @@ end
 
 local tune = CONFIG -- performance table of the car being driven (see pickTune)
 
+-- Recovery Kit (docs/RECOVERY_AND_COLLISION.md): auto-upright, R rules, stuck prompt + server rescue. Settings are
+-- workspace attributes read through ReplicatedStorage.PattayaRecovery; Recovery_Enabled = false (or the module
+-- missing) gives back today's R exactly.
+local okRec, Recovery = pcall(function()
+	return require(game:GetService("ReplicatedStorage"):WaitForChild("PattayaRecovery", 10))
+end)
+if not okRec then
+	Recovery = nil
+end
+
 local state = {
 	nitro = false,
 	drift = false,
@@ -58,7 +68,31 @@ local state = {
 	fuel = 100,
 	boosting = false,
 	speed = 0,  -- forward speed of the last physics step (studs/s, signed), for the HUD telemetry below
+	onRoad = false, -- a wheel ray hit a road part in the last step (stuck / off-road detection only)
 }
+
+-- recovery state (reset on every enter)
+local rec = {
+	lastResetAt = nil :: number?, -- os.clock() of the last manual R
+	enteredAt = 0,
+	upright = {upside = 0, tilt = 0},
+	stuck = {t = 0} :: any,
+	offRoad = {t = 0},
+	anim = nil :: any,        -- {from, to, t, dur, keep}: the auto-upright turn-over in progress
+	prompt = nil :: string?,  -- why the rescue prompt shows ("stuck" / "offroad")
+	promptAt = 0,
+	holdStart = nil :: number?, -- R held on the prompt since (os.clock)
+	lastRequestAt = -math.huge,
+	lastGoodLook = Vector3.new(0, 0, -1),
+	uprights = 0,
+}
+
+-- arcade traffic hit in progress (CollisionModel = "arcade"; PattayaTraffic finds the touch, applyImpact below):
+-- {start, untilT, steer, slide, spinT, w0} -- steering scale, drift grip and the scripted yaw kick while it lasts.
+-- Pitch and roll are held at zero for the whole window, so a traffic hit can never roll the car.
+local impact = nil :: any
+local hitCount = 0
+local lastHitReport = -math.huge
 
 local params = RaycastParams.new()
 params.FilterType = Enum.RaycastFilterType.Exclude
@@ -126,6 +160,26 @@ carLabel.TextStrokeTransparency = 0.5
 carLabel.TextXAlignment = Enum.TextXAlignment.Right
 carLabel.Text = ""
 carLabel.Parent = gui
+-- recovery messages ("RECOVERED", "Stuck? Hold R to rescue", ...): its own label, shown with either HUD
+local toast = Instance.new("TextLabel")
+toast.Name = "RecoveryToast"
+toast.AnchorPoint = Vector2.new(0.5, 0)
+toast.Position = UDim2.new(0.5, 0, 0, 120)
+toast.Size = UDim2.new(0.8, 0, 0, 30) -- fits a phone screen
+toast.BackgroundTransparency = 1
+toast.Font = Enum.Font.GothamBlack
+toast.TextSize = 22
+toast.TextColor3 = Color3.fromRGB(255, 230, 120)
+toast.TextStrokeTransparency = 0.3
+toast.Text = ""
+toast.Visible = false
+toast.Parent = gui
+local toastUntil = 0
+local function showToast(text: string, seconds: number?)
+	toast.Text = text
+	toast.Visible = true
+	toastUntil = os.clock() + (seconds or 1.5)
+end
 gui.Parent = player:WaitForChild("PlayerGui")
 
 -- Legacy hide (docs/UI_CONTRACT.md): while LocalPlayer attribute MidnightHUD == true (set locally by ui-core, per player,
@@ -155,16 +209,103 @@ local function onDrift(_, inputState)
 	return Enum.ContextActionResult.Sink
 end
 
+-- flip in place: wheels down, heading kept (flattened), velocity zeroed. lift 6 = the legacy R.
+local function flipInPlace(chassis: BasePart, lift: number)
+	local look = chassis.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.1 then flat = rec.lastGoodLook end
+	local pos = chassis.Position + Vector3.new(0, lift, 0)
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	chassis.AssemblyAngularVelocity = Vector3.zero
+	chassis.CFrame = CFrame.lookAt(pos, pos + flat)
+end
+
+local function recoveryOn(): boolean
+	return Recovery ~= nil and Recovery.enabled()
+end
+
+local function requestRescue(reason: string)
+	if player:GetAttribute("CircuitActive") == true then
+		showToast("On a circuit: press T to reset to the last gate", 2)
+		return
+	end
+	local clock = os.clock()
+	if clock - rec.lastRequestAt < 1 then
+		return
+	end
+	rec.lastRequestAt = clock
+	local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("PattayaRemotes")
+	local RequestRescue = remotes and remotes:FindFirstChild("RequestRescue")
+	if RequestRescue then
+		RequestRescue:FireServer(reason)
+		showToast("Rescue requested...", 1.5)
+	end
+end
+
+local overlapParams = OverlapParams.new()
+overlapParams.FilterType = Enum.RaycastFilterType.Exclude
+overlapParams.RespectCanCollide = true
+
+-- manual R with the Recovery Kit rules: 2 s cooldown, only when tilted or slow, lift 3, and a blocked spot falls
+-- through to the server rescue (R itself never moves the car along the road)
+local function manualReset()
+	local chassis = current.chassis
+	if chassis.Anchored then
+		return
+	end
+	local cfg = Recovery.config()
+	local v = chassis.AssemblyLinearVelocity
+	local speed = Vector3.new(v.X, 0, v.Z).Magnitude
+	local ok, why = Recovery.resetAllowed(os.clock(), rec.lastResetAt, chassis.CFrame.UpVector.Y, speed, cfg)
+	if not ok then
+		if why == "cooldown" then
+			showToast("R: wait a moment", 1)
+		else
+			showToast("R works when the car is tipped over or almost stopped", 1.5)
+		end
+		return
+	end
+	rec.lastResetAt = os.clock()
+	local lift = cfg.Recovery_ResetLift
+	local look = Vector3.new(chassis.CFrame.LookVector.X, 0, chassis.CFrame.LookVector.Z)
+	if look.Magnitude < 0.1 then look = rec.lastGoodLook end
+	local pos = chassis.Position + Vector3.new(0, lift, 0)
+	local exclude = {current.seat.Parent, player.Character}
+	local traffic = workspace:FindFirstChild("PattayaTraffic")
+	if traffic then table.insert(exclude, traffic) end
+	overlapParams.FilterDescendantsInstances = exclude
+	local hits = workspace:GetPartBoundsInBox(CFrame.lookAt(pos, pos + look.Unit), chassis.Size, overlapParams)
+	if #hits > 0 then
+		requestRescue("blocked")
+		return
+	end
+	flipInPlace(chassis, lift)
+end
+
 local function onReset(_, inputState)
-	if inputState == Enum.UserInputState.Begin and current then
-		local chassis = current.chassis
-		local look = chassis.CFrame.LookVector
-		local flat = Vector3.new(look.X, 0, look.Z)
-		if flat.Magnitude < 0.1 then flat = Vector3.new(0, 0, -1) end
-		local pos = chassis.Position + Vector3.new(0, 6, 0)
-		chassis.AssemblyLinearVelocity = Vector3.zero
-		chassis.AssemblyAngularVelocity = Vector3.zero
-		chassis.CFrame = CFrame.lookAt(pos, pos + flat)
+	if not current then
+		return Enum.ContextActionResult.Sink
+	end
+	if not recoveryOn() then
+		if inputState == Enum.UserInputState.Begin then
+			flipInPlace(current.chassis, 6) -- today's R
+		end
+		return Enum.ContextActionResult.Sink
+	end
+	if inputState == Enum.UserInputState.Begin then
+		if rec.prompt then
+			rec.holdStart = os.clock() -- hold to rescue; a short tap is still the R flip (on release)
+		else
+			manualReset()
+		end
+	elseif inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel then
+		if rec.holdStart then
+			local held = os.clock() - rec.holdStart
+			rec.holdStart = nil
+			if held < Recovery.get("Recovery_RescueHold") and inputState == Enum.UserInputState.End then
+				manualReset()
+			end
+		end
 	end
 	return Enum.ContextActionResult.Sink
 end
@@ -215,15 +356,27 @@ local function step(dt)
 	local ls = v:Dot(right)
 	local steer = seat.SteerFloat
 	local throttle = seat.ThrottleFloat
+	local hitNow = os.clock()
+	local hitWin = impact
+	if hitWin and hitNow >= hitWin.untilT then
+		impact, hitWin = nil, nil
+	end
+	if hitWin then
+		steer *= hitWin.steer
+	end
 	state.spin += fs * dt / radius
 
 	local grounded = 0
+	local onRoad = false
 	for name, mount in pairs(current.mounts) do
 		local origin = mount.WorldPosition
 		local hit = workspace:Raycast(origin, -up * reach, params)
 		local ext = CONFIG.suspensionRest
 		if hit then
 			grounded += 1
+			if Recovery and (Recovery.ROAD_NAMES[hit.Instance.Name] or hit.Material == Enum.Material.Asphalt) then
+				onRoad = true
+			end
 			ext = math.max(hit.Distance - radius, 0)
 			local compression = CONFIG.suspensionRest - ext
 			local springVel = chassis:GetVelocityAtPosition(origin):Dot(up)
@@ -274,8 +427,8 @@ local function step(dt)
 		end
 		impulse += fwd * accel * mass * dt
 
-		-- grip: kill sideways sliding (much less while the handbrake is on = drift)
-		local grip = state.drift and tune.driftGrip or tune.grip
+		-- grip: kill sideways sliding (much less while the handbrake is on = drift; a heavy traffic hit slides too)
+		local grip = (state.drift or (hitWin and hitWin.slide)) and tune.driftGrip or tune.grip
 		impulse -= right * ls * mass * math.min(1, grip * dt)
 		chassis:ApplyImpulse(impulse)
 
@@ -286,12 +439,22 @@ local function step(dt)
 		local av = chassis.AssemblyAngularVelocity
 		local yaw = av:Dot(up)
 		local newYaw = yaw + (target - yaw) * math.min(1, 8 * dt)
+		if hitWin and hitNow - hitWin.start < hitWin.spinT then
+			-- scripted spin of a traffic hit: yaw rate w0 * (1 - t / T) adds up to the kick angle
+			newYaw = hitWin.w0 * (1 - (hitNow - hitWin.start) / hitWin.spinT)
+		end
 		chassis.AssemblyAngularVelocity = av + up * (newYaw - yaw)
 	else
 		-- airborne: damp pitch/roll so jumps land wheels-down
 		local av = chassis.AssemblyAngularVelocity
 		local yawPart = up * av:Dot(up)
 		chassis.AssemblyAngularVelocity = yawPart + (av - yawPart) * (1 - math.min(1, CONFIG.airUpright * dt))
+	end
+
+	if hitWin then
+		-- traffic hits never roll the car: only the yaw part of the spin is kept
+		local av = chassis.AssemblyAngularVelocity
+		chassis.AssemblyAngularVelocity = up * av:Dot(up)
 	end
 
 	-- nitro gauge
@@ -309,6 +472,194 @@ local function step(dt)
 	nitroFill.BackgroundColor3 = if state.boosting then Color3.fromRGB(255, 120, 40) else Color3.fromRGB(0, 200, 255)
 	speedLabel.Text = string.format("%d km/h%s", math.floor(math.abs(fs) * 1.0 + 0.5), state.boosting and " NOS" or "")
 	state.speed = fs
+	state.onRoad = onRoad
+end
+
+-- Recovery Kit tick (after the physics step) ------------------------------------------------------------------
+local function clearPrompt()
+	if rec.prompt then
+		rec.prompt = nil
+		rec.holdStart = nil
+		if toast.Text:find("R", 1, true) then
+			toastUntil = 0
+		end
+	end
+end
+
+local function resetRecovery()
+	rec.upright.upside, rec.upright.tilt = 0, 0
+	rec.stuck.ax, rec.stuck.az, rec.stuck.t = nil, nil, 0
+	rec.offRoad.t = 0
+	rec.anim = nil
+	clearPrompt()
+end
+
+local function startUpright(chassis: BasePart, cfg)
+	local cf = chassis.CFrame
+	local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+	local v = chassis.AssemblyLinearVelocity
+	local flatVel = Vector3.new(v.X, 0, v.Z)
+	if look.Magnitude < 0.3 then
+		look = if flatVel.Magnitude > 5 then flatVel else rec.lastGoodLook
+	end
+	local target = cf.Position + Vector3.new(0, cfg.Recovery_UprightLift, 0)
+	rec.anim = {from = cf, to = CFrame.lookAt(target, target + look.Unit), t = 0, dur = cfg.Recovery_UprightTime,
+		keep = flatVel * cfg.Recovery_UprightKeepVel}
+	rec.uprights += 1
+	player:SetAttribute("Recovery_Uprights", rec.uprights)
+	player:SetAttribute("Recovery_LastUprightAt", workspace:GetServerTimeNow())
+end
+
+-- the turn-over: true while it runs (the physics step is skipped for those frames)
+local function animTick(chassis: BasePart, dt: number): boolean
+	local a = rec.anim
+	if not a then
+		return false
+	end
+	if chassis.Anchored then
+		rec.anim = nil
+		return false
+	end
+	a.t += dt
+	local k = math.min(a.t / math.max(a.dur, 0.05), 1)
+	chassis.CFrame = a.from:Lerp(a.to, k)
+	chassis.AssemblyAngularVelocity = Vector3.zero
+	if k >= 1 then
+		chassis.AssemblyLinearVelocity = a.keep
+		rec.anim = nil
+		showToast("RECOVERED", 1.2)
+		return true
+	end
+	chassis.AssemblyLinearVelocity = Vector3.zero
+	return true
+end
+
+local function recoveryTick(dt: number)
+	local chassis = current.chassis
+	if not recoveryOn() then
+		resetRecovery()
+		return
+	end
+	local cfg = Recovery.config()
+	local cf = chassis.CFrame
+	local upY = cf.UpVector.Y
+	local v = chassis.AssemblyLinearVelocity
+	local speed = Vector3.new(v.X, 0, v.Z).Magnitude
+	if upY > 0.8 then
+		local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+		if look.Magnitude > 0.1 then rec.lastGoodLook = look.Unit end
+	end
+	local held = chassis.Anchored or player:GetAttribute("RescueActive") == true
+	local blocked = held or os.clock() - rec.enteredAt < cfg.Recovery_EnterGrace or rec.anim ~= nil
+	if cfg.Recovery_AutoUpright and Recovery.uprightTick(rec.upright, upY, speed, dt, blocked, cfg) then
+		startUpright(chassis, cfg)
+		clearPrompt()
+		return
+	end
+	if not cfg.Recovery_AntiStuck or held then
+		rec.stuck.ax, rec.stuck.t = nil, 0
+		rec.offRoad.t = 0
+		clearPrompt()
+		return
+	end
+	local pos = chassis.Position
+	if Recovery.fallen(pos.Y, cfg) then
+		requestRescue("fell")
+		return
+	end
+	local throttleAbs = math.abs(current.seat.ThrottleFloat)
+	local stuck = Recovery.stuckTick(rec.stuck, pos.X, pos.Z, throttleAbs, dt, cfg)
+	local off = Recovery.offRoadTick(rec.offRoad, state.onRoad, speed, dt, cfg, throttleAbs)
+	local why = if stuck then "stuck" elseif off then "offroad" else nil
+	if why and not rec.prompt then
+		rec.prompt = why
+		rec.promptAt = os.clock()
+	end
+	if not rec.prompt then
+		return
+	end
+	-- the prompt stays until the car drives off (or a rescue / upright clears it)
+	if not why and speed > 8 then
+		clearPrompt()
+		return
+	end
+	local circuit = player:GetAttribute("CircuitActive") == true
+	local text = if circuit then "Stuck? Press T to reset"
+		elseif rec.holdStart then "Rescuing... keep holding R"
+		else "Stuck? Hold R to rescue"
+	showToast(text, 0.3)
+	if rec.holdStart and os.clock() - rec.holdStart >= cfg.Recovery_RescueHold then
+		rec.holdStart = nil
+		requestRescue(rec.prompt)
+	elseif cfg.Recovery_RescueAuto and not circuit
+		and os.clock() - rec.promptAt >= cfg.Recovery_RescueAutoTime - cfg.Recovery_StuckTime then
+		rec.promptAt = os.clock() + 30 -- one automatic try, then the prompt stays
+		requestRescue("auto")
+	end
+end
+
+-- Arcade traffic hits (Phase 2) ---------------------------------------------------------------------------------
+-- PattayaTraffic fires PlayerScripts.CarImpact with {vc, approachDeg, facingDot, side, front, nx, nz, depth}. The
+-- result comes from PattayaRecovery.classifyHit (owner numbers: light -20 %; heavy -45..-70 % with a 45-120 degree
+-- spin and 0.6-1.2 s of weak steering; head-on -85 % and a small bounce). Heavy and head-on hits are reported to
+-- the server (TrafficHit) for the jobs bump penalty.
+local function reportHit(tier: string, vc: number, speedBefore: number)
+	local clock = os.clock()
+	if clock - lastHitReport < 1 then
+		return
+	end
+	lastHitReport = clock
+	local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("PattayaRemotes")
+	local TrafficHit = remotes and remotes:FindFirstChild("TrafficHit")
+	if TrafficHit then
+		TrafficHit:FireServer(tier, vc, speedBefore)
+	end
+end
+
+local function applyImpact(info)
+	if not (current and Recovery and Recovery.arcade()) or type(info) ~= "table" or type(info.vc) ~= "number" then
+		return
+	end
+	local chassis = current.chassis
+	if chassis.Anchored or rec.anim then
+		return
+	end
+	local cfg = Recovery.config()
+	local res = Recovery.classifyHit(info, cfg)
+	local v = chassis.AssemblyLinearVelocity
+	local before = Vector3.new(v.X, 0, v.Z).Magnitude
+	local nx, nz = info.nx or 0, info.nz or 0
+	local wx, wz = Recovery.impactVelocity(v.X, v.Z, nx, nz, res)
+	chassis.AssemblyLinearVelocity = Vector3.new(wx, v.Y, wz)
+	-- out of the traffic box along the contact normal (it ghosts now, so this is only so the cars don't overlap)
+	local push = math.min((info.depth or 0) + 0.5, cfg.Arcade_MaxPush)
+	if push > 0 then
+		chassis.CFrame += Vector3.new(nx, 0, nz) * push
+	end
+	local now = os.clock()
+	if res.control > 0 or math.abs(res.yaw) > 0 then
+		local spinT, w0 = Recovery.spinProfile(res.yaw, math.max(res.control, 0.25))
+		impact = {start = now, untilT = now + math.max(res.control, spinT), steer = res.steer, slide = res.slide,
+			spinT = spinT, w0 = w0}
+	end
+	hitCount += 1
+	player:SetAttribute("Recovery_HitCount", hitCount)
+	player:SetAttribute("Recovery_LastHit", ("%s vc=%d %d->%d yaw=%d ctl=%.2f"):format(res.tier, math.floor(info.vc),
+		math.floor(before), math.floor(math.sqrt(wx * wx + wz * wz)), math.floor(res.yaw), res.control))
+	if res.tier == "heavy" or res.tier == "headon" then
+		reportHit(res.tier, info.vc, before)
+		showToast(if res.tier == "headon" then "HEAD-ON!" else "CRASH!", 0.8)
+	end
+end
+
+do
+	local ps = player:WaitForChild("PlayerScripts", 10)
+	if ps then
+		local ev = ps:FindFirstChild("CarImpact") or Instance.new("BindableEvent")
+		ev.Name = "CarImpact"
+		ev.Parent = ps
+		;(ev :: BindableEvent).Event:Connect(applyImpact)
+	end
 end
 
 -- Enter / exit ------------------------------------------------------------------
@@ -362,6 +713,9 @@ local function enter(seat)
 	end
 	params.FilterDescendantsInstances = {model, player.Character}
 	current = {seat = seat, chassis = chassis, mounts = mounts, welds = welds, radius = model:GetAttribute("WheelRadius") or CONFIG.wheelRadius}
+	rec.enteredAt = os.clock()
+	resetRecovery()
+	impact = nil
 	pickTune()
 	bindActions()
 	gui.Enabled = true
@@ -402,6 +756,32 @@ task.spawn(function()
 	end
 end)
 
+-- server rescue (PattayaRecoveryServer)
+task.spawn(function()
+	local remotes = game:GetService("ReplicatedStorage"):WaitForChild("PattayaRemotes", 60)
+	if not remotes then
+		return
+	end
+	local RescueUpdate = remotes:WaitForChild("RescueUpdate", 60)
+	if not RescueUpdate then
+		return
+	end
+	RescueUpdate.OnClientEvent:Connect(function(kind, info)
+		if kind == "start" then
+			resetRecovery()
+			showToast("RESCUE", (type(info) == "table" and tonumber(info.eta) or 1) + 0.5)
+		elseif kind == "done" then
+			resetRecovery()
+			local ghost = type(info) == "table" and tonumber(info.ghost) or 2
+			-- PattayaTraffic ghosts the traffic around the car for these seconds (no drop into a traffic car)
+			player:SetAttribute("TrafficGhostUntil", workspace:GetServerTimeNow() + ghost)
+			showToast("BACK ON THE ROAD", 1.5)
+		elseif kind == "denied" and type(info) == "string" then
+			showToast(info, 2)
+		end
+	end)
+end)
+
 -- HUD telemetry (docs/UI_RACE_HUD.md) -------------------------------------------------------------------------------
 -- Published as LocalPlayer attributes at <= 20 Hz, only when a value changes. Read-only for the HUD scripts; nothing
 -- here feeds back into driving. HUD_SpeedKmh keeps the game's convention (studs/s shown 1:1 as km/h). Only measured
@@ -436,8 +816,17 @@ local function publishTelemetry()
 end
 
 RunService.Heartbeat:Connect(function(dt)
+	if toast.Visible and os.clock() > toastUntil then
+		toast.Visible = false
+	end
 	if current and current.chassis.Parent then
-		step(math.min(dt, 1 / 30))
+		local sdt = math.min(dt, 1 / 30)
+		if not animTick(current.chassis, sdt) then
+			step(sdt)
+			if Recovery then
+				recoveryTick(sdt)
+			end
+		end
 		tele.acc += dt
 		if tele.acc >= TELEMETRY_DT then
 			tele.acc = 0
