@@ -51,6 +51,8 @@ local RADIUS = 650 -- studs from the camera focus that get a model
 local MAX_MODELS = 70
 local NEAR_GAP = 7 -- studs of side clearance that count as a near miss
 local NEAR_SPEED = 70 -- studs/s the player must be doing
+local NEAR_KEEP = 200 -- studs: cars this close to my car always get a model (taken from one beyond FAR_GIVE)
+local FAR_GIVE = 350
 
 -- routes ------------------------------------------------------------------------------------------------------------
 local routes = {}
@@ -250,27 +252,21 @@ local function arcadeHit(entry, cf: CFrame, rel: Vector3, car: BasePart, carVel:
 			return false
 		end
 	end
-	local f = cf:VectorToObjectSpace(car.CFrame.LookVector)
-	local fl = Vector2.new(f.X, f.Z)
-	fl = if fl.Magnitude > 0.1 then fl.Unit else Vector2.new(0, -1)
-	local hit, depth, nx, nz = Recovery.sweptOverlap(prev and prev.X, prev and prev.Y, rel.X, rel.Z, fl.X, fl.Y,
-		Recovery.CAR_HALF_WID, Recovery.CAR_HALF_LEN, 0, 0, 0, -1, entry.halfWid, entry.halfLen)
-	if not hit then
+	-- the touch test and the contact numbers: PattayaRecovery.hitFromWorld (unit-tested in tools/qa/tests)
+	local ml = car.CFrame.LookVector
+	local mlf = Vector3.new(ml.X, 0, ml.Z)
+	mlf = if mlf.Magnitude > 0.1 then mlf.Unit else Vector3.new(0, 0, -1)
+	local tl = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z).Unit
+	local p, q = car.Position, cf.Position
+	local info = Recovery.hitFromWorld(
+		{x = p.X, z = p.Z, lx = mlf.X, lz = mlf.Z, vx = carVel.X, vz = carVel.Z},
+		{x = q.X, z = q.Z, lx = tl.X, lz = tl.Z, speed = speed, halfWid = entry.halfWid, halfLen = entry.halfLen},
+		prev and prev.X, prev and prev.Y)
+	if not info then
 		return false
 	end
-	-- world: normal from the traffic car to me, the traffic car's velocity, closing speed and approach angle
-	local n = cf:VectorToWorldSpace(Vector3.new(nx, 0, nz))
-	n = Vector3.new(n.X, 0, n.Z)
-	n = if n.Magnitude > 1e-3 then n.Unit else -car.CFrame.LookVector
-	local tl = cf.LookVector
-	local tv = Vector3.new(tl.X, 0, tl.Z) * speed
-	local vc, approach = Recovery.closingSpeed(carVel.X, carVel.Z, tv.X, tv.Z, n.X, n.Z)
-	local myLook = Vector3.new(car.CFrame.LookVector.X, 0, car.CFrame.LookVector.Z)
-	myLook = if myLook.Magnitude > 0.1 then myLook.Unit else Vector3.new(0, 0, -1)
-	local other = car.CFrame:PointToObjectSpace(cf.Position) -- the traffic car in my frame (front = -Z)
-	reportImpact({vc = vc, approachDeg = approach, facingDot = myLook:Dot(Vector3.new(tl.X, 0, tl.Z).Unit),
-		side = if other.X >= 0 then 1 else -1, front = other.Z < 0, nx = n.X, nz = n.Z, depth = depth,
-		trafficSpeed = speed, at = t})
+	info.trafficSpeed, info.at, info.tx, info.tz = speed, t, q.X, q.Z
+	reportImpact(info)
 	return true
 end
 
@@ -314,6 +310,23 @@ RunService.Heartbeat:Connect(function()
 			local entry = active[key]
 			if not entry then
 				local m = acquire(r.kinds[k])
+				if not m and car and dx * dx + dz * dz < NEAR_KEEP * NEAR_KEEP then
+					-- pool full: a car close to mine must exist (a car without a model is invisible and cannot be
+					-- hit), so the farthest one not yet placed this frame gives up its model
+					local farKey, farD = nil, FAR_GIVE * FAR_GIVE
+					for k2, e2 in active do
+						if not seen[k2] and (e2.d2 or 0) > farD and e2.kind == r.kinds[k] then
+							farKey, farD = k2, e2.d2
+						end
+					end
+					if farKey then
+						local e2 = active[farKey]
+						active[farKey] = nil
+						setGhost(e2, false)
+						release(e2, e2.kind)
+						m = acquire(r.kinds[k])
+					end
+				end
 				if not m then
 					continue
 				end
@@ -323,6 +336,7 @@ RunService.Heartbeat:Connect(function()
 				active[key] = entry
 			end
 			seen[key] = true
+			entry.d2 = dx * dx + dz * dz
 			local ahead = pointAt(r, s + 6)
 			local look = Vector3.new(ahead.X - p.X, 0, ahead.Z - p.Z)
 			local cf = if look.Magnitude > 0.01
