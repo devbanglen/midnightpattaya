@@ -7,8 +7,9 @@
   D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\cli.py compose         -> art/roadvis/cam_*.png, cmp_*.png from the
         local 3D renders in build/roadvis/renders_local (tools/roadvis/blender_preview.py with the PyPI bpy module)
   D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\cli.py ground [--city] [--art]   -> build/roadground/: the ground
-        pilot QA (pilot.json), the Studio data for PattayaRoadGroundBuilder (roblox/), top-down and edge-step previews,
-        Blender scenes (scene_ground_*.json); --city adds the city-wide audit (city_audit.json, about 1 min); --art
+        pilot QA (pilot.json), the Studio data for PattayaRoadGroundBuilder (roblox/), the off-road excursions as
+        TestKit paths (excursions.json), top-down and edge-step previews, Blender scenes (scene_ground_*.json);
+        --city adds the city-wide audit (city_audit.json, about 1 min); --art
         copies the small previews to art/roadground/ (tools/roadvis/ground*.py, docs/ROAD_GROUND_PILOT.md)
   D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\cli.py ground-compose  -> art/roadground/ground_cmp_*.png from the
         local renders in build/roadground/renders_local
@@ -105,6 +106,20 @@ def run_ground(build_root=None, art=False, city=False, log=print):
     log(f"luau data: {x['files']}; kerb parts {x['kerbParts']} in {x['cells']} cells; {x['edgeChecks']} edge checks; "
         f"{x['probes']} probes; probe expectation {x['expected']}; largest module {x['maxKB']} KB")
     res['export'] = {k: v for k, v in x.items() if k != 'files'}
+    # the off-road excursions as TestKit paths for the Studio physics drives (same runs, same order as the QA rows)
+    ex = ground.offroad_runs(states['B_ground'], PB, paths=True)
+    rows = {s: res[s]['offroad_rows'] for s in ('today', 'B', 'B_ground')}
+    if any(len(v) != len(ex) for v in rows.values()):
+        raise RuntimeError('excursion rows out of step with the QA rows')
+    runs = [dict(id=i + 1, set=e['set'], street=e['name'], dir=e['dir'], lateral=e['lateral'], deepest=e['world'],
+                 static={s: dict(drop=bool(rows[s][i]['drops'] or rows[s][i]['hang']), climb=bool(rows[s][i]['climbs']),
+                                 max_step_down=rows[s][i]['max_step_down'], max_step_up=rows[s][i]['max_step_up'],
+                                 min_up=rows[s][i]['min_up'], blocked=rows[s][i]['blocked']) for s in rows},
+                 packed=e['packed']) for i, e in enumerate(ex)]
+    with open(os.path.join(out, 'excursions.json'), 'w', encoding='utf-8') as f:
+        json.dump(dict(note='OFFLINE static model. Car centre paths (world x, z, about 2 studs apart) for '
+                            'TK.drivePath(packed, {physics = true}); docs/ROAD_GROUND_PILOT.md section 6', runs=runs), f, indent=1)
+    res['excursions'] = dict(file='excursions.json', runs=len(runs))
     mask = ground_audit.TerrainMask(W['broot'])
     gx0, gz0, gx1, gz1 = G['cfg']['plateau_world']
     reach = G['cfg']['flat'] + G['cfg']['ramp']

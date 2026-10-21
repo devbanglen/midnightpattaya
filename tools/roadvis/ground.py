@@ -438,12 +438,14 @@ def excursion(Q, T, s, start, lat, out_len=30.0, hold=40.0, back_len=30.0):
 OFFROAD_SETS = (('harness', (24, -24, 20, -20)), ('deep', ('+edge8', '-edge8')))
 
 
-def offroad_runs(st, P, sets=OFFROAD_SETS, spacing=60.0, min_len=140.0, inset=50.0):
+def offroad_runs(st, P, sets=OFFROAD_SETS, spacing=60.0, min_len=140.0, inset=50.0, paths=False):
     """leave the road into the frontage, then turn back: excursions from the centreline of every carriageway chain of
     the pilot (both directions of a two-way chain, wheels inside the area minus `inset`), one every `spacing` studs.
     'harness': lateral +-20 / +-24 = the TestKit lateral of the Studio harness, from the carriageway centreline (on
     Sukhumvit the car is then partly or fully past the carriageway edge); 'deep': the car centre 8 studs past the
-    carriageway edge (the inner wheels 4.6 studs past it), both sides, on every chain"""
+    carriageway edge (the inner wheels 4.6 studs past it), both sides, on every chain. paths: each row also gets
+    'packed', the car centre path in world x, z (about 2 studs apart) as a PattayaTestKit packed
+    path ("x,z;x,z;...", TK.drivePath accepts it as is)"""
     area = P['area']
     inner = area.buffer(-inset)
     rows = []
@@ -471,6 +473,8 @@ def offroad_runs(st, P, sets=OFFROAD_SETS, spacing=60.0, min_len=140.0, inset=50
                                              lateral=lat, start=round(float(start), 1),
                                              world=[round(float(C[k][0]) + world.ORIGIN[0], 1), round(float(C[k][1]), 1)],
                                              **{kk: v for kk, v in r.items() if not kk.startswith('_')}))
+                            if paths:
+                                rows[-1]['packed'] = ';'.join(f'{x + world.ORIGIN[0]:.1f},{z:.1f}' for x, z in C)
                         start += spacing
     return rows
 

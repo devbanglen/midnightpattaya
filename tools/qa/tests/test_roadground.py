@@ -128,6 +128,32 @@ class Targets(unittest.TestCase):
             self.assertLess(v['max_step_up'], 1.5, k)
             self.assertGreater(v['wheel_on_ground'], 100, f'{k}: the runs do leave the road')
 
+    def test_excursion_paths_for_studio(self):
+        """the off-road runs as TestKit packed paths (build/roadground/excursions.json): the same runs in the same order
+        as the QA rows, each starts and ends on the carriageway, points about 2 studs apart, at least 20 put the car
+        centre itself on the raised ground"""
+        from tools.roadvis import ground, world
+        import numpy as np
+        st = self.states['B_ground']
+        ex = ground.offroad_runs(st, self.PB, paths=True)
+        rows = self.bg['offroad_rows']
+        self.assertEqual(len(ex), len(rows))
+        on_ground = 0
+        for e, r in zip(ex, rows):
+            self.assertEqual((e['set'], e['lateral'], e['start'], e['drops'], e['climbs']),
+                             (r['set'], r['lateral'], r['start'], r['drops'], r['climbs']))
+            pts = np.array([[float(v) for v in item.split(',')] for item in e['packed'].split(';')])
+            self.assertGreaterEqual(len(pts), 20)
+            gaps = np.hypot(*np.diff(pts, axis=0).T)
+            self.assertLess(gaps.max(), 6.0)
+            loc = pts - np.array([world.ORIGIN[0], 0.0])
+            ends = st.surf(loc[[0, -1]])
+            self.assertTrue(((ends >= 0.95) & (ends <= 1.01)).all(), (e['name'], e['lateral'], ends))
+            # the car centre over the raised ground somewhere (elsewhere past the edge lies a shoulder, a sidewalk or
+            # another carriageway: 28 of the 84 runs put the centre itself on the ground)
+            on_ground += int(float(st.surf(loc).min()) < 0.95)
+        self.assertGreaterEqual(on_ground, 20)
+
     def test_today_and_b_show_the_problem(self):
         """the same checks find the owner's complaint without the ground (so they can fail)"""
         for name in ('today', 'B'):
