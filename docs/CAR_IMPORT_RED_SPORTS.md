@@ -26,8 +26,8 @@ the leader runs the Play test plan.
   - **Meshy:** shield on the nose, a horse on the grille and the tail, yellow centre caps with the horse on the
     wheels. The wing shields are less clear.
   - A real brand's logo in a Roblox game is a moderation and trademark risk even when the mesh licence is fine.
-    This branch does **not** remove them (owner decision). If wanted: paint them over in the 1024 body atlas and the
-    512 wheel textures before upload.
+    `red_sports` keeps them (owner decision). The de-badged copy is `red_sports_fictional`: see
+    *Fictional-brand version* at the end.
 
 ## Source files (not in git, too large)
 
@@ -227,3 +227,138 @@ f:SetAttribute("WheelRR", Vector3.new(0.8783, -0.3279, 1.3498))
 - Tyre vs bodywork at full steer / full bump (QA sweeps). The suspension travel is the game's, shared by all cars.
 - No glass in the Tripo source: the open side windows show the crude interior. The driver is hidden while seated.
 - The source is 1 cm off-centre left/right; the wheels follow the real tyres.
+
+## Fictional-brand version
+
+Branch `team21/car-debrand` (2026-10-21). Owner decision: Blender optimisation and wheel separation are allowed
+offline; **uploading or importing to Roblox stays BLOCKED until the owner confirms a licence.** There is no Ferrari
+licence, so this is a fictional-make version of the Tripo car, `red_sports_fictional`. **Not in the garage, not in
+CarSpecs, nothing touched in the Studio place, nothing uploaded.** This is not legal advice.
+
+### How it was made
+
+- Input: the optimised Tripo build above (`red_sports.glb` + 4 wheel GLBs), not the 1.9 M source. So the
+  separated-wheel rig is exactly the one already checked: wheel geometry, UVs, pivots (origin = axle, axle along X),
+  layout centres and radius are byte-identical; body topology and UVs are identical.
+- `tools/gpu/car_debrand.py` (numpy + Pillow, local, no network):
+  - `scan <dir> <id> <out.json>`: rasterises every triangle in UV space, so each texel knows its 3D body-space
+    position, then lists the yellow (badge-coloured) texel clusters in 3D. This is how the marks were found in the
+    fragmented Tripo atlas.
+  - `apply <dir> red_sports <dir> red_sports_fictional`: repaints the marks (3D region + colour seed, grown over
+    non-paint texels, filled by the inverse-distance mean of the nearest paint / trim texels), flattens the badge
+    reliefs, paints the cue changes, draws the emblem, and writes the GLBs, `<id>_wheels.json`, `<id>_debrand.json`
+    (numbers per mark) and `<id>_emblem.png`.
+  - `pairs` / `sheet`: the before/after and turntable sheets.
+- `tools/blender/car_debrand_render.py` + `run_debrand_render.sh` (GPU box, Workbench, back faces culled):
+  close-ups and whole-car views from `tools/blender/debrand_views.json`.
+- `tools/blender/car_glb_to_fbx.py` + `run_car_fbx.sh` (GPU box): one FBX per GLB, textures embedded, -Z forward /
+  Y up, origins kept. Only the 5 GLBs, the json and the script go to the box.
+
+### Marks found and removed
+
+| mark | where (frame N, m) | how | proof (sheet row) |
+|---|---|---|---|
+| yellow shield with black horse on the nose, above the grille | (0, -0.13, -2.17) | 26 texels repainted with the surrounding paint; MP badge on top | `nose`, `grille` |
+| chrome prancing horse in the grille | (0, -0.35, -2.17) | **embossed geometry**: 177 verts flattened onto a quadratic fit of the grille around it (max move 2.9 cm; the walls become zero-area, same triangle count); 92 texels repainted dark | `grille` |
+| yellow shield on the left front wing | (-0.95, 0.09, -0.67) | 32 texels repainted with paint; no new badge there (the wing-shield position is itself a cue) | `fender_L` |
+| right front wing (mirror position) | (0.95, 0.09, -0.67) | checked: no shield in this texture | `fender_R` |
+| chrome prancing horse in the tail centre | (0, 0.08, 2.18) | small relief: 23 verts flattened (max 1.2 cm); 33 texels repainted; MP badge on top | `tail_centre` |
+| yellow/orange badge on the steering-wheel boss | (-0.39, 0.12, -0.15) | 126 texels repainted dark | `steering` |
+| yellow horse centre caps, all 4 wheels | wheel hub, outer face | cap repainted navy + MP disc emblem (about 26 texels across) | `hub_FL`, `wheel_FL` |
+| brake calipers | | red, **no text** at this resolution (512² wheel texture); recoloured teal anyway (cue change) | `wheel_FL` |
+| "Ferrari" wordmark / script | | **none found** in the body texture (tail, sides and sills checked) | `tail` |
+
+Yellow texels on the body: 107 before, 1 after (no cluster of 4 or more). Wheel caps: 154-168 yellow texels each
+before, 0 after. No brand word in any shipping file (GLB / FBX / wheels json; checked by the test). The GLB
+material name is still Tripo's generic `tripo_material_<uuid>` (no brand).
+
+### The emblem (own design)
+
+`art/cars3d/roblox/red_sports_fictional_emblem.png`: "MP" for Midnight Pattaya. A silver twin-peak zigzag "M" (also
+two waves / two peaks) on a navy field with a silver rim: a horizontal capsule on the body (nose, tail) and a disc
+on the wheel caps. Generated in code (signed-distance shapes in `car_debrand.py`), not traced from any real brand. A
+lozenge (Renault-like) and an oval winged M (Mazda-like) were avoided on purpose. On the body it is only 9-10
+texels across (the Tripo atlas is 1024² for the whole car), so in game it reads as a small silver-navy badge, not
+as letters. The wheel caps (about 26 texels) show the M.
+
+### Changes to reduce the resemblance (the cheap and safe ones were applied)
+
+| cue | change | kind |
+|---|---|---|
+| prancing horse / shields | removed (above) | texture + relief flattening |
+| honeycomb grille mesh | dark horizontal slats | texture |
+| four separate rounded tail-lamp pods (812 signature) | each side's twin pods painted as one dark smoked lens; one thin full-width red light bar across the tail with the MP badge in the middle | texture (the recessed pod shapes in the mesh remain, see the renders) |
+| black forged 5-twin-spoke rims, yellow caps | silver finish, navy MP caps | texture (spoke geometry unchanged) |
+| red calipers | teal (the fictional make's accent colour) | texture |
+
+Not changed, because it would need remodelling the mesh (not cheap, or not safe for the rig): body silhouette,
+headlight shape, bonnet vents, door scallop / side intake, tail-lamp recesses, quad exhausts and diffuser, rim
+spoke geometry. The paint stays red (the owner's "red sports car"). A non-red default paint would cut the Ferrari
+association further at no cost.
+
+### Similarity assessment (honest; not legal advice)
+
+- **Most resembles: Ferrari 812 Superfast** (front-engine V12 GT, 2017), with some 812 Competizione-style details.
+  Matching signature cues:
+  - long bonnet, set-back cabin, fastback proportions;
+  - narrow swept headlights and a wide black grille between them;
+  - the deep scallop and air outlet behind the front wheel running into the door;
+  - bonnet vents;
+  - **twin rounded tail lamps per side** in recesses;
+  - quad exhausts either side of a finned diffuser;
+  - 5 twin-spoke rims and red paint.
+- **After this pass:** every logo, shield, horse and badge shape is gone (body, wheels, steering wheel). The grille
+  pattern, rims, calipers and tail-lamp graphics are different. From a distance the car now reads as "a red
+  Italian-style V12 GT" rather than a branded car. **Up close the body shape is still clearly 812-derived**: the
+  tail-lamp recesses, the side scallop and the headlights are geometry.
+- **Remaining risk: medium.** Removing logos deals with the logo-trademark problem. Car makers, Ferrari included,
+  also assert rights in the shape / trade dress of their models, and an AI-generated near-copy of an 812 can still
+  be challenged or moderated. To lower it further: remodel the tail (a single lamp-bar geometry), the side scallop
+  and the front lamps; change the rim geometry; use a non-red default paint. Still open, independent of the brand:
+  **the Tripo terms of use for a published game** (see *Licensing and badges*).
+- **Upload is BLOCKED pending the owner's licence decision.** `red_sports_fictional_wheels.json` carries
+  `"fictional_brand": {"upload": "BLOCKED until the owner confirms the licence"}`.
+
+### Outputs (`art/cars3d/roblox/`, for later Roblox use only)
+
+| file | bytes (GLB / FBX) | tris |
+|---|---|---|
+| `red_sports_fictional.glb` / `.fbx` | 2,097,596 / 2,143,484 | 17,801 |
+| `red_sports_fictional_wheel_FL.glb` / `.fbx` | 304,388 / 332,156 | 1,979 |
+| `red_sports_fictional_wheel_FR.glb` / `.fbx` | 295,532 / 323,772 | 1,980 |
+| `red_sports_fictional_wheel_RL.glb` / `.fbx` | 304,640 / 330,908 | 1,980 |
+| `red_sports_fictional_wheel_RR.glb` / `.fbx` | 304,160 / 332,332 | 1,978 |
+| `red_sports_fictional_wheels.json` | layout: the same numbers as `red_sports`, rim colour silver (164, 168, 176) | |
+| `red_sports_fictional_debrand.json`, `_fbx.json`, `_emblem.png` | per-mark numbers, FBX check, emblem | |
+
+Textures: body 1024² + wheels 4 x 512² base colour (PNG, embedded). The FBX bounding boxes match the GLBs (body
+centred on its bbox, wheel bbox centres 0.2-6 mm from the axle). If it is installed later: the same Studio snippet
+as `red_sports` with the id `red_sports_fictional` (same attributes, `RimColor` from the json).
+
+### QA images (`art/cars3d/qa/`, looked at)
+
+- `red_sports_fictional_badges_before_after.png`: close-ups, before | after: nose, grille, both front wings, tail
+  centre, whole tail, wheel hub, wheel, steering wheel.
+- `red_sports_fictional_overall_before_after.png`: front 3/4, rear 3/4, side, front, rear.
+- `red_sports_fictional_turntable.png`: after only: front 3/4, rear 3/4, side, front, rear, wheel, nose, tail, hub.
+
+What I saw:
+
+- the badges are gone everywhere;
+- the nose and tail capsules are small blurred silver-navy badges (texel limit);
+- the grille slats are irregular where the atlas islands are coarse;
+- the tail light bar is thin and broken into segments across atlas islands (it reads as a dark-red strip, not a
+  crisp LED bar), and the lamp recesses still show their twin-pod outline;
+- silver rims, teal calipers and navy MP caps look clean and spin-symmetric.
+
+### Tests
+
+`tools/qa/tests/test_car_fictional.py` (picked up by `run_all.py`):
+
+- wheel geometry and layout identical to `red_sports`; the body moved only inside the badge reliefs, same UVs and
+  topology;
+- tris: body <= 20,000, wheels <= 2,000;
+- wheel bbox centre < 1 cm from the axle, axle = X, tread round about X (10° sector max-radius spread < 3 cm,
+  median within 2 cm of the layout radius);
+- no yellow cluster on the body, no yellow on the caps, the MP navy field present on all four caps;
+- no brand words in the GLB / FBX / wheels json; upload marked BLOCKED; this section present.

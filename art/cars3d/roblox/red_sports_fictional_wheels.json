@@ -1,0 +1,77 @@
+{
+ "size": [
+  2.2067,
+  1.2552,
+  4.5014
+ ],
+ "radius": 0.3848,
+ "width": 0.3875,
+ "rim": [
+  164,
+  168,
+  176
+ ],
+ "wheels": {
+  "FL": [
+   -0.8878,
+   -0.3235,
+   -1.2939
+  ],
+  "FR": [
+   0.8782,
+   -0.3229,
+   -1.2939
+  ],
+  "RL": [
+   -0.8879,
+   -0.3276,
+   1.3498
+  ],
+  "RR": [
+   0.8783,
+   -0.3279,
+   1.3498
+  ]
+ },
+ "per_wheel": {
+  "FL": {
+   "r": 0.3847,
+   "w": 0.3876,
+   "bbox_yz_vs_axle_m": 0.0051
+  },
+  "FR": {
+   "r": 0.3855,
+   "w": 0.3877,
+   "bbox_yz_vs_axle_m": 0.0059
+  },
+  "RL": {
+   "r": 0.3846,
+   "w": 0.3877,
+   "bbox_yz_vs_axle_m": 0.0029
+  },
+  "RR": {
+   "r": 0.3842,
+   "w": 0.387,
+   "bbox_yz_vs_axle_m": 0.0028
+  }
+ },
+ "wheel_meshes": {
+  "FL": "red_sports_fictional_wheel_FL.glb",
+  "FR": "red_sports_fictional_wheel_FR.glb",
+  "RL": "red_sports_fictional_wheel_RL.glb",
+  "RR": "red_sports_fictional_wheel_RR.glb"
+ },
+ "front": "-Z",
+ "units": "metres, body space (centre of the body mesh bounding box)",
+ "arch_disc_x": {
+  "FL": -0.634,
+  "FR": 0.6244,
+  "RL": -0.634,
+  "RR": 0.6248
+ },
+ "fictional_brand": {
+  "from": "red_sports",
+  "emblem": "MP (Midnight Pattaya), own design",
+  "upload": "BLOCKED until the owner confirms the licence"
+ }
+}

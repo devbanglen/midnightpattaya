@@ -1,0 +1,139 @@
+{
+ "source_id": "red_sports",
+ "id": "red_sports_fictional",
+ "marks": [
+  {
+   "name": "nose_shield",
+   "what": "yellow shield with a black horse on the nose, just above the grille",
+   "seed_texels": 18,
+   "repainted_texels": 26,
+   "fill": "paint"
+  },
+  {
+   "name": "grille_horse",
+   "what": "chrome prancing horse in the centre of the grille",
+   "seed_texels": 70,
+   "repainted_texels": 92,
+   "fill": "dark"
+  },
+  {
+   "name": "fender_shield_L",
+   "what": "yellow shield on the left front wing, behind the wheel arch",
+   "seed_texels": 20,
+   "repainted_texels": 32,
+   "fill": "paint"
+  },
+  {
+   "name": "fender_shield_R",
+   "what": "right front wing (mirror position; checked, nothing there)",
+   "seed_texels": 0,
+   "repainted_texels": 0,
+   "fill": "paint"
+  },
+  {
+   "name": "tail_horse",
+   "what": "chrome prancing horse in the centre of the tail",
+   "seed_texels": 24,
+   "repainted_texels": 33,
+   "fill": "paint"
+  },
+  {
+   "name": "steering_badge",
+   "what": "yellow/orange badge on the steering-wheel boss (interior)",
+   "seed_texels": 122,
+   "repainted_texels": 126,
+   "fill": "dark"
+  }
+ ],
+ "geometry": [
+  {
+   "name": "grille_horse_relief",
+   "verts_flattened": 177,
+   "ring_verts": 26,
+   "fit": "quadratic",
+   "max_move_m": 0.0294,
+   "median_move_m": 0.0048
+  },
+  {
+   "name": "tail_horse_relief",
+   "verts_flattened": 23,
+   "ring_verts": 7,
+   "fit": "plane",
+   "max_move_m": 0.0118,
+   "median_move_m": 0.0036
+  }
+ ],
+ "cues": [
+  {
+   "name": "grille_slats",
+   "texels": 2202,
+   "what": "honeycomb grille mesh repainted as dark horizontal slats"
+  },
+  {
+   "name": "tail_light_bar",
+   "texels": 2523,
+   "what": "each side's twin lamp pods painted as one dark smoked lens; one thin full-width red light bar painted across the tail at lamp height (texture only: the recessed pod shapes in the geometry remain)"
+  }
+ ],
+ "emblems": [
+  {
+   "name": "nose",
+   "texels": 31,
+   "size_m": 0.095,
+   "texels_across": 9.1,
+   "normal": [
+    -0.001,
+    0.73,
+    -0.684
+   ]
+  },
+  {
+   "name": "tail",
+   "texels": 41,
+   "size_m": 0.11,
+   "texels_across": 10.1,
+   "normal": [
+    0.023,
+    0.515,
+    0.857
+   ]
+  }
+ ],
+ "wheels": {
+  "FL": {
+   "yellow_cap_texels_before": 164,
+   "yellow_left_after": 0,
+   "cap_texels": 1326,
+   "rim_texels": 19271,
+   "caliper_texels": 4180,
+   "emblem_texels_across": 26.5
+  },
+  "FR": {
+   "yellow_cap_texels_before": 162,
+   "yellow_left_after": 0,
+   "cap_texels": 1452,
+   "rim_texels": 19806,
+   "caliper_texels": 4760,
+   "emblem_texels_across": 26.7
+  },
+  "RL": {
+   "yellow_cap_texels_before": 168,
+   "yellow_left_after": 0,
+   "cap_texels": 1432,
+   "rim_texels": 20705,
+   "caliper_texels": 3124,
+   "emblem_texels_across": 25.9
+  },
+  "RR": {
+   "yellow_cap_texels_before": 154,
+   "yellow_left_after": 0,
+   "cap_texels": 1481,
+   "rim_texels": 23502,
+   "caliper_texels": 3073,
+   "emblem_texels_across": 26.2
+  }
+ },
+ "note": "edit of the optimised build: textures repainted, the grille- and tail-horse reliefs flattened in place; topology, UVs, wheel meshes, pivots and triangle counts are unchanged",
+ "yellow_texels_body_before": 107,
+ "yellow_texels_body_after": 1
+}
