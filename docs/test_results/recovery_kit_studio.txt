@@ -138,3 +138,22 @@ Studio was focused (render 60 fps) only for run 1 rows 1-11; the Remote Desktop 
     tilts to 0.82 when braking starts (owner limit 0.85). At the 15 / 30 fps levels every rear @100 row passed.
     Sent to team18 (branch team18/arcade-econ) for an arcade-only fix; the pass rule stays as the owner set it.
 TK.cleanup(): nothing left over. Arcade stays OFF (default physical).
+
+2026-10-22 ~23:00-23:55 (UTC+7), leader, Studio Play (place with Road B b001 + b003 built; round 8 code installed
+from main 38f1953; Studio NOT focused, so render ran at 4-8 fps)
+--------------------------------------------------------------------------------------------------------------------
+Economy, TK.jobDriveTestStart({fps = 30}) (team18 jobDriveTest, first run in Studio):
+  jobDriveTest: 3/4 runs PASS (1 INCOMPLETE) | events ok: crash 4, light 4, scrape 4, near 3
+  - taxi r1 police_station -> Windy Plaza, 1212 studs: INCOMPLETE, near miss not covered (no traffic car along the
+    route in time); light / scrape / heavy hits as planned; payout PASS (expected 185 incl. tip 26, paid 185)
+  - taxi r2 central_festival -> Hong Tu La Night Market, 3033 studs: PASS (expected 362, paid 362)
+  - delivery r1 night_plaza -> Alcazar Cabaret, 2925 studs: PASS (expected 406, paid 406)
+  - delivery r2 bua_khao -> Made in Thailand Night Plaza, 2308 studs: PASS (expected 337, paid 337)
+  - server speed probe: top 115 studs/s, the anti-teleport bump condition held 0 times; CollisionModel lease given
+    back (nil = physical); cleanup: nothing left over.
+Round 8 (Arcade_AntiRollHeavyExtra), TK.hitMatrixStart({runs = 3, fps = {15, 30}}) with server CollisionModel =
+"arcade" for this Play session only:
+  hitMatrix: 72/72 PASS over 2 frame-rate levels x 3 runs - REPEATABLE at every level
+  - @15 fps: 36/36 (Heartbeat 11-15 Hz, render 4 fps); @30 fps: 36/36 (Heartbeat 25-30 Hz, render 6-8 fps)
+  - selfCheck 5/5 keys at both levels. The 60 fps level still needs Studio focused (not run).
+TK.cleanup(): nothing left over; server CollisionModel set back to nil before Stop; Edit CollisionModel nil.
