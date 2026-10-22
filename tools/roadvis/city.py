@@ -57,18 +57,33 @@ OVERLAP_MIN = 1.0                 # an old part overlapping a box by this much (
 UNCERTAIN = 0.15                  # +- band around OVERLAP_MIN (and 0.01 around a box edge for centres): optional keys
 SEAM_BAND = 40.0                  # the pilot's seam band (junction.CFG seam_band)
 PROBE_PAD = 30.0                  # probe samples reach this far past the box (the seams are probed)
-CFG = dict(junction.CFG, design='B')
+CFG = dict(junction.CFG, design='B',
+           # markings (docs/ROAD_B_CITY_ROLLOUT.md, parts): the defaults are the pilot's / batch 1's design
+           mark_simplify=0.25,      # polyline tolerance of continuous lines (edge, centre)
+           kerb_simplify=0.3,       # polyline tolerance of the kerb strips
+           edge_lines=True,         # white edge lines along kerbed edges
+           kerb_strips=True,        # light kerb-stone strips on the sidewalk edge
+           centre_double=True,      # two yellow centre lines (False: one line of the same width on the centre)
+           # option B: no invisible RoadSupport wedge where the ground is raised to the plateau (+0.9): a wheel there
+           # meets the ground 0.1 below the asphalt, so the old part the support stood in for is no longer a drop
+           drop_supports_on_ground=False)
 MAIN_CLASSES = ('trunk', 'trunk_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link')
 # instance budget variants (docs/ROAD_B_CITY_ROLLOUT.md, budget): 'full' = the pilot's design everywhere (kerbed
 # sidewalks and a double centre line on every road); 'lean' = sidewalks and centre lines only on the main classes
 # (residential / unclassified sois meet the raised ground; most Thai sois have neither); 'lean2' = lean with the
 # collision outlines simplified 0.5 instead of 0.25
 VARIANTS = {
-    'full': {},
-    'lean': dict(walk_classes=MAIN_CLASSES, centre_classes=MAIN_CLASSES),
-    'lean2': dict(walk_classes=MAIN_CLASSES, centre_classes=MAIN_CLASSES, coll_simplify=0.5),
+    'full': dict(drop_supports_on_ground=True),
+    'lean': dict(walk_classes=MAIN_CLASSES, centre_classes=MAIN_CLASSES, drop_supports_on_ground=True),
+    'lean2': dict(walk_classes=MAIN_CLASSES, centre_classes=MAIN_CLASSES, coll_simplify=0.5, drop_supports_on_ground=True),
 }
 DEFAULT_VARIANT = 'lean'
+# batches whose data is frozen (shipped and checked by the leader): their own settings win over the variant, so their
+# data stays byte for byte the same (b001: rv 021dd07c..., ground ab0c4b22..., made before option B)
+FROZEN = {'b001': dict(walk_classes=MAIN_CLASSES, centre_classes=MAIN_CLASSES, drop_supports_on_ground=False,
+                       mark_simplify=0.25, kerb_simplify=0.3, edge_lines=True, kerb_strips=True, centre_double=True,
+                       dash=8.0, dash_gap=12.0, zebra_bar=2.0, zebra_gap=2.0, coll_simplify=0.25)}
+SECOND = ('b003',)                # build right after b001 (b003 finishes the owner's second screenshot spot); ids stay
 ROAD_CODES = (1, 5, 6, 7)         # Road (slab, fill), Junction, Joint, Apron: asphalt class (rebuilt at 1.0)
 WALK_CODES = (2, 8)               # Sidewalk, CornerFill: sidewalk class (rebuilt at 1.6)
 MARK_CODES = (3, 4, 9)            # Dash, Centre, ZebraStripe: paint (not rebuilt)
@@ -437,7 +452,10 @@ def ideal(CW, win, cfg=None):
         else:
             bounds = []
             if cfg.get('centre_classes') is None or (c.get('cls') or '') in cfg['centre_classes']:
-                bounds = [('centre', lambda a: cfg['centre_gap'] / 2), ('centre', lambda a: -cfg['centre_gap'] / 2)]
+                if cfg.get('centre_double', True):
+                    bounds = [('centre', lambda a: cfg['centre_gap'] / 2), ('centre', lambda a: -cfg['centre_gap'] / 2)]
+                else:
+                    bounds = [('centre', lambda a: 0.0)]
             bounds += [('lane', (lambda k, sg: (lambda a, k=k, sg=sg: sg * k * 2 * np.interp(a, s, hw) / nl))(k, sg))
                        for k in range(1, nl // 2) for sg in (1, -1)]
         for kind, off in bounds:
@@ -469,10 +487,11 @@ def ideal(CW, win, cfg=None):
                 tb = rib[j][2][int(np.argmin(np.linalg.norm(rib[j][1] - [mid.x, mid.y], axis=1)))]
                 opposite = (not A['oneway']) or (not B['oneway']) or float(ta @ tb) < 0
                 if opposite:
-                    for d in (-cfg['centre_gap'] / 2, cfg['centre_gap'] / 2):
+                    for d in ((-cfg['centre_gap'] / 2, cfg['centre_gap'] / 2) if cfg.get('centre_double', True) else (0.0,)):
                         for l in lines_of(shared):
                             try:
-                                add('centre', l.simplify(cfg['separator_simplify']).offset_curve(d), 0.45)
+                                ls_ = l.simplify(cfg['separator_simplify'])
+                                add('centre', ls_ if d == 0.0 else ls_.offset_curve(d), 0.45)
                             except Exception:
                                 pass
     walk_or_island = unary_union([walk, islands])
@@ -725,11 +744,73 @@ def _rows_of_tris(tris, kind):
     return out
 
 
-def make_batch(CW, plan, st, b, cfg=None, log=print):
+def _line_segs(m, tol):
+    """export_luau.mark_segs with another polyline tolerance for the continuous lines (the same rules otherwise)"""
+    if tol == 0.25:
+        return export_luau.mark_segs(m)
+    out = []
+    kind = m['kind']
+    for p in polys(m['poly']):
+        ax = export_luau.rect_axis(p.simplify(0.001))
+        if ax is not None and (kind in ('zebra', 'stop', 'lane') or p.length < 40):
+            out.append((ax[0], ax[1], ax[2]))
+            continue
+        line = m.get('line')
+        if line is None:
+            continue
+        for l in lines_of(line.intersection(p.buffer(0.05))):
+            q = np.asarray(l.simplify(tol).coords)
+            for i in range(len(q) - 1):
+                if np.linalg.norm(q[i + 1] - q[i]) > 0.3:
+                    out.append((q[i], q[i + 1], export_luau.SEG_W.get(kind, 0.5)))
+    return [(a, b, w, kind) for a, b, w in out]
+
+
+def batch_segs(I, BX, bl, cfg):
+    """the marking and kerb-strip Parts of a batch (a, b, width, kind): dashes, stop lines and zebra bars by their
+    midpoint, continuous lines and kerb strips cut at the box edge. cfg options: mark_simplify, kerb_simplify,
+    edge_lines, kerb_strips (the defaults give the pilot's / batch 1's design)"""
+    segs = []
+    for m in I['marks']:
+        if m['kind'] in ('lane', 'stop', 'zebra'):
+            for a, bb, w, kind in export_luau.mark_segs(m):
+                mid = (np.asarray(a) + np.asarray(bb)) / 2
+                if in_box(mid[0], mid[1], bl):
+                    segs.append((np.asarray(a), np.asarray(bb), w, kind))
+        else:
+            if m['kind'] == 'edge' and not cfg.get('edge_lines', True):
+                continue
+            p = m['poly'].intersection(BX)
+            if p.is_empty or p.area < 0.05:
+                continue
+            line = m.get('line')
+            mm = dict(m, poly=p, line=line.intersection(BX) if line is not None else None)
+            for a, bb, w, kind in _line_segs(mm, cfg.get('mark_simplify', 0.25)):
+                if np.linalg.norm(np.asarray(bb) - np.asarray(a)) > 0.3:
+                    segs.append((np.asarray(a), np.asarray(bb), w, kind))
+    paved = unary_union([I['S'], I['islands']])
+    kerb = I['kerb']
+    if not kerb.is_empty and cfg.get('kerb_strips', True):
+        tol = cfg.get('kerb_simplify', 0.3)
+        for p in polys(paved.buffer(0.5, join_style='mitre')):
+            for ring in [p.exterior] + list(p.interiors):
+                g = LineString(ring.coords).intersection(kerb.buffer(0.05))
+                for l in lines_of(g):
+                    for lc in clip_line(l, BX):
+                        q = np.asarray(lc.simplify(tol).coords)
+                        for i in range(len(q) - 1):
+                            if np.linalg.norm(q[i + 1] - q[i]) > 0.5:
+                                segs.append((q[i], q[i + 1], 1.0, 'kerb'))
+    return segs
+
+
+def make_batch(CW, plan, st, b, cfg=None, log=print, ground_full=None):
     """the Road B pieces of batch b for the current build state st (st is updated: b becomes built). Returns dict with
     the pieces (own triangles by kind, frontier triangles by target batch, completion triangles in the pilot box,
-    segments), the replace selection (required / optional), probe samples, counts"""
+    segments), the replace selection (required / optional), probe samples, counts. ground_full(poly) -> True where
+    every voxel column under poly is raised to the plateau (option B drops the invisible supports there)."""
     cfg = dict(CFG, **(cfg or {}))
+    cfg.update(FROZEN.get(b['id'], {}))
     owner = plan_cell_owner(plan)
     bl = wloc(b['box'])
     BX = box(*bl)
@@ -876,45 +957,30 @@ def make_batch(CW, plan, st, b, cfg=None, log=print):
             comp[5] = clean(unary_union([q for q in polys(g) if q.area >= 0.5]))
 
     # ---- markings: dashes / stops / zebra bars by midpoint, continuous lines and kerb strips cut at the box edge
-    segs = []
-    for m in I['marks']:
-        if m['kind'] in ('lane', 'stop', 'zebra'):
-            for a, bb, w, kind in export_luau.mark_segs(m):
-                mid = (np.asarray(a) + np.asarray(bb)) / 2
-                if in_box(mid[0], mid[1], bl):
-                    segs.append((np.asarray(a), np.asarray(bb), w, kind))
-        else:
-            p = m['poly'].intersection(BX)
-            if p.is_empty or p.area < 0.05:
-                continue
-            line = m.get('line')
-            mm = dict(m, poly=p, line=line.intersection(BX) if line is not None else None)
-            for a, bb, w, kind in export_luau.mark_segs(mm):
-                if np.linalg.norm(np.asarray(bb) - np.asarray(a)) > 0.3:
-                    segs.append((np.asarray(a), np.asarray(bb), w, kind))
-    paved = unary_union([I['S'], I['islands']])
-    kerb = I['kerb']
-    if not kerb.is_empty:
-        for p in polys(paved.buffer(0.5, join_style='mitre')):
-            for ring in [p.exterior] + list(p.interiors):
-                g = LineString(ring.coords).intersection(kerb.buffer(0.05))
-                for l in lines_of(g):
-                    for lc in clip_line(l, BX):
-                        q = np.asarray(lc.simplify(0.3).coords)
-                        for i in range(len(q) - 1):
-                            if np.linalg.norm(q[i + 1] - q[i]) > 0.5:
-                                segs.append((q[i], q[i + 1], 1.0, 'kerb'))
+    segs = batch_segs(I, BX, bl, cfg)
+
+    # option B: invisible supports only where the ground is not at the plateau (the ramp at an open edge, never-raise
+    # zones, the corridor)
+    dropped = Counter()
+
+    def keep_supports(tris_):
+        if not (cfg.get('drop_supports_on_ground') and ground_full is not None):
+            return tris_
+        out = [t for t in tris_ if not ground_full(t)]
+        dropped['support'] += len(tris_) - len(out)
+        return out
 
     # ---- triangles -> rows
     tris = (_rows_of_tris(triangles_of(asph), 1) + _rows_of_tris(triangles_of(walk_c), 2) + _rows_of_tris(triangles_of(isl_c), 3)
-            + _rows_of_tris(triangles_of(green_v), 4) + _rows_of_tris(triangles_of(support), 5))
+            + _rows_of_tris(triangles_of(green_v), 4) + _rows_of_tris(keep_supports(triangles_of(support)), 5))
     comp_rows = []
     for kind, shapes in pilot_rebuild.items():
         for g in shapes:
             comp_rows += _rows_of_tris(triangles_of(clean(g, 0.01)), kind)
     for kind in (1, 2, 5):
         if not comp[kind].is_empty:
-            comp_rows += _rows_of_tris(triangles_of(comp[kind]), kind)
+            t_ = triangles_of(comp[kind])
+            comp_rows += _rows_of_tris(keep_supports(t_) if kind == 5 else t_, kind)
     for r_ in comp_rows:
         r_['completion'] = True
     front_rows = []
@@ -959,7 +1025,7 @@ def make_batch(CW, plan, st, b, cfg=None, log=print):
     st['seq'] += 1
     res = dict(id=b['id'], seq=st['seq'], box=b['box'], ideal=I, tris=tris, comp=comp_rows, front=front_rows, segs=segs,
                rep_old=rep_old, opt_old=opt_old, rep_pilot=rep_pilot, opt_pilot=opt_pilot, rep_front=rep_front,
-               unc_old=unc_old, unc_pilot=unc_pilot, opt_alt=opt_alt,
+               unc_old=unc_old, unc_pilot=unc_pilot, opt_alt=opt_alt, dropped=dict(dropped),
                probe_rows=rows, probe_legs=legs, region=region, S=S_b, walk=clean(I['walk'].intersection(BX)),
                islands=clean(I['islands'].intersection(BX)), support=support, comp_geom=comp, built_before=assumes,
                neighbours=neighbours_of(plan, b))
@@ -1130,6 +1196,11 @@ def plan_city(CW, log=print):
                 add([c], 'corridor')
         else:
             add(full, 'corridor')
+    # the build order: SECOND builds right after b001 (leader 2026-10-22: b003 finishes the owner's second screenshot
+    # spot at b001's north edge); every id keeps the number of the first ordering, the rest keeps its order
+    for bid in reversed(SECOND):
+        i = next(k for k, x in enumerate(batches) if x['id'] == bid)
+        batches.insert(1, batches.pop(i))
     log(f'plan: {len(batches)} batches ({Counter(b["group"] for b in batches)}), {len(assigned) - 1} cells')
     return dict(grid=dict(origin=list(GRID0), cell=CELL), pilot=dict(id='pilot', box=list(PILOT_BOX_WORLD)), frame=list(frame),
                 batches=batches)

@@ -185,20 +185,26 @@ def lane_check(state, I, region, step_k=1):
     road-height part under it (part top below 0.9: the terrain); drops = a wheel 1.5 or more below the lane top"""
     out = dict(samples=0, holes=0, drops=0, min_wheel=99.0, bad=[])
     shapely.prepare(region)
+    near = region.buffer(40.0)                            # chain points whose lanes can reach the region
+    shapely.prepare(near)
     reach = max(abs(lo) for _, lo in junction.CFG['wheels']) + 1.0
     for c in I['chains']:
         poly, Q, T, hw, s = I['rib'][c['id']]
         nl = max(min(c['lanes']), 1)
-        mm = shapely.contains_xy(region, Q[:, 0], Q[:, 1]) & (s >= reach) & (s <= s[-1] - reach)
+        mm = shapely.contains_xy(near, Q[:, 0], Q[:, 1]) & (s >= reach) & (s <= s[-1] - reach)
         if not mm.any():
             continue
         Qm, Tm, hm = Q[mm][::step_k], T[mm][::step_k], hw[mm][::step_k]
         N = np.stack([-Tm[:, 1], Tm[:, 0]], axis=1)
         for li in range(nl):
             o = -hm + (li + 0.5) * 2 * hm / nl
-            C = Qm + N * o[:, None]
-            hs = np.stack([state.surf(C + N * la + Tm * lo) for la, lo in junction.CFG['wheels']], axis=1)
-            ha = np.stack([state.at(C + N * la + Tm * lo) for la, lo in junction.CFG['wheels']], axis=1)
+            C0 = Qm + N * o[:, None]
+            inr = shapely.contains_xy(region, C0[:, 0], C0[:, 1])   # the car (lane) centre in the region
+            if not inr.any():
+                continue
+            C, Nl, Tl = C0[inr], N[inr], Tm[inr]
+            hs = np.stack([state.surf(C + Nl * la + Tl * lo) for la, lo in junction.CFG['wheels']], axis=1)
+            ha = np.stack([state.at(C + Nl * la + Tl * lo) for la, lo in junction.CFG['wheels']], axis=1)
             out['samples'] += int(len(C))
             bad = (hs < 0.9).any(axis=1)
             out['holes'] += int(bad.sum())

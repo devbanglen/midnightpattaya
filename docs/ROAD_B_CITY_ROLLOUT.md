@@ -1,9 +1,11 @@
 # Road B for the whole city: the batch rollout
 
-**Status: OFFLINE design and data.** team20, 2026-10-22, branch `team20/road-city`. Nothing in this document has been
-built in Studio. The leader installs a batch only after the owner's go-ahead and a fresh place backup. Every number
-marked "offline" comes from the static model in `tools/roadvis/city_qa.py` (collision tops, the terrain height field,
-buildings as walls). It is not physics.
+**Status: OFFLINE design and data.** team20, 2026-10-22: branch `team20/road-city` (merged into main as `af31641`),
+then branch `team20/road-city2` (b003 builds second, option B by default from b003 on, the parts numbers and the
+frame-time measurement plan). Nothing in this document has been built in Studio; b001 waits for the owner's backup.
+The leader installs a batch only after the owner's go-ahead and a fresh place backup. Every number marked "offline"
+comes from the static model in `tools/roadvis/city_qa.py` (collision tops, the terrain height field, buildings as
+walls). It is not physics.
 
 ## Owner summary
 
@@ -12,22 +14,29 @@ buildings as walls). It is not physics.
 - The plan has **262 batches**. Main roads go first: Sukhumvit both ways from the pilot, then Beach Road, Second Road,
   Pattaya Klang, North Pattaya Road, South Pattaya Road, Thepprasit and Jomtien Beach Road. Then the rest of the city,
   then the Bira corridor.
+- **Build order:** b001, then **b003** (Sukhumvit north of b001: it finishes the roads at b001's north edge, the
+  owner's second screenshot spot), then b002 and the rest as before. The ids stay.
 - Every batch can be undone on its own, in two calls: `RG.Remove("<id>")` puts the terrain back exactly and
   `RV.Remove("<id>")` puts every old road part back. The batch built last is undone first.
-- **Batch 1** is Sukhumvit just north of the pilot (world x 24220..24820, z 50..650). Offline it has no lane hole in the
-  box away from its open edges (0 of 2,807 lane samples), no drop and no wall on a 1-stud grid over the whole box, and
-  every road edge sits 0.10..0.12 studs above the ground. All 72 off-road runs leave the road and come back with no drop.
-  Batch 1 adds 1,057 parts and moves 539 old parts out (net +518).
-- **City parts, the hard part.** Road B is made of many small parts. The whole city in the "lean" design (sidewalks and
-  centre lines only on main roads, the default) adds a net **+206,348** parts (offline count); sidewalks on every soi
-  ("full") +312,661. The QA warning line leaves room for only about +32,000. The main roads alone are +69,251.
-  With two changes that do not change the look of the road (no invisible support wedges where the ground is raised;
-  markings as one mesh per cell, which needs mesh uploads) the main roads come to about +28,900, which fits.
-  The rest of the city then gets the raised ground (no parts) and keeps its old road until a cheaper road build exists.
-  Section 3 has the numbers.
-- **The owner decides:** the go for batch 1; the parts path for the rest (main roads only for now, and the two
-  part savers); lean or full sidewalks; plain Ground or Pavement near buildings; what to do with street poles that
-  stand on narrow median islands (2 in batch 1, 42 in the city). See section 8.
+- **Batch 1 (b001)** is Sukhumvit just north of the pilot (world x 24220..24820, z 50..650). It is not installed yet
+  (it waits for the owner's backup), and its data is frozen: byte for byte what the leader checked, with a test that
+  keeps it so. Offline it has no lane hole in the box away from its open edges (0 of 2,807 lane samples), no drop and
+  no wall on a 1-stud grid over the whole box, and every road edge sits 0.10..0.12 studs above the ground. All 72
+  off-road runs leave the road and come back with no drop. It adds 1,057 parts and moves 539 old parts out (net +518).
+- **b003** (second): offline 0 lane holes in its core (2,920 lane samples), no drop and no wall on the 1-stud grid, road
+  edges at most 0.25 above the ground, a clean seam with b001, and all 240 off-road runs come back with no drop. It adds
+  1,289 parts and moves 390 (net +899). Its data, install bundle and the expected Studio lines are in section 6.
+- **Option B** (no invisible support wedges where the ground is raised to +0.9) is the default from b003 on. Nothing
+  visible changes (checked piece by piece); over the whole plan the supports go from 52,159 to 462 parts.
+- **City parts, the hard part.** With B, **Sukhumvit (b001..b057) adds a net +27,987** parts (without B +32,850):
+  that fits in the room of about +32,074 under the QA warning line. The main roads add +56,702 and the whole city in
+  lean +154,651. Without asset uploads, the single marking ideas of section 3 save 322 to 3,402 parts each on
+  Sukhumvit after b001, and the look-keeping set 5,163 together; each changes the look and needs the owner's choice.
+  Section 3 also has a measurement plan (about 1.5 hours in Studio) so the owner can set a higher line from frame times
+  and memory.
+- **The owner decides:** the go for batch 1 and then b003; the marking ideas; the parts path past Sukhumvit; lean or
+  full sidewalks; plain Ground or Pavement near buildings; what to do with street poles that stand on narrow median
+  islands (2 in batch 1, 42 in the city). See section 9.
 
 ## 1. How a batch works
 
@@ -42,11 +51,11 @@ buildings as walls). It is not physics.
 
 | Piece | What it does now |
 |---|---|
-| `tools/roadvis/city.py` | The city model: all 65,873 old road-layer parts, the 1,822 pilot parts, the city-wide road chains. Per batch: the ideal Road B, who owns which part, frontier pieces, the pilot-band completion. The batch plan. |
+| `tools/roadvis/city.py` | The city model: all 65,873 old road-layer parts, the 1,822 pilot parts, the city-wide road chains. Per batch: the ideal Road B, who owns which part, frontier pieces, the pilot-band completion, option B. The batch plan (`SECOND`: b003 builds second). `FROZEN`: the settings b001 was shipped with, so its data stays byte for byte whatever the defaults. The marking options (section 3). |
 | `tools/roadvis/city_export.py` | Road B data per batch: `PattayaDataRoadVis_<id>` (manifest + cell modules of at most 600 parts, the replace keys, the probe samples with their offline expectation). |
 | `tools/roadvis/city_ground.py` | Ground data per batch, `PattayaDataRoadGround_<id>`, and the never-raise data, `PattayaDataRoadGroundNoRaise`. |
 | `tools/roadvis/city_qa.py`, `city_batch.py`, `city_view.py` | Offline QA, the Studio drive list, previews. |
-| `tools/roadvis/city_cli.py` | `plan` (all batches and their numbers), `batch <id> [--art]` (data, QA, drives, previews), `bundle <id>` (the install bundle), `map [--art]` (the plan map). |
+| `tools/roadvis/city_cli.py` | `plan` (all batches and their numbers), `batch <id> [--art]` (data, QA, drives, previews), `bundle <id> [<id> ...] [--no-builders] [--rv-only]` (the install bundle; `--no-builders` when the builders are installed already, as for b003; `--rv-only` for Road B data alone, e.g. the measurement copy of section 3), `map [--art]` (the plan map). |
 | `PattayaRoadVisBuilder.luau` | A batch id selects the city mode: `RV.Plan("b001")`, `Build`, `MoveReplaced`, `Probe`, `Remove`, plus `RV.Status()` and `RV.Leftovers()`. |
 | `PattayaRoadGroundBuilder.luau` | The same for the ground: `RG.Plan("b001")`, `Build`, `Probe`, `Remove`, plus `RG.Adopt`, `RG.Status()`, `RG.Leftovers()`. |
 
@@ -85,7 +94,12 @@ it>`.
    dashes keep one rhythm) and cut it on the shared edge. Every vertex on the edge stays on the edge. The two sides meet
    with no gap and no overlap. Nothing waits for a later batch.
 6. **Invisible wheel support** (`RoadSupport`) follows the pilot's rule: where a removed old part carried a wheel within
-   2 studs of the new asphalt and Road B puts no kerb there.
+   2 studs of the new asphalt and Road B puts no kerb there. **Option B (the default from b003 on):** a support
+   triangle is left out when every voxel column under it is raised to the plateau (+0.9) by the batch's own ground
+   data, the pilot's raise or an earlier batch's ground. A wheel there meets the ground 0.1 below the asphalt, so the
+   old part the support stood in for leaves no drop. Supports stay where the ground is not at the plateau: on the
+   20-stud ramp at an open edge, near never-raise zones, and in the corridor (no ground there). It is done in the
+   generator; the builders did not change. b001 keeps its 9 supports (its data is frozen).
 7. **Studio's float32 positions.** A part whose overlap is within 0.15 stud² of the 1-stud² line, or whose centre is
    within 0.15 studs of a box edge, gets an optional key: MoveReplaced accepts it moved or not. Every triangle is also
    written so that the builder splits it into the same two WedgeParts in float32 as offline (no near-tie between its
@@ -95,7 +109,12 @@ it>`.
 ### 1.4 Build order and undo
 
 - The data of batch N is made for one state: batches 1..N-1 built, the later ones not. `Plan`, `Build` and
-  `MoveReplaced` check this (manifest `builtBefore`) and refuse otherwise. Build in plan order.
+  `MoveReplaced` check this (manifest `builtBefore`) and refuse otherwise. Build in plan order: **b001, b003, b002,
+  b004, b005, ...** (b003 moved up on 2026-10-22; ids are kept, so the plan position and the id differ for b002 and
+  b003 only).
+- The ground builder has no order check of its own: its max rule gives the same heights in any order, and its
+  registry seq is the order of the builds. Build the ground in plan order too, so `RG.Remove` stays last in, first out
+  (offline, the luau test builds b003's ground after b001's and checks both undo exactly).
 - **Last in, first out.** `RV.Remove(id)` refuses while a later neighbour is built, or while a later batch's backup
   holds this batch's frontier pieces. `RG.Remove(id)` refuses while a later raised box overlaps this one, or when the
   terrain in the box changed since the build (checksum). `RV.Remove()` (the pilot) refuses while a city batch next to the
@@ -140,46 +159,53 @@ box, batch 1 the filled one. North is up.
 **Order:**
 
 1. b001: the owner's batch 1, Sukhumvit north of the pilot.
-2. Sukhumvit: every cell with at least 20 studs of Sukhumvit, nearest to the pilot first, north and south in turn.
-   This is the worst road class today (97.9 % of its edges are drops).
-3. Beach Road, Second Road, Pattaya Klang / Central Road, North Pattaya Road, South Pattaya Road, Thepprasit Road,
+2. b003, the box north of b001 (world x 24220..24820, z -550..50). It finishes the roads at b001's north edge, the
+   owner's second screenshot spot (the leader's order of 2026-10-22). It keeps its id (section 6).
+3. The rest of Sukhumvit: every cell with at least 20 studs of Sukhumvit, nearest to the pilot first, north and south
+   in turn (b002, b004, b005, ...). This is the worst road class today (97.9 % of its edges are drops).
+4. Beach Road, Second Road, Pattaya Klang / Central Road, North Pattaya Road, South Pattaya Road, Thepprasit Road,
    Jomtien Beach Road. Each road starts at the cell nearest to what is built and grows from there.
-4. The rest of the city terrain frame, in 2 x 2 blocks of cells. A block with more than 2,400 old parts, or one that
+5. The rest of the city terrain frame, in 2 x 2 blocks of cells. A block with more than 2,400 old parts, or one that
    touches a built cell, is split into 2 x 1 rows or single cells. The block nearest to what is built goes first, so
    the built area grows without islands.
-5. The Bira corridor east of the city terrain frame: Road B only. The ground is raised only where a corridor box
+6. The Bira corridor east of the city terrain frame: Road B only. The ground is raised only where a corridor box
    reaches into the frame (5,588 voxel columns in all 23 corridor batches).
 
-**Per road group (lean, offline counts):**
+**Per road group (lean with option B, offline counts):**
 
-| # | Group | Batches | Cells | Parts added | Old parts moved | Net | Largest Atomic cell | Frontier pieces built | Ground columns | Poles on islands |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Sukhumvit Road (b001..b057) | 57 | 57 | 48,300 | 15,450 | +32,850 | 599 | 5,747 | 1,463,183 | 16 |
-| 2 | Beach Road (b058..b070) | 13 | 13 | 9,847 | 5,648 | +4,199 | 481 | 1,162 | 266,792 | 0 |
-| 3 | Second Road (b071..b079) | 9 | 9 | 8,818 | 3,625 | +5,193 | 517 | 709 | 223,505 | 0 |
-| 4 | Pattaya Klang / Central Road (b080..b084) | 5 | 5 | 7,413 | 2,827 | +4,586 | 529 | 898 | 128,700 | 4 |
-| 5 | North Pattaya Road (b085..b088) | 4 | 4 | 2,970 | 1,020 | +1,950 | 303 | 159 | 102,960 | 0 |
-| 6 | South Pattaya Road (b089..b096) | 8 | 8 | 12,838 | 4,478 | +8,360 | 461 | 1,010 | 205,920 | 9 |
-| 7 | Thepprasit Road (b097..b106) | 10 | 10 | 10,868 | 2,742 | +8,126 | 487 | 710 | 257,400 | 1 |
-| 8 | Jomtien Beach Road (b107..b130) | 24 | 24 | 9,010 | 5,023 | +3,987 | 403 | 1,083 | 427,193 | 2 |
-| 9 | rest (b131..b239) | 109 | 276 | 170,243 | 38,572 | +131,671 | 577 | 4,824 | 6,138,149 | 10 |
-| 10 | corridor (b240..b262) | 23 | 92 | 8,219 | 2,793 | +5,426 | 280 | 860 | 5,588 | 0 |
-| | **City** | **262** | **498** | **288,526** | **82,178** | **+206,348** | **599** | **17,162** | **9,219,390** | **42** |
+| # | Group | Batches | Cells | Parts added | Old parts moved | Net | Net without B | Largest Atomic cell | Frontier pieces built | Ground columns | Poles on islands |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Sukhumvit Road (b001..b057) | 57 | 57 | 43,437 | 15,450 | +27,987 | +32,850 | 585 | 5,747 | 1,463,183 | 16 |
+| 2 | Beach Road (b058..b070) | 13 | 13 | 9,371 | 5,648 | +3,723 | +4,199 | 472 | 1,162 | 266,792 | 0 |
+| 3 | Second Road (b071..b079) | 9 | 9 | 7,540 | 3,625 | +3,915 | +5,193 | 499 | 709 | 223,505 | 0 |
+| 4 | Pattaya Klang / Central Road (b080..b084) | 5 | 5 | 6,522 | 2,827 | +3,695 | +4,586 | 477 | 898 | 128,700 | 4 |
+| 5 | North Pattaya Road (b085..b088) | 4 | 4 | 2,662 | 1,020 | +1,642 | +1,950 | 292 | 159 | 102,960 | 0 |
+| 6 | South Pattaya Road (b089..b096) | 8 | 8 | 10,503 | 4,478 | +6,025 | +8,360 | 589 | 1,010 | 205,920 | 9 |
+| 7 | Thepprasit Road (b097..b106) | 10 | 10 | 9,062 | 2,742 | +6,320 | +8,126 | 446 | 710 | 257,400 | 1 |
+| 8 | Jomtien Beach Road (b107..b130) | 24 | 24 | 8,418 | 5,023 | +3,395 | +3,987 | 368 | 1,083 | 427,193 | 2 |
+| 9 | rest (b131..b239) | 109 | 276 | 131,095 | 38,572 | +92,523 | +131,671 | 554 | 4,824 | 6,138,149 | 10 |
+| 10 | corridor (b240..b262) | 23 | 92 | 8,219 | 2,793 | +5,426 | +5,426 | 280 | 860 | 5,588 | 0 |
+| | **City** | **262** | **498** | **236,829** | **82,178** | **+154,651** | +206,348 | **589** | **17,162** | **9,219,390** | **42** |
 
-**Running total of net parts (lean):** after Sukhumvit Road: +32,850; after Beach Road: +37,049; after Second Road:
-+42,242; after Pattaya Klang / Central Road: +46,828; after North Pattaya Road: +48,778; after South Pattaya Road:
-+57,138; after Thepprasit Road: +65,264; after Jomtien Beach Road: +69,251; after rest: +200,922; after corridor:
-+206,348.
+**Running total of net parts (lean with B):** after Sukhumvit Road: +27,987; after Beach Road: +31,710; after Second
+Road: +35,625; after Pattaya Klang / Central Road: +39,320; after North Pattaya Road: +40,962; after South Pattaya Road:
++46,987; after Thepprasit Road: +53,307; after Jomtien Beach Road: +56,702; after rest: +149,225; after corridor:
++154,651.
 
 At the end every one of the 65,873 old road-layer parts has been taken by a batch. Frontier pieces still standing at the
 end: 202 (their target box has no batch). The 1,822 pilot parts: 127 are taken by city batches next to the pilot.
-Triangle rows nudged by 0.01..0.03 stud for the float32 split: 1,519 (of about 118,000); slivers dropped: 1.
+Triangle rows nudged by 0.01..0.03 stud for the float32 split: 629; slivers dropped: 1.
 
 The 23 corridor batches raise 5,588 ground columns, where their boxes reach into the city terrain frame; outside the
 frame nothing is raised.
 
-Net instances in workspace for a batch = its net parts + its Atomic cell Models + 1 Folder (all batches: +209,223). The
+Net instances in workspace for a batch = its net parts + its Atomic cell Models + 1 Folder (all batches: +157,469). The
 moved old parts go to ServerStorage with one Folder per source parent.
+
+**What moving b003 up and option B changed in the plan** (offline, every batch compared with the first run of
+2026-10-22): the order is the same except b003 and b002 swapped; every batch moves the same old parts (equal in all 262
+batches) and builds the same visible pieces (every kind but the supports equal in every batch); only the invisible
+supports went from 52,159 to 462 parts (b001 keeps its 9).
 
 The whole list with every number is Appendix A; `build/roadcity/plan_batches.csv` and `plan.json` have more columns.
 
@@ -191,49 +217,147 @@ descendants before the shoulder pilot (docs/STREAMING_ARCHITECTURE.md). The pilo
 782 moved to ServerStorage). Moved parts leave workspace, so the QA total counts only the net; they stay in the place
 file until their backup is deleted.
 
-| Variant | What it builds | Parts added | Moved | Net in workspace | Workspace estimate (126,886 + pilot 1,040 + net) | vs 160,000 |
-|---|---|---|---|---|---|---|
-| lean (default) | sidewalks and centre lines only on main roads (trunk, secondary, tertiary and their links; the graph has no primary roads) | 288,526 | 82,178 | +206,348 | 334,274 | OVER by 174,274 |
-| full | sidewalks and centre lines on every road, as the pilot | 394,839 | 82,178 | +312,661 | 440,587 | OVER by 280,587 |
-| lean2 | lean, with coarser collision outlines (simplify 0.5 instead of the default) | 248,655 | 82,178 | +166,477 | 294,403 | OVER by 134,403 |
-
-**Where the lean parts go** (offline counts, all batches): asphalt 81,526 (28 %), sidewalk 69,161 (24 %), invisible
-support 52,159 (18 %), kerb strips 15,681 (5 %), edge lines 15,442 (5 %), frontier asphalt 14,533 (5 %), lane dashes
-13,695 (5 %), island 8,170 (3 %), centre lines 4,517 (2 %), grass 3,933 (1 %), stop lines 3,618 (1 %), zebra stripes
-3,462 (1 %), frontier sidewalk 2,629 (1 %).
-
 **Room under the warning line:** 160,000 - 126,886 - 1,040 = about **32,074** net parts, if the reference is close to
 the real count (the leader's QA run gives the real number).
 
-**Ways to bring it down.** Counts are measured on the lean data (offline); what each saves is the count of the parts it
-removes. None of them is built; each needs its own go.
+**Option B is the default from b003 on** (section 1.3, rule 6). Measured over the whole plan (offline): the invisible
+supports go from 52,159 to 462 parts; nothing visible changes (section 2). **Sukhumvit (b001..b057): net +27,987**
+(without B +32,850). The main roads (groups 1-8): +56,702 (without B +69,251). The whole city: +154,651 (without B
++206,348). Per group: section 2.
 
-| # | Option | Saves (whole plan) | Saves (main roads, groups 1-8) | Cost / condition |
+| Variant | What it builds | Parts added | Moved | Net in workspace | Workspace estimate (126,886 + pilot 1,040 + net) | vs 160,000 | Net without B |
+|---|---|---|---|---|---|---|---|
+| lean (default) | sidewalks and centre lines only on main roads (trunk, secondary, tertiary and their links; the graph has no primary roads) | 236,829 | 82,178 | +154,651 | 282,577 | OVER by 122,577 | +206,348 |
+| full | sidewalks and centre lines on every road, as the pilot | 394,743 | 82,178 | +312,565 | 440,491 | OVER by 280,491 | +312,661 |
+| lean2 | lean, with coarser collision outlines (simplify 0.5 instead of 0.25) | 197,055 | 82,178 | +114,877 | 242,803 | OVER by 82,803 | +166,477 |
+
+**Where the lean parts go** (with B, offline counts, all batches): asphalt 81,526 (34 %), sidewalk 69,161 (29 %),
+kerb strips 15,681 (7 %), edge lines 15,442 (7 %), frontier asphalt 14,533 (6 %), lane dashes 13,695 (6 %), island
+8,170 (3 %), centre lines 4,517 (2 %), grass 3,933 (2 %), stop lines 3,618 (2 %), zebra stripes 3,462 (1 %), frontier
+sidewalk 2,629 (1 %), invisible support 462 (under 1 %).
+
+### Fewer marking and kerb parts without uploads (measured offline)
+
+The owner has not approved the mesh uploads (about 2,600 assets), so markings and kerb strips stay Parts. Each idea
+below was measured with the generator's own code over every batch (`city.ideal` + `city.batch_segs`, the same code the
+plan runs; the base count equals the plan's markings in every batch). b001 is left out: its data is frozen and keeps the
+shipped markings, like the pilot. "Saves" counts Parts. None of these is the default; each needs the owner's choice. OSM
+gives no dash pattern for these roads (19 ways in the raw extracts carry `lane_markings` at all), so "longer dashes only
+where real markings allow" cannot be checked from the data; the old roads of the wide world use 8 / 32 today.
+
+Sukhumvit b003..b057 has 14,199 marking and kerb-strip parts today in the plan: lane dashes 6,817, kerb strips 2,230,
+edge lines 2,165, zebra bars 1,938, centre lines 630, stop lines 419.
+
+| Idea | What it looks like | Saves on Sukhumvit (b003..b057) | Saves on the main roads | Saves in the city |
 |---|---|---|---|---|
-| A | **Road B only on the main roads** (130 batches); the ground at +0.9 on every city batch (no parts) | -137,097 (the rest and the corridor keep the old road) | 0 | the sois keep today's look and overlaps; the ground still removes their trench (road edge 0.1 above the ground); needs a ground-only QA mode in `city_batch` (small) |
-| B | **No invisible RoadSupport wedges where the ground is raised** (they kept a wheel at 1.0 where an old part was wider; on ground at +0.9 the wheel sits 0.1 lower) | -52,147 | -12,724 | keep them near never-raise zones and in the corridor (no ground there); a small change in `city.make_batch`; it can start at any batch (built batches keep theirs) |
-| C | **Markings and kerb strips as one visual mesh per Atomic cell** | -53,802 (56,415 marks, +2,613 meshes) | -27,612 | the meshes must be uploaded as assets (about 2,613); an EditableMesh made in Edit mode is not saved |
-| D | **lean2: coarser collision outlines** (0.5 instead of 0.25) | -39,871 (measured run) | -13,529 | road edges up to 0.5 stud less exact |
-| E | **Lane dashes every 40 studs** instead of 20 | about -6,847 | about -5,245 | sparser dashes (the wide world already uses longer gaps) |
+| 1. Continuous lines and kerb strips simplified at 0.6 stud instead of 0.25 / 0.3 (merges near-collinear pieces) | straight stretches unchanged; on curves and corner radii fewer, longer straight pieces, up to 0.6 stud (about 16 cm) off the true curve; a kerb strip can stand that far off the kerb edge mid-chord; seen only up close at tight corners; no seam with b001 | -1,115 | -3,105 | -8,750 |
+| 2. The same at 1.0 stud | corner radii read as polygons; a strip can leave a 1-stud sliver or overhang the kerb at a tight corner: visible from a car at junctions | -1,652 | -4,722 | -12,983 |
+| 3. No white edge line along kerbed edges | the kerb strip and the kerb face still mark the edge; main roads look plainer; the edge line ends at the seam with b001 | -2,165 | -5,974 | -15,375 |
+| 4. No light kerb-stone strip on the sidewalk edge | the sidewalk meets the asphalt in its own colour; the 0.6 kerb step stays; the strip ends at the seam with b001 | -2,230 | -6,070 | -15,636 |
+| 5. Lane dashes 10 on / 20 off (period 30) instead of 8 / 12 (period 20) | about 2.7 m dashes with 5.4 m gaps (at about 0.27 m per stud: a lane is 13 studs, 3.5 m); the rhythm changes at the seam with b001 | -2,215 | -3,354 | -4,428 |
+| 6. Lane dashes 10 on / 30 off (period 40) | about 2.7 m dashes with 8.1 m gaps: the period of the old roads all over the map today (8 / 32, `pattaya_wide.json` `dash_gap_studs` 32); the rhythm changes at the seam with b001 | -3,402 | -5,164 | -6,804 |
+| 7. Zebra bars 3 wide with 3 gaps instead of 2 / 2 (fewer pieces per zebra) | about a third fewer, wider bars (0.8 m instead of 0.55 m); still a zebra; differs from b001. As measured, the 1-stud clearance around the bars leaves short bits of edge line in the 3-stud gaps (counted here); with this idea the clearance would go to 1.5 | -632 | -945 | -1,093 |
+| 8. One yellow centre line instead of the double line | a single yellow line (0.45 wide) on the centre where today there are two; differs from b001 | -322 | -775 | -2,044 |
+| Measured together: 1 + 6 + 7 (the look kept as far as possible) | as 1, 6 and 7 | -5,163 | -9,225 | -16,650 |
+| Measured together: 1 + 3 + 6 + 7 + 8 | as 1, 3, 6, 7 and 8: plainer main roads | -7,106 | -14,473 | -29,640 |
 
-**Examples:** main roads only in lean (A): net +69,251. With B as well: +56,527. With B and C: +28,915; with D instead
-of lean, roughly +15,386. The room under the line is about 32,074. The whole city in lean is +206,348, in full +312,661.
+Notes: two triangle rows that together form a rectangle could be one Part instead of up to four WedgeParts; measured on
+the written lean data, no such pair exists (0 saved). Ideas 1 and 2 do not show at the seam with b001; ideas 3 to 8
+change the look from b003 on, so at z = 50 (b001) and at the pilot the old pattern meets the new one. A change that
+shows at a seam is best started at a natural edge (for example a new road group) or applied to b001 and the pilot as
+well (that needs a new b001 and a pilot rebuild, outside this task).
 
-**Recommendation:** build the main roads in lean first (they carry the traffic and the worst edges), with B added before
-the rollout goes far (it changes no look), and decide C (mesh upload) before the rest of the city. Raise the ground on
-every city batch: it costs no parts and removes the trench everywhere. The owner decides.
+### Other ways to bring it down
 
-**Atomic cells and streaming.** Each batch builds about 10 Atomic `Cell_*` Models (2,613 in all); the largest holds 599
+| # | Option | Saves (whole plan) | Saves (main roads, groups 1-8) | Saves (Sukhumvit) | Cost / condition |
+|---|---|---|---|---|---|
+| A | **Road B only on the main roads** (130 batches); the ground at +0.9 on every city batch (no parts) | -97,949 (the rest and the corridor keep the old road) | 0 | 0 | the sois keep today's look and overlaps; the ground still removes their trench (road edge 0.1 above the ground); needs a ground-only QA mode in `city_batch` (small) |
+| C | **Markings and kerb strips as one visual mesh per Atomic cell** (from b003 on) | -53,492 (56,041 marks, +2,549 meshes) | -27,265 | -13,813 | the meshes must be uploaded as assets (about 2,549; not approved); an EditableMesh made in Edit mode is not saved |
+| D | **lean2: coarser collision outlines** (0.5 instead of 0.25) | -39,774 (measured run) | -13,432 | -5,439 | road edges up to 0.5 stud less exact |
+
+**What fits under the line** (offline counts; the room is about 32,074):
+
+| Build | Net parts | Under the line? |
+|---|---|---|
+| Sukhumvit (b001..b057), lean with B | +27,987 | fits |
+| the same with the look-keeping marking set (1 + 6 + 7) | +22,824 | fits |
+| the same with the stronger marking set (1 + 3 + 6 + 7 + 8) | +20,881 | fits |
+| the main roads (groups 1-8) with B | +56,702 | over |
+| the main roads with B and the stronger marking set | +42,229 | over |
+| the main roads with B and C (mesh upload, not approved) | +29,437 | fits |
+| the main roads in lean2 with B | +43,270 | over |
+| the whole city in lean with B | +154,651 | over |
+
+**Recommendation:** keep option B (done, no visible change). Build Sukhumvit in lean with B (it fits), and take the
+look-keeping marking set (ideas 1, 6, 7) if the owner accepts the longer dashes and the wider zebra bars. The main
+roads beyond Sukhumvit need the mesh path (C, uploads) or a higher line set from the measurement below; the stronger
+marking set alone still leaves them at +42,229. Raise the ground on every city batch: it costs no parts. The owner
+decides.
+
+**Atomic cells and streaming.** Each batch builds about 10 Atomic `Cell_*` Models (2,556 in all); the largest holds 589
 parts. The data caps a module at 600 parts and the streaming layout b cap is 1,500 per road cell
 (docs/STREAMING_ARCHITECTURE.md), so every cell is well under it. The old chunk Models lose parts. The largest net
-change within one 1,280-stud streaming radius (batch centres around world x 20020, z 3650) is +21,509 parts, against
-about 19,000 instances that stream in after a teleport today (estimate from counts; not measured).
+change within one 1,280-stud streaming radius (batch centres around world x 20020, z 3650) is +16,403 parts; with
+Sukhumvit alone built it is +4,531 (around x 23920, z 3350). About 19,000 instances stream in after a teleport today
+(estimate from counts; not measured).
 
 **QA runner caps.** `PattayaQARunner` checks parts per top folder and Atomic chunk caps. `WideChunks`, `ApronChunks` and
 `FurnitureChunks` only lose parts. `RoadVisCity` is new: it shows as INFO and counts toward the 160,000 total, but it
 has no chunk cap (`CHUNK_CAPS` has no entry, and its per-folder check would count a whole batch Folder as one chunk).
 Proposed, not changed here: count `RoadVisCity.<id>.Cell_*` against a cap of 600, and add a parts reference for
 `RoadVisCity` (the lean total above).
+
+### Frame time and memory: the measurement plan
+
+The 160,000 line is a QA heuristic, not an engine limit. This plan measures what the extra Road B parts cost, so the
+owner can set a higher line from data. Nothing in it changes `PattayaQARunner`; its total is only read.
+
+**Where.** A copy of the place (File > Save to File As, e.g. `MidnightPattaya_perf_<date>.rbxl`, opened as a local
+file), never the team place. The copy is thrown away afterwards. Each state is measured in a fresh Studio session with
+the same settings: the `pc` perf profile, night (`game.Lighting:SetAttribute("TimeLock", 21)` on the server), the same
+car and camera.
+
+**The two states.**
+- **S0**: the copy as saved (the place today).
+- **S1**: S0 with Sukhumvit b001..b057 in Road B, lean with option B: 43,437 parts added, 15,450 moved, net
+  +27,987 in workspace (section 2). Offline: `city_cli.py plan` writes every batch's Road B data, then
+  `city_cli.py bundle <ids> --rv-only` makes the install bundles, about 10 batches each in plan order (Sukhumvit's
+  Road B data is 2.9 MB in all; add `--no-builders` to every bundle but the first). In the copy: install the
+  bundles, then one command-bar loop in plan order, `RV.Build(id)` and then `RV.MoveReplaced(id)` for each id not built
+  yet, stopping at the first refusal (if a move plan does not match the copy, measure with what is built and note the
+  count). The ground is left as it is (it adds no instances). The loop, with the ids of Appendix A rows 1 to 57:
+  `local RV = require(game.ServerStorage.PattayaRoadVisBuilder:Clone()) for _, id in {"b001", "b003", "b002", ...} do
+  local a = RV.Build(id) print(a) if string.find(a, "ABORTED") then break end local m = RV.MoveReplaced(id) print(m)
+  if string.find(m, "ABORTED") then break end end`.
+
+**Points** (each state, in this order; teleport, then wait 20 s for streaming):
+
+| # | Point | Record |
+|---|---|---|
+| 1 | The pilot / b001 junction on Sukhumvit, world (24520, 650), car stopped, camera behind it | PerfProbe 10 s: on the server `workspace:SetAttribute("PerfProbe", 10)` (heartbeat rate and p50 / p99 / worst frame, memoryMB by tag, InstanceCount, parts and textures loaded near the camera); with Studio in front, Shift+F5 for 60 s (render FPS and frame time); F9 > Memory, client and server totals |
+| 2 | The densest Sukhumvit spot: the 1,280-stud streaming radius with the most new parts in S1, batch centres around world (23920, 3350) (+4,531 parts) | the same |
+| 3 | A control far from Sukhumvit: the Central start | the same (S1 should equal S0 here) |
+| 4 | A GPS drive the length of Sukhumvit, from its north end (b044 / b045, world z about -9,250) to its south end (b056 / b057, z about 15,350), about 25,000 studs, 2 to 3 minutes at 160-200 studs/s (the leader's drive harness) | PerfProbe every 30 s (heartbeat p99, parts loaded), road probes under the car the whole way, render FPS with Studio in front, a MicroProfiler dump (Ctrl+F6) at the worst frame |
+| 5 | A teleport burst: points 1, 2, 3, 1, 10 s apart | the worst frame after each teleport; the seconds until the road under the car is there |
+
+**Pass lines for S1** (S0 measured alongside; the 2026-10-19 numbers are in docs/PERFORMANCE_BUDGET.md):
+- Heartbeat 60/s; p99 at most 20 ms on the drive (2026-10-19: 19.3 ms); worst frame at most 33 ms outside the teleports.
+- Render with Studio in front: 60 FPS average (the Studio cap) and a 1 % low of at least 45 at points 1 to 3 and on the
+  drive (the desktop target).
+- Memory: client total in S1 at most S0 + 10 % (2026-10-19: 4.4 GB in Studio), and back within 5 % of point 1 after
+  the drive (no growth from streaming in and out).
+- Streaming: parts loaded near the camera stay flat along the drive (as on 2026-10-19); 0 road-missing events (every
+  road probe under the car finds a road part; no fall after a teleport).
+- The QA runner, unchanged, once in S1: its BaseParts total is the real count to set a line from.
+
+**What the owner gets.** If every line holds, the line can go up to at least the S1 total (the S0 total plus
+27,987). A further step (S2 = S1 plus the other main roads, net 28,715 more) is measured the same way before the line
+goes higher. If a line fails, the line stays and the part savers above come first.
+
+**Time.** About 1.5 hours, about 25 minutes of it with Studio in front: the copy and S0 in a fresh session 20 minutes
+(about 8 in front: 3 points x 1 minute plus the drive); the bundles and the build loop 30 minutes (Studio may be in
+the background); a fresh session and S1 20 minutes (about 8 in front); the teleport bursts and the QA runner 10 minutes;
+notes 10 minutes.
 
 ## 4. Batch 1 (b001)
 
@@ -243,9 +367,14 @@ trunk links), the sois Sukhumvit Pattaya 38, 40 and 47 and Porn Prapa Nimit. Its
 stretches, with one exception: Soi 40 runs along the north edge for about 75 studs (x 24430..24505), so the edge cuts
 it lengthwise. Until b003 (the next box north) is built, the north half of that soi stays today's road. Moving the
 edge would move the whole grid column; the cost is small, so the grid stays. The owner's second screenshot is at this
-north edge: the junction there is inside batch 1, and the roads north of z = 50 are finished by b003. b003 is third in
-the plan (b002 is the box south of the pilot). If the owner wants that spot finished first, swap the two in the plan
-(`city.plan_city`, the Sukhumvit sort) and regenerate: the data of every batch is made for one build order.
+north edge: the junction there is inside batch 1, and the roads north of z = 50 are finished by b003, which now builds
+second, right after b001 (section 6).
+
+**b001 is frozen.** It waits for the owner's backup and is not installed yet. Its data must not change: the generator
+applies b001's shipped settings to it whatever the defaults (`city.FROZEN`), and a test regenerates it and compares
+both sha1 (`test_roadcity.Frozen`). On this branch it is byte for byte the data the leader checked in main `af31641`
+(Road B `021dd07c...`, ground `ab0c4b22...`): the 8 Road B files and the ground manifest, and the install bundle
+`roadcity_b001.json` / `install_b001.luau` (compared with `cmp`).
 
 **Studio data** (`build/roadcity/b001/`, OFFLINE, regenerate in the main checkout with
 `city_cli.py batch b001 --art`):
@@ -260,15 +389,18 @@ the plan (b002 is the box south of the pilot). If the owner wants that spot fini
 | Ground | 25,740 voxel columns (plateau 22,650, ramp 3,090), never-raise columns 0; data 55.0 KB |
 | Data sha1 | Road B `021dd07cc78287368c19ee828d4f2b7e3cc2f9d1`, ground `ab0c4b2209e0d4d4bd25c71d79d0bfc6acd153fe` |
 
-**Offline QA** (today = the pilot only; Road B = b001 built, ground not raised in b001; + ground = b001 at +0.9):
+**Offline QA** (today = the pilot only; Road B = b001 built, ground not raised in b001; + ground = b001 at +0.9).
+The regions were refined on 2026-10-22 (the data did not change): a lane sample counts where the lane centre (the car)
+is, not the road's centre line; the seam bands stop at the two boxes and end 20 studs before an open edge; a spot run
+is clipped to where the car centre stays within 8 studs of the box or on built Road B.
 
 | Check | Today | Road B | Road B + ground |
 |---|---|---|---|
 | Lane samples in the core (the box less 20 studs along its open edges), 2,807 | holes / drops 393 / 386 | 0 / 0 | **0 / 0** |
-| Lane samples along the open edges, 178 | 22 / 22 | 4 / 4 | 4 / 0 (lowest wheel 0.65) |
-| Lane samples across the pilot seam (40-stud band), 336 | 34 / 24 | 0 / 0 | **0 / 0** |
+| Lane samples along the open edges, 179 | 24 / 24 | 6 / 6 | 6 / 0 (lowest wheel 0.35) |
+| Lane samples across the pilot seam (40-stud band), 338 | 34 / 24 | 0 / 0 | **0 / 0** |
 | 1-stud grid over the box, 274,815 cells: steps of 1.5 or more | 5,554 (largest 3.6) | 4,221 (3.6) | **0** (largest 0.804) |
-| The same over the pilot seam band, 38,700 cells | 311 (3.0) | 163 (3.6) | **0** (0.7) |
+| The same over the pilot seam band, 34,468 cells | 313 (3.0) | 167 (3.6) | **0** (0.7) |
 | Road edge to ground, largest step | 3.0 | 3.0 | **0.114** |
 | Sidewalk outer edge to ground (a kerb face, as in the pilot) | 3.58..3.6 | 0.755..3.6 | 0.7..0.804 |
 | Spot runs (63: every carriageway through the box and on 160 studs into the pilot, at offsets 0, +-14, +-20, +-24): runs with a drop or a hang / a climb | 37 / 32 | 18 / 12 | 2 / 0 |
@@ -277,9 +409,10 @@ the plan (b002 is the box south of the pilot). If the owner wants that spot fini
 | Off-road runs: leave the road 14..24 studs and come back (48) / deep (24): runs with a drop | 25 / 12 | 6 / 6 | **0 / 0** (lowest static up 0.996 / 0.993) |
 
 Notes on the table:
-- The 4 lane samples along the open edges are at the north-east corner (world x 24786..24803, z 50..56): Sukhumvit
-  northbound leaves the box there, and the old road beyond the edge lies a few studs off the new lane. With the ground
-  at +0.9 a wheel there meets the ground 0.35 below the lane: a bump, not a drop. b003 removes it.
+- The 6 lane samples along the open edges are at the north-east corner (world x 24790..24804, z 50..56):
+  Sukhumvit northbound leaves the box there, and the old road beyond the edge lies a few studs off the new lane. A wheel
+  there is on the ground ramp just past the edge, 0.65 below the lane top: a bump, not a drop. b003 (built
+  next) removes it.
 - The 2 spot runs with a hang are Soi 40 at 14 studs off its centre (no sidewalk there): one side of the car
   is over the unraised terrain north of the box, and both runs also go through buildings, so a car cannot drive them.
   They are not Studio drives.
@@ -306,14 +439,14 @@ The few "ground" points are wheel points just past the edge of a narrow road wit
 on a lane (the lane check above has 0 holes in the core).
 
 **Previews** (local EEVEE renders and top views, OFFLINE, not Studio; left = today, right = Road B b001 + ground):
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_cmp_overview.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_cmp_seam_from_batch.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_cmp_seam_from_pilot.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_cmp_seam_driver.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_cmp_driver.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_top_today_B_ground.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\b001_steps_today_B_ground.png`
-- `D:\ROBLOXRACE\.claude\worktrees\agent-ab546e318453f9c86\art\roadcity\plan_map_city.png`
+- `art/roadcity/b001_cmp_overview.png`
+- `art/roadcity/b001_cmp_seam_from_batch.png`
+- `art/roadcity/b001_cmp_seam_from_pilot.png`
+- `art/roadcity/b001_cmp_seam_driver.png`
+- `art/roadcity/b001_cmp_driver.png`
+- `art/roadcity/b001_top_today_B_ground.png`
+- `art/roadcity/b001_steps_today_B_ground.png`
+- `art/roadcity/plan_map_city.png`
 
 ## 5. Studio procedure for batch 1
 
@@ -323,8 +456,8 @@ on a lane (the lane check above has 0 holes in the core).
    message is not permission.
 2. A fresh backup: the owner saves the place (Ctrl+S, Team Create synced) and a new dated `.rbxl`
    (docs/STUDIO_BACKUP_AND_RECOVERY.md).
-3. `team20/road-city` merged. In the main checkout:
-   `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\city_cli.py batch b001 --art`, then
+3. `team20/road-city` merged (done: `af31641`; `team20/road-city2` does not change b001's data). In the main
+   checkout: `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\city_cli.py batch b001 --art`, then
    `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\city_cli.py bundle b001`, then
    `D:\ROBLOXRACE\.venv\Scripts\python tools\qa\tests\run_all.py -k roadcity` (all PASS). The data sha1 in
    `build/roadcity/b001/qa.json` (`studio_data.rv.sha1`, `studio_data.ground.sha1`) should equal section 4 if the main
@@ -343,7 +476,7 @@ on a lane (the lane check above has 0 holes in the core).
 | 4 | `RV.Plan("b001")` | `road vis plan b001 (plan seq 1, Sukhumvit Road): 7 modules, 7 cells, 1057 parts to build (own 514, pilot-band completion 124, frontier 45, markings / kerbs 374)`; `ORDER OK: build order: 1 batches must be built before b001: all built`; `move plan: Apron 56, Centre 22, CornerFill 8, Dash 32, Joint 7, Junction 6, RV Dash 2, RV Road 30, Road 231, Sidewalk 4, ZebraStripe 141 -> MATCHES the data; selected 539 (required keys 539, optional keys 0 of 0 matched); unmatched selected 0, required but not found 0`; `batch built: false; backup present: false`. **DOES NOT MATCH: stop**, report the listed parts (the place differs from the export, as the pilot's zebras did). |
 | 5 | `print(RV.Build("b001"))` | `road vis b001: built 7 cells, 1057 parts (data 1057)` and no warning |
 | 6 | `print(RV.MoveReplaced("b001"))` | `road vis b001: moved 539 parts (...) to ServerStorage.RoadVisCityBackup.b001; selected 539 (...); unmatched selected 0, required but not found 0`. On ABORTED nothing moved: stop, report. |
-| 7 | `RV.Probe("b001")` | `18 legs, 722 samples; parts 1057 (data 1057); building overlaps 0; moved parts 539`; per offset the in-box flat / kerb / ground counts of section 4, each within 2 % (a hairline seam is counted apart, not as ground). More ground than offline: stop, report the first points it lists. |
+| 7 | `RV.Probe("b001")` | `18 legs, 722 samples; parts 1057 (data 1057); building overlaps 8; moved parts 539` (corrected 2026-10-22: offline, 8 frontier pieces for b175 east of the box, world x 24846..24903, z 388..436, keep the old road and sidewalk footprint, which runs under buildings there as the old parts did; a count near 8 is expected, b175 replaces them; an overlap inside the box is a stop); per offset the in-box flat / kerb / ground counts of section 4, each within 2 % (a hairline seam is counted apart, not as ground). More ground than offline: stop, report the first points it lists. |
 | 8 | `print(RG.Adopt("pilot", game.ServerStorage.RoadGroundBackup_20261022, Vector3.new(6048, -3, 156)))` (once for the whole rollout) | `road ground: adopted pilot (voxels x 6048..6212, y -3..2, z 156..319) from ServerStorage.RoadGroundBackup_20261022 as seq 0`. It copies the backup; the original stays where it is. |
 | 9 | `RG.Plan("b001")` | `road ground plan b001 (plan seq 1): 25740 voxel columns of layer y -4..0 (plateau 22650 at y 0.90 = occupancy 0.7250, ramp 3090 over 20 studs, never-raise 0, plateau columns lowered toward a never-raise zone 0); 0 new instances`; `terrain box: voxels x 6050..6209, z 7..167 (...): READY; 25740 data columns: 25740 as expected (...), 0 not; 0 in a never-raise zone (must be 0)`; `raised batches overlapping the box: pilot (seq 0)`; `shoulder terrain backups overlapping the box: 0 (must be 0)`. **NOT READY: stop**, report the line. |
 | 10 | `print(RG.Build("b001"))` (`RG.Build("b001", {pavement = true})` only if the owner chose Pavement) | `road ground b001: raised N columns to y Y (median of 100 probes, LO .. HI); K data columns already as high or higher (a raised neighbour); Ground everywhere; registry ServerStorage.RoadGroundCity.b001 (seq 1)` with Y in 0.85..0.95 and N + K = 25740. K is the part of b001's data that the pilot's raise already covers (offline, with the pilot raise modelled as its box plus a 20-stud ramp: N 24,788, K 952; the hand raise may differ a little). On ABORTED the terrain is already put back (`restored exactly (checksum)`): stop, report. |
@@ -357,8 +490,9 @@ on a lane (the lane check above has 0 holes in the core).
 **Physics drives (step 13).** `build/roadcity/b001/drives.json` has 135 runs (car centre paths, world x, z).
 Drive the ones with `studio = true`: 56 spot runs (every carriageway at offsets 0, +-14, +-20, +-24 that is clear
 of buildings), 48 off-road runs that leave the road and come back, 24 deep off-road runs; 185 drives in all
-(each speed in `speeds`). The minimum set if time is short: the 9 offset-0 spot runs at 70 and 100 and the
-48 off-road runs at 35. Per drive: `TK.seatIn()`, `TK.jumpTo` the first point of `packed`, then
+(each speed in `speeds`). The minimum set if time is short is marked `minimum = true`: the 9 offset-0 spot runs
+at 70 and 100 and the 48 off-road runs at 35 (66 drives). Per drive: `TK.seatIn()`, `TK.jumpTo` the first point of
+`packed`, then
 `TK.drivePath(packed, {physics = true, speed = s})`.
 - **Pass, every drive:** no flip; `h.stats.minUp` at least 0.71 (the ground pilot's line; the leader saw 1.00 at +0.9);
   no recovery prompt during the run.
@@ -367,6 +501,8 @@ of buildings), 48 off-road runs that leave the road and come back, 24 deep off-r
 - On a fail: note the run id, the speed and `h.stats`, stop, and report.
 
 ### Rollback (any time, in this order)
+
+Once b003 is built, undo b003 first (section 6): both removes of b001 refuse while b003 is built.
 
 1. `print(RG.Remove("b001"))` -> `road ground b001: terrain restored EXACTLY (checksum ... = before the build); registry
    entry removed`. It refuses while a later raised batch overlaps the box. If it says NOT exact, keep everything and
@@ -379,21 +515,173 @@ of buildings), 48 off-road runs that leave the road and come back, 24 deep off-r
 4. Optional: delete `ServerStorage.PattayaDataRoadVis_b001` and `PattayaDataRoadGround_b001`.
 5. Last resort: the dated `.rbxl`.
 
-## 6. Every later batch
+## 6. b003, second in the build order
 
-The same steps with the batch id, in plan order (Appendix A). `RG.Adopt` is done once, before batch 1 only.
+**Box: world x 24220..24820, z -550..50**, the cell north of b001 (cell (0, -2)). Its south edge is b001's north edge
+(z = 50), so the seam with b001 is one straight line, and the roads that cross it (the owner's second screenshot spot)
+are finished on both sides once b003 is built. It holds Sukhumvit Road along the southern half of its east edge (x =
+24820, z -345..50: b003 builds the carriageways up to that edge, b004 the rest), Paniad Chang across the north-west
+corner with its sois 4/2, 5, 5/1 and 6, the sois Sukhumvit Pattaya 34/1, 36, 36/1 and 38, Soi 40 (with the north half
+of its 75-stud stretch along b001's north edge) and residential roads. Option B applies to it (the first batch with
+B).
 
-1. Offline, in the main checkout: `city_cli.py batch <id> --art` (data, QA, drives, previews), then `bundle <id>`.
-   `batch` recomputes every batch before it (measured in the plan run: 17 s per batch on average, so b057 takes about
-   8 minutes and b262 about 76, plus about a minute for its own QA). The plan run already writes every batch's Road B
-   data (`build/roadcity/data/<id>/roblox_rv`); `batch` adds the ground data, the QA and the drives.
+**Studio data** (`build/roadcity/b003/`, OFFLINE, regenerate in the main checkout with `city_cli.py batch b003 --art`
+and `city_cli.py bundle b003 --no-builders`):
+
+| Item | Value |
+|---|---|
+| Road B parts built | 1,289: own pieces 608, pilot-band completion 0 (b003 does not touch the pilot), frontier pieces 407 (for b004, b168 and b170; most are the outside parts of the old Sukhumvit pieces that cross the east edge), markings and kerb strips 274 |
+| By kind | asphalt 324, sidewalk 278, island 2, invisible support 4, frontier asphalt 389, frontier sidewalk 18; lane dashes 41, edge lines 58, kerb strips 79, centre lines 22, zebra stripes 57, stop lines 17 |
+| Old parts moved to ServerStorage | 390 required: Road 170, Apron 51, CornerFill 39, ZebraStripe 38, Centre 18, Dash 13, Sidewalk 13, Junction 10, Joint 5, and the 33 frontier pieces b001 built for b003 (`frontier RV Road`); plus 1 optional key: a Road part centred at world (24830.99, -244.07), 11 studs east of the box, whose overlap with the box is within the float32 doubt of the 1-stud² line |
+| Net parts in workspace | +899 (+898 if the optional part moves) |
+| Option B | 191 of the 195 support parts left out; the 4 kept are 2 triangles near world (24789, -408) and (24757, -423) whose bounding boxes reach the east edge x = 24820, where the ground ramp starts (the test is conservative) |
+| Atomic cells | 11 (largest 415 parts); 11 cell modules and the manifest, largest 54.4 KB |
+| Ground | 25,740 voxel columns (plateau 22,650, ramp 3,090), never-raise columns 0, 582 edge checks; data 73.8 KB; with `{pavement = true}` 15,547 columns would be Pavement |
+| Data sha1 | Road B `665df2817f7c47c9812666a0758068289c3f777c`, ground `ba231cc049244e9cdccae63be805aa60426f38bc` |
+| Install bundle | `build/roadcity/b003/install/roadcity_b003.json` (14 modules, 263,157 bytes, sha1 `f267995a0da97b30d63fd8ae76ddbcf68fa0b981`) and `install_b003.luau` (sha1 `0867004f464e5b778d3d4a51bb0a4b1cc2a6a274`): the data only, no builders. `PattayaDataRoadGroundNoRaise` in it is the same text as in b001's bundle. |
+
+**Offline QA** (today = the pilot and b001 built; Road B = b003 built as well, ground not raised in b003; + ground =
+b003
+at +0.9). The regions are defined as in section 4.
+
+| Check | Today | Road B | Road B + ground |
+|---|---|---|---|
+| Lane samples in the core (the box less 20 studs along its open edges), 2,920 | holes / drops 23 / 19 | 0 / 0 | **0 / 0** |
+| Lane samples along the open edges (east, west, north), 574 | 99 / 96 | 18 / 18 | 18 / 0 (lowest wheel 0.26) |
+| Lane samples across the seam with b001 (a 40-stud band, both sides), 622 | 21 / 15 | 0 / 0 | **0 / 0** |
+| 1-stud grid over the box, 316,353 cells: steps of 1.5 or more | 14,004 (largest 3.6) | 13,069 (3.6) | **0** (largest 0.804) |
+| The same over the seam band with b001, 43,746 cells | 921 (3.0) | 862 (3.462) | **0** (0.7) |
+| Road edge to ground, largest step | 3.0 | 3.0 | **0.245** |
+| Sidewalk outer edge to ground (a kerb face) | 3.58..3.6 | 0.714..3.6 | 0.7..0.85 |
+| Spot runs (105: every carriageway through the box and on 160 studs into b001, at offsets 0, +-14, +-20, +-24): runs with a drop or a hang / a climb | 70 / 44 | 68 / 40 | 20 / 1 |
+| The same, runs clear of buildings (44) | 17 / 11 | 15 / 9 | **7 / 0**: drops 0, climbs 0; 7 runs with a short hang at an open edge (22 samples) |
+| Pilot shoulder path B (flip spot 2), 36 runs | 0 / 0 | 0 / 0 | 0 / 0 |
+| Off-road runs: leave the road 14..24 studs and come back (160) / deep (80): runs with a drop | 160 / 80 | 160 / 80 | **0 / 0** (lowest static up 0.987 / 0.987) |
+
+Notes on the table:
+- The 18 lane samples along the open edges are all at the east edge, where Sukhumvit runs along x = 24820 (world x
+  24815..24820, z -155..10, two carriageways): the old road beyond the edge lies a few studs off the new lane. A wheel
+  there is on the ground ramp just past the edge, at worst 0.74 below the lane top: a bump, not a drop (the drop line is
+  1.5). b004 removes it.
+- The 7 clear spot runs with a hang straddle an open edge with the car centre up to 8 studs outside the box: 6 on Soi 40
+  at offsets +-14..24 at the west edge (car centre world x 24212..24216, z 9..19, the outer wheels on the unraised
+  ground west of the box) and 1 on Sukhumvit at offset +20 at the east edge (car centre x 24825). It is a static tilt
+  (static up at least 0.97, the pass line is 0.71). They stay Studio drives, to show the open edges in physics; they go
+  away when those neighbours are built.
+- The 1 drop and 1 climb among all 105 runs are on runs through buildings (Soi 36 at offsets +20 and -24): a car cannot
+  drive them, and they are not Studio drives.
+- The seam with b001 is clean: 0 lane holes in 622 samples, no step of 1.5 or more, the largest 0.7 (a kerb face). The
+  asphalt of both batches meets on z = 50 at the same points (test `Seams`), and b003 takes the 33 frontier pieces b001
+  built in its box (luau test).
+- No street pole on a median island in b003. No colliding Road B part over a building footprint (offline).
+
+**What `RV.Probe("b003")` should count** (offline; flat = a road part at 0.9..1.1, kerb = 1.1..1.8, ground = no road
+part; the seam band is up to 30 studs outside the box on every side):
+
+| Offset | In box | flat | kerb | ground | Seam band | flat | kerb | ground |
+|---|---|---|---|---|---|---|---|---|
+| 0 | 873 | 873 | 0 | 0 | 266 | 266 | 0 | 0 |
+| 8 | 873 | 864 | 0 | 9 | 258 | 226 | 0 | 32 |
+| -8 | 873 | 864 | 0 | 9 | 258 | 243 | 0 | 15 |
+| 14 | 98 | 98 | 0 | 0 | 63 | 63 | 0 | 0 |
+| -14 | 98 | 82 | 0 | 16 | 63 | 47 | 0 | 16 |
+| +-20, +-24 | 0 | | | | 0 | | | |
+
+The 34 in-box ground points are footprint points of Sukhumvit lane samples within 8 studs of the east open edge (car
+centre x 24812..24820) that fall beyond the edge. The seam-band ground points are all on Sukhumvit east of the box
+(x 24820..24848, b004's box). None is on the seam with b001.
+
+**Option B, the proof** (offline: the same batch generated with B on and off, results in this branch's
+`build/roadcity/b_proof_b003.json` and `b_proof_b002.json`; the test `test_roadcity.OptionB` repeats the piece check for
+b003 and the QA targets for b003 and b002):
+- Every visible piece is the same with B on and off: the asphalt, sidewalk, island and grass triangles, the pilot-band
+  completion, the frontier pieces and every marking and kerb strip (compared row by row). Only invisible supports go:
+  b003 195 -> 4 parts, b002 31 -> 0.
+- The QA of Road B + ground is the same with B on and off (b003: every number in the table above; b002: the same
+  except the road edge to ground step, 0.237 off and 0.239 on): lane holes and drops in the core 0; grid steps of 1.5
+  or more 0; clear spot runs and off-road runs 0 drops and 0 climbs; the seams clean (b003 with b001: 0 of 622 lane
+  samples, grid 0; b002 with the pilot: 0 of 475, grid 0).
+- Over the whole plan, B changes nothing but the supports (section 2). b001 keeps its 9 supports: its data is frozen.
+
+**Previews** (OFFLINE, top views from the static model; left today, middle Road B, right Road B + ground):
+- `art/roadcity/b003_top_today_B_ground.png`
+- `art/roadcity/b003_steps_today_B_ground.png` (road edges coloured by their step down to the ground)
+
+### Studio procedure for b003 (after b001, as in section 5)
+
+The lines below come from running the two builders on b003's data in the luau CLI (the RG lines with the voxel terrain
+mock, b001 raised before it as in Studio, the pilot as adopted); counts can differ a little in Studio where the text
+says so.
+
+**Before anything (each one is required):**
+1. The owner's go-ahead for b003, in the owner's own words, for the road parts and the terrain write.
+2. A fresh backup (Ctrl+S, Team Create synced, and a new dated `.rbxl`).
+3. b001 built and passed (section 5, steps 1 to 16) and saved. The pilot adopted as seq 0, b001 seq 1.
+4. `team20/road-city2` merged. In the main checkout:
+   `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\city_cli.py batch b003 --art`, then
+   `D:\ROBLOXRACE\.venv\Scripts\python tools\roadvis\city_cli.py bundle b003 --no-builders`, then
+   `D:\ROBLOXRACE\.venv\Scripts\python tools\qa\tests\run_all.py -k roadcity` (all PASS). The sha1 in
+   `build/roadcity/b003/qa.json` should equal the table above if the main checkout's build inputs equal this branch's.
+5. The two builders in ServerStorage are the repo's (the leader's drift check). This bundle does not carry them.
+
+| # | Do | Pass |
+|---|---|---|
+| 1 | `powershell -File tools\studio\serve.ps1 -Dir build\roadcity\b003\install -Port 8765 -Seconds 300`; run the text of `build\roadcity\b003\install\install_b003.luau` in the command bar | `road city b003: installed 14 modules (263157 characters); expected 14 modules`; `HttpEnabled restored to false`. It creates or updates `PattayaDataRoadVis_b003` (12 modules), `PattayaDataRoadGround_b003` and `PattayaDataRoadGroundNoRaise` (unchanged text). It deletes nothing. |
+| 2 | `local RV = require(game.ServerStorage.PattayaRoadVisBuilder:Clone()) local RG = require(game.ServerStorage.PattayaRoadGroundBuilder:Clone())` | loads |
+| 3 | Read only: `print(RV.Status())`, `print(RG.Status())` | `pilot: built, backup present`; `b001 seq 1: 1057 parts; moved 539; data present`; `1 city batches built`. `pilot seq 0: ...; adopted`; `b001 seq 1: voxels x 6050..6209, z 7..167; written N; measured Y; ground`; `2 raised batches in ServerStorage.RoadGroundCity` |
+| 4 | `RV.Plan("b003")` | `road vis plan b003 (plan seq 2, Sukhumvit Road): 11 modules, 11 cells, 1289 parts to build (own 608, pilot-band completion 0, frontier 407, markings / kerbs 274)`; `ORDER OK: build order: 2 batches must be built before b003: all built`; `move plan: Apron 51, Centre 18, CornerFill 39, Dash 13, Joint 5, Junction 10, Road 170, Sidewalk 13, ZebraStripe 38, frontier RV Road 33 -> MATCHES the data; selected 390 (required keys 390, optional keys 0 of 1 matched); unmatched selected 0, required but not found 0` (or `Road 171` and `selected 391 (required keys 390, optional keys 1 of 1 matched)`); `batch built: false; backup present: false`. **ORDER WRONG or DOES NOT MATCH: stop**, report. |
+| 5 | `print(RV.Build("b003"))` | `road vis b003: built 11 cells, 1289 parts (data 1289)` and no warning |
+| 6 | `print(RV.MoveReplaced("b003"))` | `road vis b003: moved 390 parts (Apron 51, Centre 18, CornerFill 39, Dash 13, Joint 5, Junction 10, Road 170, Sidewalk 13, ZebraStripe 38, frontier RV Road 33) to ServerStorage.RoadVisCityBackup.b003; selected 390 (required keys 390, optional keys 0 of 1 matched); unmatched selected 0, required but not found 0` (or 391 with `Road 171`). On ABORTED nothing moved: stop, report. |
+| 7 | `RV.Probe("b003")` | `25 legs, 1139 samples; parts 1289 (data 1289); building overlaps 0; moved parts 390` (or 391); `in-box ground points at offset 0..24: 34`; per offset the counts of the probe table above, each within 2 %. More ground than offline: stop, report the first points it lists. |
+| 8 | `RG.Plan("b003")` | `road ground plan b003 (plan seq 2): 25740 voxel columns of layer y -4..0 (plateau 22650 at y 0.90 = occupancy 0.7250, ramp 3090 over 20 studs, never-raise 0, plateau columns lowered toward a never-raise zone 0); 0 new instances`; `terrain box: voxels x 6050..6209, z -143..17 (world x 24200..24840, z -572..72): READY; 25740 data columns: 25740 as expected (land or ground raised by this builder), 0 not; 0 in a never-raise zone (must be 0)`; `raised batches overlapping the box: b001 (seq 1) (they merge: no ramp between raised boxes)`; `shoulder terrain backups overlapping the box: 0 (must be 0)`. **NOT READY: stop**, report. |
+| 9 | `print(RG.Build("b003"))` | `road ground b003: raised 24788 columns to y Y (median of 100 probes, LO .. HI); 952 data columns already as high or higher (a raised neighbour); Ground everywhere; registry ServerStorage.RoadGroundCity.b003 (seq 2)` with Y in 0.85..0.95. N 24,788 and K 952 should be exact: the only raised ground under b003's data is b001's, written from its data by `RG.Build("b001")` (the pilot's hand raise does not reach this box); N + K = 25740 always. On ABORTED the terrain is already put back: stop, report. |
+| 10 | `RG.Probe("b003")` | median 0.85..0.95, target 0.90; `road-to-ground edges: 582 pairs, largest step` at most 0.45 (offline 0.326), `over 0.6: 0`; `grid 2 studs over the box: 90000 rays, floor steps >= 1.5: 0 (offline 0)`, largest floor step at most 0.9 (offline 0.77), `rays that hit nothing 0`; box edges: the lowest point within 8 studs of an edge above -2 (the ramp at the open edges; about 0.90 on the b001 side), largest 1-stud step under 0.6 (the luau mock gives -0.53 and 0.596, the same as for b001); `registry: entry present` |
+| 11 | `RV.Probe("b003")`, `RV.Probe("b001")`, `RV.Probe()` and `print(RV.Status())` again | b003 as in step 7. b001 now says `parts 1024 (data 1057)`: the 33 frontier pieces it built for b003 are in b003's backup (as in the luau test); its lane samples at the north edge now stand on b003's road. The pilot as before. Status: `b003 seq 2: 1289 parts; moved 390; data present` (391 with the optional part), `2 city batches built`. |
+| 12 | Play mode, physics drives (below) | per run as in section 5 |
+| 13 | A GPS route along Sukhumvit from the pilot through b001 into b003, 2 minutes of traffic there, one Street Challenge whose route crosses z = 50 | the route line lies on the new asphalt; no traffic car on a sidewalk or an island; every gate reached |
+| 14 | Captures with Studio focused: top down over (24520, -250); the seam at z = 50 from both sides (Soi 40 at x 24430..24505, Sukhumvit near x 24800) | compare with the previews above |
+| 15 | Frame times with Studio focused (worst, p99, 1 % low) at (24520, -250) | as at b001 |
+
+**Physics drives (step 12).** `build/roadcity/b003/drives.json` has 345 runs. Drive the 284 with `studio = true`:
+44 spot runs (clear of buildings), 160 off-road runs that leave the road and come back, 80 deep off-road runs; 459
+drives in all (each speed in `speeds`). The minimum set if time is short is marked `minimum = true`: the 15 offset-0
+spot runs at 70 and 100 and 40 of the off-road runs (every fourth) at 35; 70 drives. Per drive and pass lines as in
+section 5. The 7 spot runs with a hang at the open edges (notes above) should pass the up line; if one flips, note it
+with its run id: it is an open-edge case, not a b003 surface fault, but report it.
+
+**Rollback (any time, in this order):**
+1. `print(RG.Remove("b003"))` -> `road ground b003: terrain restored EXACTLY (checksum ... = before the build); registry
+   entry removed`. If it says NOT exact, keep everything and restore the dated `.rbxl`.
+2. `print(RV.Remove("b003"))` -> `road vis b003: removed; restored 390 of 390 parts to their original parents; backup
+   removed` (391 of 391 if the optional part moved). b001's 33 frontier pieces go back into `RoadVisCity.b001`.
+3. Then b001 can be undone as in section 5. While b003 is built, `RV.Remove("b001")` says `NOT removed, remove these
+   first (last in, first out): b003 (a later neighbour), b003 (holds this batch's frontier pieces)` and
+   `RG.Remove("b001")` says `NOT removed, remove these later raised batches first (last in, first out): b003 (seq 2)`.
+4. Last resort: the dated `.rbxl`.
+
+## 7. Every later batch
+
+The same steps with the batch id, in plan order (Appendix A: b001, b003, b002, b004, ...). `RG.Adopt` is done once,
+before batch 1 only. The builders are installed once, with b001; later bundles carry the data only.
+
+1. Offline, in the main checkout: `city_cli.py batch <id> --art` (data, QA, drives, previews), then
+   `bundle <id> --no-builders`. `batch` recomputes every batch before it (measured in the plan run: 18 s per batch
+   on average, so b057 takes about 8 minutes and b262 about 81, plus about a minute and a half for its own
+   QA). The plan run already writes every batch's Road B data (`build/roadcity/data/<id>/roblox_rv`, the same cell
+   modules as `batch` writes; only the manifest's probe expectation is empty there); `batch` adds the ground data, the
+   QA, the probe expectation and the drives.
    Check `build/roadcity/<id>/qa.json`, state `B_ground`: `lanes_core` holes 0 and drops 0; `lanes_box` drops 0;
-   `grid_box` drop_cells 0; `road_edges.road_to_ground_max_step` at most 0.6; `spot_clear` with_drop 0 and with_climb
-   0; `offroad` with_drop 0. Anything else: do not install it, report it.
-2. In Studio: steps 1 to 16 of section 5 with the id. `RV.Plan` must say `ORDER OK` (every earlier batch built, no
-   later one). `RG.Plan` lists the raised neighbours it merges with.
+   `grid_box` drop_cells 0; `road_edges.road_to_ground_max_step` at most 0.6; `spot_clear` drops 0 and climbs 0 (a hang
+   only where the car straddles an open edge, static up at least 0.95); `offroad` with_drop 0 and with_climb 0; every
+   entry of `seams` (the pilot and each built neighbour): lane holes 0, drops 0, grid drop_cells 0. Anything else: do
+   not install it, report it.
+2. In Studio: the steps of section 6 with the id (section 5 for a batch next to the pilot). `RV.Plan` must say
+   `ORDER OK` (every earlier batch built, no later one); `RG.Plan` lists the raised neighbours it merges with. After the
+   move, `RV.Probe` of an earlier neighbour counts fewer parts than its data: its frontier pieces are in the new batch's
+   backup.
 3. **Several batches in one session** is fine, in plan order: install each bundle, then for each batch RV.Plan, Build,
-   MoveReplaced, Probe, then RG.Plan, Build, Probe; then one set of drives over all of them. Undo in reverse order.
+   MoveReplaced, Probe, then RG.Plan, Build, Probe; then one set of drives over all of them (the `minimum` runs if time
+   is short). Undo in reverse order.
 4. A batch's data folders can be deleted once the owner keeps it for good. Its backups (`RoadVisCityBackup.<id>`,
    `RoadGroundCity.<id>`) are what makes Remove possible: delete them only on the owner's word. After that, only version
    history can undo the batch.
@@ -401,310 +689,319 @@ The same steps with the batch id, in plan order (Appendix A). `RG.Adopt` is done
    old parts that a backup also holds; a terrain rebuild would wipe the raised ground, and `RG.Remove` would then refuse
    (the box changed). Remove the batches first (last in, first out), or restore the place.
 
-## 7. Risks
+## 8. Risks
 
 - **The data comes from the export, not from the place.** If the place differs (the pilot's zebras did),
   `RV.Plan` says DOES NOT MATCH and nothing is moved. Then regenerate from a fresh export, or patch the keys as the
   leader did for the pilot (Studio only, logged).
 - **Open edges until the neighbour is built.** Where a batch ends and the old road goes on, the old road may sit a few
-  studs off the new lanes. A lane can leave the asphalt there onto the raised ground (batch 1: 4 lane samples at the
-  north-east corner, 0.35 below the lane, no drop). A road that runs along an open edge keeps today's edge on the far
-  side (batch 1: Soi 40). The next batch removes both.
+  studs off the new lanes. A lane can leave the asphalt there onto the ground ramp just past the edge (b001: 6 lane
+  samples at the north-east corner, 0.65 below the lane top; b003: 18 at the east edge, 0.74 below; no drop). A car
+  that straddles an open edge tilts for a moment (b003: 7 drivable spot runs, static up at least 0.97). A road that
+  runs along an open edge keeps today's edge on the far side (b001: Soi 40, until b003). The next batch removes them.
+- **Frontier pieces keep the old footprint**, also where an old road or sidewalk ran under a building: b001 has 8 such
+  parts east of its box (for b175). `RV.Probe("b001")` counts them as building overlaps (section 5, step 7) until b175
+  replaces them. b003 and b002 have none.
 - **Street poles on narrow median islands are not moved** (rule). They are real crash objects at speed. Batch 1 has 2;
   the city count is in the plan (`poles_on_islands`). A car that hits one at 70 flips.
-- **Parts.** The whole city in lean is +206,348 net parts against about +32,000 of room under the QA warning line
-  (section 3). It is a QA heuristic, not an engine limit, but the server holds every part. Past the main roads the
-  rollout needs a cheaper road build (options B and C, or a mesh collision layer) or a higher line set on measured
-  frame times and memory.
+- **Parts.** With option B, Sukhumvit is +27,987 net parts, the main roads +56,702 and the whole city in lean
+  +154,651, against about +32,074 of room under the QA warning line (section 3). It is a QA heuristic, not an engine
+  limit, but the server holds every part. Past Sukhumvit the rollout needs the marking savers, the mesh path (uploads),
+  Road B on the main roads only, or a higher line set on measured frame times and memory (the plan in section 3).
 - **The Bira corridor** gets Road B only. Its ground is outside the city terrain frame and is never raised by this
   builder, so its road edges keep today's drop until a separate terrain plan exists.
 - **Float32.** Studio positions differ from offline by about 0.001 stud. Keys match within 0.3; parts on a box edge get
   optional keys; triangle splits are made unambiguous offline. Offline checks found 0 count mismatches in the written
   data; Studio is the final word.
 - **Time.** 262 batches at roughly 45 minutes each in Studio (install, checks, drives) is weeks of sessions. Several
-  batches per session (section 6) cuts that. The physics drives are the slow part.
+  batches per session (section 7) cuts that. The physics drives are the slow part.
 - **The QA runner does not know the new folders.** `PattayaQARunner` has no chunk cap for `RoadVisCity` (its per-folder
   check would count a whole batch Folder as one chunk). Proposed, not changed here: count `RoadVisCity.<id>.Cell_*`
   against a cap of 600 and add a parts reference for `RoadVisCity`.
 - **The offline model is not physics.** Spot and off-road runs are static (collision tops, a 4-wheel footprint). The
   Studio drives decide.
 
-## 8. Questions for the owner
+## 9. Questions for the owner
 
 1. **Sidewalks:** lean (sidewalks and centre lines on main roads only; most Thai sois have none) or full (sidewalks on
    every soi; many more parts, over the QA warning line)? Recommended: lean.
 2. **Ground colour:** plain Ground everywhere (default) or Pavement near buildings (`{pavement = true}`)?
 3. **Poles on narrow islands** (2 in batch 1; the city count is in section 3): leave them, or ask a later team to move
    them a few studs? This task does not move furniture.
-4. **Batch 1:** go? The leader installs after a fresh backup.
+4. **Batch 1, then b003:** go? The leader installs each after a fresh backup.
 5. **Pace:** one batch per session, or several batches per session in plan order with one set of drives?
-6. **Parts budget:** Road B on the main roads only for now (130 batches) with the ground raised on every batch, and
-   options B (no invisible supports under raised ground) and C (markings as uploaded meshes) before the rest? Or a
-   higher part line, set after the leader measures frame times and memory with the main roads built?
+6. **Parts budget:** option B is now the default (no look change). Which marking ideas of section 3, if any, from b003
+   on: the look-keeping set (lines simplified at 0.6, lane dashes 10 / 30 like the old roads, zebra bars 3 / 3), or
+   more? Past Sukhumvit: the mesh path (about 2,600 uploads), Road B on the main roads only with the ground raised
+   everywhere, or a higher part line set after the measurement plan of section 3 (about 1.5 hours with the leader in
+   Studio)?
 
-## Appendix A: every batch (lean, build order, offline counts)
+## Appendix A: every batch (lean with option B, build order, offline counts)
 
-| Batch | Group | Box (world x0..x1, z0..z1) | Added | Moved | Net | Atomic cells (largest) | Frontier | Ground columns | Poles on islands |
-|---|---|---|---|---|---|---|---|---|---|
-| b001 | Sukhumvit Road | 24220..24820, 50..650 | 1057 | 539 | +518 | 7 (476) | 45 | 25740 | 2 |
-| b002 | Sukhumvit Road | 24220..24820, 1250..1850 | 903 | 572 | +331 | 7 (316) | 258 | 25740 | 0 |
-| b003 | Sukhumvit Road | 24220..24820, -550..50 | 1480 | 391 | +1089 | 11 (420) | 407 | 25740 | 0 |
-| b004 | Sukhumvit Road | 24820..25420, -550..50 | 913 | 763 | +150 | 6 (507) | 4 | 25740 | 0 |
-| b005 | Sukhumvit Road | 23620..24220, 1850..2450 | 1820 | 410 | +1410 | 9 (381) | 278 | 25740 | 0 |
-| b006 | Sukhumvit Road | 24220..24820, 1850..2450 | 583 | 384 | +199 | 5 (229) | 0 | 25740 | 0 |
-| b007 | Sukhumvit Road | 24820..25420, -1150..-550 | 925 | 205 | +720 | 7 (373) | 76 | 25740 | 0 |
-| b008 | Sukhumvit Road | 23620..24220, 2450..3050 | 1756 | 453 | +1303 | 9 (548) | 32 | 25740 | 0 |
-| b009 | Sukhumvit Road | 24820..25420, -1750..-1150 | 924 | 346 | +578 | 8 (453) | 16 | 25740 | 0 |
-| b010 | Sukhumvit Road | 23620..24220, 3050..3650 | 1292 | 261 | +1031 | 11 (243) | 126 | 25740 | 0 |
-| b011 | Sukhumvit Road | 24820..25420, -2350..-1750 | 1906 | 330 | +1576 | 13 (403) | 342 | 25740 | 0 |
-| b012 | Sukhumvit Road | 25420..26020, -2350..-1750 | 425 | 296 | +129 | 4 (299) | 94 | 25740 | 0 |
-| b013 | Sukhumvit Road | 23020..23620, 3650..4250 | 1933 | 355 | +1578 | 9 (572) | 457 | 25740 | 2 |
-| b014 | Sukhumvit Road | 23620..24220, 3650..4250 | 750 | 464 | +286 | 3 (404) | 0 | 25740 | 5 |
-| b015 | Sukhumvit Road | 24820..25420, -2950..-2350 | 1373 | 271 | +1102 | 11 (458) | 42 | 25740 | 0 |
-| b016 | Sukhumvit Road | 25420..26020, -2950..-2350 | 921 | 309 | +612 | 6 (295) | 26 | 25740 | 0 |
-| b017 | Sukhumvit Road | 23020..23620, 4250..4850 | 710 | 325 | +385 | 9 (209) | 353 | 25740 | 0 |
-| b018 | Sukhumvit Road | 23620..24220, 4250..4850 | 387 | 501 | -114 | 4 (245) | 0 | 25740 | 0 |
-| b019 | Sukhumvit Road | 25420..26020, -3550..-2950 | 1435 | 269 | +1166 | 7 (599) | 244 | 25740 | 3 |
-| b020 | Sukhumvit Road | 23020..23620, 4850..5450 | 1164 | 168 | +996 | 13 (199) | 247 | 25740 | 0 |
-| b021 | Sukhumvit Road | 23620..24220, 4850..5450 | 604 | 216 | +388 | 3 (270) | 201 | 25740 | 0 |
-| b022 | Sukhumvit Road | 25420..26020, -4150..-3550 | 975 | 446 | +529 | 10 (281) | 78 | 25740 | 0 |
-| b023 | Sukhumvit Road | 23620..24220, 5450..6050 | 375 | 492 | -117 | 3 (159) | 4 | 25740 | 0 |
-| b024 | Sukhumvit Road | 25420..26020, -4750..-4150 | 1834 | 290 | +1544 | 10 (499) | 308 | 25740 | 0 |
-| b025 | Sukhumvit Road | 26020..26620, -4750..-4150 | 64 | 166 | -102 | 2 (39) | 0 | 25740 | 0 |
-| b026 | Sukhumvit Road | 23620..24220, 6050..6650 | 281 | 106 | +175 | 4 (142) | 4 | 25740 | 0 |
-| b027 | Sukhumvit Road | 26020..26620, -5350..-4750 | 405 | 136 | +269 | 6 (225) | 8 | 25740 | 0 |
-| b028 | Sukhumvit Road | 23620..24220, 6650..7250 | 639 | 252 | +387 | 7 (373) | 30 | 25740 | 0 |
-| b029 | Sukhumvit Road | 26020..26620, -5950..-5350 | 315 | 84 | +231 | 7 (165) | 30 | 25740 | 0 |
-| b030 | Sukhumvit Road | 23620..24220, 7250..7850 | 367 | 188 | +179 | 6 (85) | 76 | 25740 | 0 |
-| b031 | Sukhumvit Road | 26020..26620, -6550..-5950 | 1905 | 394 | +1511 | 8 (566) | 253 | 25740 | 0 |
-| b032 | Sukhumvit Road | 23620..24220, 7850..8450 | 623 | 261 | +362 | 9 (286) | 110 | 25740 | 0 |
-| b033 | Sukhumvit Road | 26020..26620, -7150..-6550 | 1582 | 473 | +1109 | 8 (329) | 117 | 25740 | 0 |
-| b034 | Sukhumvit Road | 26620..27220, -7150..-6550 | 142 | 81 | +61 | 4 (77) | 16 | 25740 | 0 |
-| b035 | Sukhumvit Road | 23620..24220, 8450..9050 | 1085 | 325 | +760 | 8 (241) | 49 | 25740 | 0 |
-| b036 | Sukhumvit Road | 26620..27220, -7750..-7150 | 1523 | 234 | +1289 | 15 (374) | 82 | 25740 | 0 |
-| b037 | Sukhumvit Road | 23620..24220, 9050..9650 | 433 | 231 | +202 | 6 (212) | 16 | 25740 | 0 |
-| b038 | Sukhumvit Road | 26620..27220, -8350..-7750 | 1369 | 236 | +1133 | 9 (331) | 128 | 25740 | 0 |
-| b039 | Sukhumvit Road | 27220..27820, -8350..-7750 | 1102 | 176 | +926 | 6 (521) | 164 | 25740 | 0 |
-| b040 | Sukhumvit Road | 23620..24220, 9650..10250 | 245 | 110 | +135 | 4 (94) | 4 | 25740 | 0 |
-| b041 | Sukhumvit Road | 27220..27820, -8950..-8350 | 583 | 233 | +350 | 8 (182) | 34 | 25740 | 0 |
-| b042 | Sukhumvit Road | 27820..28420, -8950..-8350 | 630 | 203 | +427 | 7 (220) | 38 | 25740 | 0 |
-| b043 | Sukhumvit Road | 23620..24220, 10250..10850 | 795 | 213 | +582 | 7 (229) | 67 | 25740 | 0 |
-| b044 | Sukhumvit Road | 27820..28420, -9550..-8950 | 695 | 210 | +485 | 6 (271) | 190 | 25740 | 0 |
-| b045 | Sukhumvit Road | 28420..29020, -9550..-8950 | 79 | 85 | -6 | 4 (36) | 0 | 25740 | 0 |
-| b046 | Sukhumvit Road | 23620..24220, 10850..11450 | 1142 | 375 | +767 | 8 (349) | 163 | 25740 | 0 |
-| b047 | Sukhumvit Road | 24220..24820, 10850..11450 | 177 | 199 | -22 | 4 (62) | 4 | 25740 | 0 |
-| b048 | Sukhumvit Road | 24220..24820, 11450..12050 | 513 | 104 | +409 | 9 (192) | 14 | 25740 | 0 |
-| b049 | Sukhumvit Road | 24220..24820, 12050..12650 | 197 | 44 | +153 | 4 (100) | 6 | 25740 | 0 |
-| b050 | Sukhumvit Road | 24820..25420, 12050..12650 | 75 | 17 | +58 | 4 (26) | 2 | 25740 | 0 |
-| b051 | Sukhumvit Road | 24820..25420, 12650..13250 | 572 | 206 | +366 | 6 (240) | 18 | 25629 | 3 |
-| b052 | Sukhumvit Road | 24820..25420, 13250..13850 | 391 | 67 | +324 | 8 (126) | 50 | 21854 | 0 |
-| b053 | Sukhumvit Road | 24820..25420, 13850..14450 | 1471 | 240 | +1231 | 11 (303) | 154 | 25740 | 0 |
-| b054 | Sukhumvit Road | 25420..26020, 13850..14450 | 537 | 263 | +274 | 6 (230) | 24 | 25740 | 0 |
-| b055 | Sukhumvit Road | 25420..26020, 14450..15050 | 777 | 133 | +644 | 8 (267) | 128 | 25740 | 0 |
-| b056 | Sukhumvit Road | 25420..26020, 15050..15650 | 321 | 77 | +244 | 5 (230) | 130 | 25740 | 0 |
-| b057 | Sukhumvit Road | 26020..26620, 15050..15650 | 820 | 272 | +548 | 4 (326) | 0 | 25740 | 1 |
-| b058 | Beach Road | 21820..22420, -2950..-2350 | 1160 | 465 | +695 | 11 (282) | 70 | 25740 | 0 |
-| b059 | Beach Road | 21220..21820, -2950..-2350 | 414 | 204 | +210 | 8 (210) | 37 | 25113 | 0 |
-| b060 | Beach Road | 21220..21820, -2350..-1750 | 388 | 328 | +60 | 7 (221) | 36 | 20518 | 0 |
-| b061 | Beach Road | 21220..21820, -1750..-1150 | 742 | 379 | +363 | 8 (229) | 76 | 19898 | 0 |
-| b062 | Beach Road | 21220..21820, -1150..-550 | 390 | 214 | +176 | 8 (90) | 49 | 23105 | 0 |
-| b063 | Beach Road | 20620..21220, -550..50 | 489 | 573 | -84 | 5 (344) | 90 | 6720 | 0 |
-| b064 | Beach Road | 21220..21820, -550..50 | 565 | 330 | +235 | 11 (136) | 94 | 25740 | 0 |
-| b065 | Beach Road | 20620..21220, 50..650 | 571 | 397 | +174 | 7 (171) | 162 | 18333 | 0 |
-| b066 | Beach Road | 20020..20620, 650..1250 | 590 | 572 | +18 | 7 (217) | 120 | 11786 | 0 |
-| b067 | Beach Road | 20620..21220, 650..1250 | 983 | 580 | +403 | 9 (367) | 108 | 25736 | 0 |
-| b068 | Beach Road | 19420..20020, 1250..1850 | 705 | 365 | +340 | 9 (240) | 68 | 12910 | 0 |
-| b069 | Beach Road | 20020..20620, 1250..1850 | 1303 | 639 | +664 | 12 (481) | 108 | 25457 | 0 |
-| b070 | Beach Road | 19420..20020, 1850..2450 | 1547 | 602 | +945 | 10 (435) | 144 | 25736 | 0 |
-| b071 | Second Road | 21820..22420, -2350..-1750 | 470 | 264 | +206 | 6 (292) | 21 | 25740 | 0 |
-| b072 | Second Road | 21820..22420, -1750..-1150 | 573 | 323 | +250 | 6 (218) | 12 | 25740 | 0 |
-| b073 | Second Road | 21820..22420, -1150..-550 | 646 | 318 | +328 | 9 (270) | 54 | 25740 | 0 |
-| b074 | Second Road | 21820..22420, -550..50 | 567 | 264 | +303 | 11 (269) | 46 | 25740 | 0 |
-| b075 | Second Road | 21220..21820, 50..650 | 1434 | 611 | +823 | 9 (432) | 68 | 25740 | 0 |
-| b076 | Second Road | 21220..21820, 650..1250 | 711 | 324 | +387 | 11 (215) | 52 | 25740 | 0 |
-| b077 | Second Road | 20620..21220, 1250..1850 | 1291 | 464 | +827 | 10 (331) | 140 | 25740 | 0 |
-| b078 | Second Road | 18820..19420, 1850..2450 | 928 | 383 | +545 | 6 (330) | 56 | 17585 | 0 |
-| b079 | Second Road | 18820..19420, 2450..3050 | 2198 | 674 | +1524 | 9 (517) | 260 | 25740 | 0 |
-| b080 | Pattaya Klang / Central Road | 21820..22420, 50..650 | 1673 | 707 | +966 | 9 (529) | 155 | 25740 | 2 |
-| b081 | Pattaya Klang / Central Road | 22420..23020, 50..650 | 2426 | 1004 | +1422 | 10 (522) | 443 | 25740 | 2 |
-| b082 | Pattaya Klang / Central Road | 23620..24220, 650..1250 | 1048 | 276 | +772 | 10 (265) | 50 | 25740 | 0 |
-| b083 | Pattaya Klang / Central Road | 23020..23620, 50..650 | 1521 | 393 | +1128 | 13 (444) | 198 | 25740 | 0 |
-| b084 | Pattaya Klang / Central Road | 23020..23620, 650..1250 | 745 | 447 | +298 | 8 (228) | 52 | 25740 | 0 |
-| b085 | North Pattaya Road | 22420..23020, -2950..-2350 | 599 | 276 | +323 | 6 (231) | 51 | 25740 | 0 |
-| b086 | North Pattaya Road | 24220..24820, -2950..-2350 | 881 | 190 | +691 | 7 (262) | 36 | 25740 | 0 |
-| b087 | North Pattaya Road | 23020..23620, -2950..-2350 | 463 | 136 | +327 | 10 (159) | 32 | 25740 | 0 |
-| b088 | North Pattaya Road | 23620..24220, -2950..-2350 | 1027 | 418 | +609 | 9 (303) | 40 | 25740 | 0 |
-| b089 | South Pattaya Road | 19420..20020, 2450..3050 | 3754 | 1189 | +2565 | 21 (373) | 262 | 25740 | 5 |
-| b090 | South Pattaya Road | 20020..20620, 2450..3050 | 2442 | 1063 | +1379 | 13 (399) | 91 | 25740 | 4 |
-| b091 | South Pattaya Road | 22420..23020, 3050..3650 | 1053 | 187 | +866 | 9 (301) | 178 | 25740 | 0 |
-| b092 | South Pattaya Road | 23020..23620, 3050..3650 | 1195 | 359 | +836 | 12 (403) | 4 | 25740 | 0 |
-| b093 | South Pattaya Road | 20620..21220, 2450..3050 | 2051 | 792 | +1259 | 11 (461) | 191 | 25740 | 0 |
-| b094 | South Pattaya Road | 21820..22420, 2450..3050 | 567 | 135 | +432 | 7 (204) | 200 | 25740 | 0 |
-| b095 | South Pattaya Road | 21820..22420, 3050..3650 | 1044 | 353 | +691 | 13 (392) | 38 | 25740 | 0 |
-| b096 | South Pattaya Road | 21220..21820, 2450..3050 | 732 | 400 | +332 | 10 (197) | 46 | 25740 | 0 |
-| b097 | Thepprasit Road | 22420..23020, 5450..6050 | 852 | 176 | +676 | 7 (384) | 164 | 25740 | 0 |
-| b098 | Thepprasit Road | 23020..23620, 5450..6050 | 1439 | 392 | +1047 | 8 (376) | 0 | 25740 | 1 |
-| b099 | Thepprasit Road | 21820..22420, 5450..6050 | 864 | 203 | +661 | 11 (294) | 38 | 25740 | 0 |
-| b100 | Thepprasit Road | 21220..21820, 5450..6050 | 1263 | 289 | +974 | 11 (306) | 54 | 25740 | 0 |
-| b101 | Thepprasit Road | 20620..21220, 5450..6050 | 1458 | 376 | +1082 | 9 (487) | 42 | 25740 | 0 |
-| b102 | Thepprasit Road | 20020..20620, 5450..6050 | 658 | 169 | +489 | 8 (242) | 102 | 25740 | 0 |
-| b103 | Thepprasit Road | 20020..20620, 6050..6650 | 818 | 194 | +624 | 9 (370) | 24 | 25740 | 0 |
-| b104 | Thepprasit Road | 19420..20020, 6050..6650 | 949 | 238 | +711 | 10 (206) | 131 | 25740 | 0 |
-| b105 | Thepprasit Road | 18820..19420, 6050..6650 | 1253 | 346 | +907 | 7 (432) | 20 | 25740 | 0 |
-| b106 | Thepprasit Road | 18220..18820, 6050..6650 | 1314 | 359 | +955 | 12 (405) | 135 | 25740 | 0 |
-| b107 | Jomtien Beach Road | 17620..18220, 7250..7850 | 381 | 243 | +138 | 8 (262) | 61 | 18241 | 0 |
-| b108 | Jomtien Beach Road | 18220..18820, 7250..7850 | 854 | 237 | +617 | 8 (218) | 254 | 25740 | 0 |
-| b109 | Jomtien Beach Road | 18220..18820, 7850..8450 | 1091 | 804 | +287 | 8 (297) | 32 | 18389 | 2 |
-| b110 | Jomtien Beach Road | 18820..19420, 7850..8450 | 233 | 66 | +167 | 10 (91) | 68 | 25740 | 0 |
-| b111 | Jomtien Beach Road | 18820..19420, 8450..9050 | 603 | 472 | +131 | 6 (160) | 26 | 20769 | 0 |
-| b112 | Jomtien Beach Road | 18820..19420, 9050..9650 | 30 | 17 | +13 | 1 (30) | 12 | 3359 | 0 |
-| b113 | Jomtien Beach Road | 19420..20020, 9050..9650 | 159 | 125 | +34 | 5 (90) | 18 | 22645 | 0 |
-| b114 | Jomtien Beach Road | 19420..20020, 9650..10250 | 32 | 25 | +7 | 3 (14) | 14 | 5541 | 0 |
-| b115 | Jomtien Beach Road | 20020..20620, 9650..10250 | 418 | 335 | +83 | 8 (209) | 26 | 24481 | 0 |
-| b116 | Jomtien Beach Road | 20020..20620, 10250..10850 | 315 | 318 | -3 | 3 (149) | 23 | 9151 | 0 |
-| b117 | Jomtien Beach Road | 20620..21220, 10250..10850 | 490 | 174 | +316 | 11 (122) | 76 | 25461 | 0 |
-| b118 | Jomtien Beach Road | 20620..21220, 10850..11450 | 315 | 365 | -50 | 4 (140) | 18 | 14092 | 0 |
-| b119 | Jomtien Beach Road | 21220..21820, 10850..11450 | 468 | 147 | +321 | 9 (171) | 26 | 25740 | 0 |
-| b120 | Jomtien Beach Road | 21220..21820, 11450..12050 | 944 | 527 | +417 | 10 (391) | 53 | 20185 | 0 |
-| b121 | Jomtien Beach Road | 21220..21820, 12050..12650 | 28 | 21 | +7 | 2 (22) | 10 | 4375 | 0 |
-| b122 | Jomtien Beach Road | 21820..22420, 12050..12650 | 802 | 298 | +504 | 9 (188) | 152 | 24145 | 0 |
-| b123 | Jomtien Beach Road | 21820..22420, 12650..13250 | 248 | 189 | +59 | 5 (129) | 24 | 9516 | 0 |
-| b124 | Jomtien Beach Road | 22420..23020, 12650..13250 | 89 | 49 | +40 | 7 (31) | 12 | 25721 | 0 |
-| b125 | Jomtien Beach Road | 22420..23020, 13250..13850 | 108 | 50 | +58 | 5 (33) | 14 | 17473 | 0 |
-| b126 | Jomtien Beach Road | 22420..23020, 13850..14450 | 76 | 86 | -10 | 1 (76) | 14 | 3003 | 0 |
-| b127 | Jomtien Beach Road | 23020..23620, 13850..14450 | 678 | 190 | +488 | 8 (403) | 40 | 23573 | 0 |
-| b128 | Jomtien Beach Road | 23020..23620, 14450..15050 | 210 | 123 | +87 | 6 (119) | 28 | 11400 | 0 |
-| b129 | Jomtien Beach Road | 23620..24220, 14450..15050 | 330 | 83 | +247 | 9 (115) | 82 | 25740 | 0 |
-| b130 | Jomtien Beach Road | 23620..24220, 15050..15650 | 108 | 79 | +29 | 4 (51) | 0 | 22713 | 0 |
-| b131 | rest | 25420..26620, -8950..-7750 | 353 | 153 | +200 | 6 (121) | 26 | 14795 | 0 |
-| b132 | rest | 26620..27220, -8950..-8350 | 192 | 33 | +159 | 5 (117) | 0 | 15191 | 0 |
-| b133 | rest | 27820..28420, -8350..-7750 | 148 | 34 | +114 | 2 (107) | 0 | 25740 | 0 |
-| b134 | rest | 24220..25420, -7750..-6550 | 1134 | 272 | +862 | 10 (268) | 194 | 30494 | 0 |
-| b135 | rest | 23020..24220, -7750..-6550 | 129 | 12 | +117 | 6 (44) | 8 | 33294 | 0 |
-| b136 | rest | 21820..23020, -7750..-6550 | 432 | 44 | +388 | 6 (198) | 6 | 48334 | 0 |
-| b137 | rest | 25420..26620, -7750..-7150 | 1057 | 409 | +648 | 12 (242) | 86 | 44057 | 0 |
-| b138 | rest | 27220..27820, -7750..-7150 | 75 | 12 | +63 | 2 (67) | 0 | 25740 | 0 |
-| b139 | rest | 25420..26020, -7150..-6550 | 2083 | 489 | +1594 | 9 (440) | 50 | 25740 | 2 |
-| b140 | rest | 20620..21820, -6550..-5350 | 136 | 13 | +123 | 5 (85) | 14 | 56570 | 0 |
-| b141 | rest | 21820..23020, -6550..-5350 | 5444 | 625 | +4819 | 32 (472) | 72 | 96390 | 1 |
-| b142 | rest | 23020..24220, -6550..-5350 | 5304 | 683 | +4621 | 33 (539) | 88 | 96390 | 0 |
-| b143 | rest | 24220..25420, -6550..-5350 | 3646 | 703 | +2943 | 30 (417) | 87 | 96390 | 0 |
-| b144 | rest | 25420..26020, -6550..-5950 | 2521 | 535 | +1986 | 9 (423) | 48 | 25740 | 2 |
-| b145 | rest | 26620..27820, -6550..-5350 | 40 | 17 | +23 | 2 (36) | 0 | 96390 | 0 |
-| b146 | rest | 25420..26020, -5950..-5350 | 197 | 72 | +125 | 7 (104) | 4 | 25740 | 0 |
-| b147 | rest | 20620..21820, -5350..-4150 | 280 | 29 | +251 | 7 (77) | 36 | 38058 | 0 |
-| b148 | rest | 21820..23020, -5350..-4150 | 1805 | 279 | +1526 | 20 (224) | 62 | 96390 | 0 |
-| b149 | rest | 23020..24220, -5350..-4150 | 6579 | 1097 | +5482 | 37 (526) | 251 | 96390 | 0 |
-| b150 | rest | 24220..25420, -5350..-4150 | 4165 | 638 | +3527 | 30 (567) | 28 | 96390 | 0 |
-| b151 | rest | 25420..26020, -5350..-4750 | 656 | 101 | +555 | 7 (219) | 0 | 25740 | 0 |
-| b152 | rest | 20620..21820, -4150..-2950 | 900 | 190 | +710 | 18 (346) | 42 | 63726 | 0 |
-| b153 | rest | 21820..23020, -4150..-2950 | 3027 | 601 | +2426 | 28 (366) | 139 | 96390 | 0 |
-| b154 | rest | 23020..24220, -4150..-2950 | 5596 | 1213 | +4383 | 38 (442) | 22 | 96390 | 0 |
-| b155 | rest | 24220..25420, -4150..-2950 | 3089 | 512 | +2577 | 32 (510) | 0 | 96390 | 0 |
-| b156 | rest | 26020..26620, -3550..-2950 | 63 | 15 | +48 | 1 (63) | 0 | 25740 | 0 |
-| b157 | rest | 20620..21220, -2950..-2350 | 43 | 45 | -2 | 2 (31) | 0 | 4443 | 0 |
-| b158 | rest | 22420..23020, -2350..-1750 | 418 | 148 | +270 | 8 (247) | 18 | 25740 | 0 |
-| b159 | rest | 23020..24220, -2350..-1750 | 2193 | 378 | +1815 | 18 (402) | 48 | 49890 | 0 |
-| b160 | rest | 24220..24820, -2350..-1750 | 348 | 116 | +232 | 6 (113) | 13 | 25740 | 0 |
-| b161 | rest | 22420..23020, -1750..-1150 | 318 | 87 | +231 | 4 (127) | 25 | 25740 | 0 |
-| b162 | rest | 23020..24220, -1750..-550 | 3253 | 569 | +2684 | 23 (336) | 126 | 96390 | 0 |
-| b163 | rest | 24220..24820, -1750..-1150 | 1199 | 242 | +957 | 9 (310) | 22 | 25740 | 0 |
-| b164 | rest | 25420..26620, -1750..-550 | 195 | 94 | +101 | 2 (105) | 0 | 96390 | 0 |
-| b165 | rest | 26620..27820, -1750..-550 | 166 | 39 | +127 | 2 (91) | 26 | 96390 | 0 |
-| b166 | rest | 27820..29020, -1750..-550 | 406 | 122 | +284 | 10 (220) | 14 | 96390 | 0 |
-| b167 | rest | 22420..23020, -1150..-550 | 1334 | 441 | +893 | 8 (281) | 54 | 25740 | 0 |
-| b168 | rest | 24220..24820, -1150..-550 | 537 | 159 | +378 | 5 (253) | 0 | 25740 | 0 |
-| b169 | rest | 22420..23020, -550..50 | 1326 | 639 | +687 | 12 (421) | 12 | 25740 | 0 |
-| b170 | rest | 23020..24220, -550..50 | 2182 | 574 | +1608 | 22 (345) | 60 | 49890 | 0 |
-| b171 | rest | 25420..26620, -550..650 | 347 | 107 | +240 | 8 (117) | 26 | 96390 | 0 |
-| b172 | rest | 26620..27820, -550..650 | 217 | 77 | +140 | 7 (91) | 0 | 96390 | 0 |
-| b173 | rest | 27820..29020, -550..650 | 75 | 30 | +45 | 3 (55) | 15 | 96390 | 0 |
-| b174 | rest | 23620..24220, 50..650 | 1148 | 329 | +819 | 7 (442) | 0 | 25740 | 0 |
-| b175 | rest | 24820..25420, 50..650 | 357 | 79 | +278 | 6 (151) | 0 | 25740 | 0 |
-| b176 | rest | 21820..23020, 650..1850 | 6253 | 2132 | +4121 | 37 (577) | 169 | 96390 | 2 |
-| b177 | rest | 24820..25420, 650..1250 | 86 | 18 | +68 | 2 (52) | 0 | 25740 | 0 |
-| b178 | rest | 21220..21820, 1250..1850 | 1481 | 671 | +810 | 13 (491) | 8 | 25740 | 0 |
-| b179 | rest | 23020..24220, 1250..1850 | 1607 | 333 | +1274 | 18 (417) | 4 | 49890 | 0 |
-| b180 | rest | 18220..18820, 1850..2450 | 72 | 37 | +35 | 2 (61) | 0 | 7830 | 0 |
-| b181 | rest | 20020..20620, 1850..2450 | 893 | 341 | +552 | 8 (286) | 44 | 25740 | 0 |
-| b182 | rest | 20620..21820, 1850..2450 | 3273 | 1376 | +1897 | 16 (560) | 16 | 49890 | 0 |
-| b183 | rest | 21820..23020, 1850..2450 | 2071 | 862 | +1209 | 13 (530) | 54 | 49890 | 0 |
-| b184 | rest | 23020..23620, 1850..2450 | 661 | 119 | +542 | 7 (174) | 0 | 25740 | 0 |
-| b185 | rest | 18220..18820, 2450..3050 | 198 | 90 | +108 | 2 (99) | 30 | 25740 | 0 |
-| b186 | rest | 22420..23020, 2450..3050 | 593 | 249 | +344 | 5 (172) | 0 | 25740 | 0 |
-| b187 | rest | 23020..23620, 2450..3050 | 137 | 32 | +105 | 5 (59) | 0 | 25740 | 0 |
-| b188 | rest | 17020..18220, 3050..4250 | 3323 | 569 | +2754 | 24 (468) | 104 | 96390 | 0 |
-| b189 | rest | 15820..17020, 1850..3050 | 236 | 15 | +221 | 3 (107) | 82 | 30826 | 0 |
-| b190 | rest | 15820..17020, 3050..4250 | 1755 | 186 | +1569 | 18 (309) | 4 | 73882 | 0 |
-| b191 | rest | 18220..19420, 3050..4250 | 5714 | 1701 | +4013 | 32 (450) | 267 | 96390 | 1 |
-| b192 | rest | 19420..20620, 3050..4250 | 5295 | 1405 | +3890 | 33 (462) | 43 | 96390 | 0 |
-| b193 | rest | 20620..21820, 3050..4250 | 3335 | 653 | +2682 | 31 (391) | 126 | 96390 | 0 |
-| b194 | rest | 21820..23020, 3650..4250 | 1173 | 222 | +951 | 13 (309) | 4 | 49890 | 0 |
-| b195 | rest | 15820..17020, 4250..5450 | 2358 | 305 | +2053 | 26 (341) | 82 | 79109 | 0 |
-| b196 | rest | 17020..18220, 4250..5450 | 3420 | 581 | +2839 | 33 (283) | 60 | 96390 | 0 |
-| b197 | rest | 18220..19420, 4250..5450 | 4712 | 1233 | +3479 | 24 (535) | 50 | 96390 | 0 |
-| b198 | rest | 19420..20620, 4250..5450 | 4980 | 783 | +4197 | 32 (491) | 201 | 96390 | 0 |
-| b199 | rest | 20620..21820, 4250..5450 | 5870 | 1062 | +4808 | 33 (525) | 16 | 96390 | 1 |
-| b200 | rest | 21820..23020, 4250..5450 | 646 | 186 | +460 | 17 (115) | 0 | 96390 | 0 |
-| b201 | rest | 15820..17020, 5450..6650 | 494 | 93 | +401 | 10 (227) | 22 | 53187 | 0 |
-| b202 | rest | 17020..18220, 5450..6650 | 502 | 105 | +397 | 10 (202) | 22 | 96390 | 0 |
-| b203 | rest | 18220..19420, 5450..6050 | 1352 | 282 | +1070 | 11 (296) | 8 | 49890 | 0 |
-| b204 | rest | 19420..20020, 5450..6050 | 779 | 240 | +539 | 8 (347) | 0 | 25740 | 1 |
-| b205 | rest | 20620..21820, 6050..6650 | 1428 | 190 | +1238 | 16 (291) | 24 | 49890 | 0 |
-| b206 | rest | 21820..23020, 6050..6650 | 1207 | 174 | +1033 | 13 (221) | 8 | 49890 | 0 |
-| b207 | rest | 17020..18220, 6650..7250 | 1560 | 306 | +1254 | 11 (516) | 18 | 42163 | 0 |
-| b208 | rest | 18220..19420, 6650..7250 | 1492 | 673 | +819 | 12 (504) | 4 | 49890 | 0 |
-| b209 | rest | 19420..20620, 6650..7850 | 1636 | 250 | +1386 | 20 (278) | 250 | 96390 | 0 |
-| b210 | rest | 20620..21820, 6650..7850 | 1363 | 289 | +1074 | 18 (288) | 35 | 96390 | 0 |
-| b211 | rest | 21820..23020, 6650..7850 | 2159 | 320 | +1839 | 16 (520) | 33 | 96390 | 0 |
-| b212 | rest | 23020..23620, 6650..7250 | 318 | 61 | +257 | 6 (194) | 0 | 25740 | 0 |
-| b213 | rest | 18820..19420, 7250..7850 | 1095 | 598 | +497 | 8 (345) | 0 | 25740 | 0 |
-| b214 | rest | 23020..23620, 7250..7850 | 193 | 37 | +156 | 5 (66) | 11 | 25740 | 0 |
-| b215 | rest | 19420..20620, 7850..9050 | 2324 | 516 | +1808 | 25 (425) | 24 | 96390 | 0 |
-| b216 | rest | 20620..21820, 7850..9050 | 1965 | 237 | +1728 | 19 (263) | 96 | 96390 | 0 |
-| b217 | rest | 21820..23020, 7850..9050 | 3326 | 357 | +2969 | 24 (467) | 139 | 96390 | 0 |
-| b218 | rest | 23020..23620, 7850..8450 | 271 | 48 | +223 | 5 (79) | 31 | 25740 | 0 |
-| b219 | rest | 23020..23620, 8450..9050 | 515 | 107 | +408 | 8 (168) | 26 | 25740 | 0 |
-| b220 | rest | 20020..20620, 9050..9650 | 160 | 150 | +10 | 4 (65) | 14 | 25740 | 0 |
-| b221 | rest | 20620..21820, 9050..10250 | 2678 | 737 | +1941 | 22 (512) | 28 | 96390 | 0 |
-| b222 | rest | 21820..23020, 9050..10250 | 3168 | 549 | +2619 | 25 (569) | 307 | 96390 | 0 |
-| b223 | rest | 23020..23620, 9050..9650 | 1100 | 200 | +900 | 10 (349) | 12 | 25740 | 0 |
-| b224 | rest | 23020..23620, 9650..10250 | 202 | 67 | +135 | 7 (70) | 0 | 25740 | 0 |
-| b225 | rest | 21220..21820, 10250..10850 | 313 | 133 | +180 | 9 (109) | 12 | 25740 | 0 |
-| b226 | rest | 21820..23020, 10250..11450 | 2673 | 698 | +1975 | 18 (547) | 369 | 96390 | 0 |
-| b227 | rest | 23020..23620, 10250..10850 | 1074 | 121 | +953 | 9 (390) | 78 | 25740 | 0 |
-| b228 | rest | 24220..24820, 10250..10850 | 110 | 80 | +30 | 2 (102) | 0 | 25740 | 0 |
-| b229 | rest | 23020..23620, 10850..11450 | 1537 | 522 | +1015 | 11 (399) | 10 | 25740 | 0 |
-| b230 | rest | 21820..23020, 11450..12050 | 2251 | 736 | +1515 | 18 (383) | 21 | 49890 | 0 |
-| b231 | rest | 23020..24220, 11450..12650 | 2190 | 315 | +1875 | 24 (355) | 36 | 96390 | 0 |
-| b232 | rest | 22420..23020, 12050..12650 | 393 | 199 | +194 | 8 (143) | 0 | 25740 | 0 |
-| b233 | rest | 23020..24220, 12650..13850 | 1284 | 343 | +941 | 19 (312) | 68 | 96390 | 0 |
-| b234 | rest | 24220..24820, 12650..13250 | 185 | 195 | -10 | 4 (86) | 0 | 25740 | 0 |
-| b235 | rest | 23620..24220, 13850..14450 | 101 | 17 | +84 | 2 (93) | 4 | 25740 | 0 |
-| b236 | rest | 24220..24820, 13850..14450 | 440 | 56 | +384 | 8 (259) | 12 | 25740 | 0 |
-| b237 | rest | 24220..25420, 14450..15050 | 892 | 159 | +733 | 12 (227) | 16 | 49890 | 0 |
-| b238 | rest | 26020..26620, 14450..15050 | 6 | 124 | -118 | 1 (6) | 0 | 25740 | 0 |
-| b239 | rest | 24220..25420, 15050..16250 | 252 | 71 | +181 | 8 (123) | 0 | 88960 | 0 |
-| b240 | corridor | 29020..30220, -550..650 | 244 | 94 | +150 | 8 (74) | 20 | 5588 | 0 |
-| b241 | corridor | 30220..31420, -550..650 | 152 | 95 | +57 | 7 (54) | 12 | 0 | 0 |
-| b242 | corridor | 31420..32620, -550..650 | 47 | 26 | +21 | 2 (29) | 14 | 0 | 0 |
-| b243 | corridor | 31420..32620, 650..1850 | 122 | 72 | +50 | 7 (38) | 14 | 0 | 0 |
-| b244 | corridor | 32620..33820, 650..1850 | 264 | 87 | +177 | 7 (84) | 12 | 0 | 0 |
-| b245 | corridor | 33820..35020, 650..1850 | 288 | 77 | +211 | 5 (167) | 22 | 0 | 0 |
-| b246 | corridor | 33820..35020, 1850..3050 | 423 | 147 | +276 | 7 (141) | 12 | 0 | 0 |
-| b247 | corridor | 33820..35020, 3050..4250 | 350 | 97 | +253 | 3 (174) | 12 | 0 | 0 |
-| b248 | corridor | 35020..36220, 1850..3050 | 16 | 1 | +15 | 1 (16) | 14 | 0 | 0 |
-| b249 | corridor | 35020..36220, 3050..4250 | 293 | 112 | +181 | 7 (126) | 12 | 0 | 0 |
-| b250 | corridor | 36220..37420, 1850..3050 | 259 | 85 | +174 | 4 (157) | 22 | 0 | 0 |
-| b251 | corridor | 36220..37420, 3050..4250 | 158 | 68 | +90 | 6 (71) | 14 | 0 | 0 |
-| b252 | corridor | 37420..38620, 3050..4250 | 560 | 166 | +394 | 8 (171) | 12 | 0 | 0 |
-| b253 | corridor | 38620..39820, 3050..4250 | 521 | 136 | +385 | 6 (184) | 22 | 0 | 0 |
-| b254 | corridor | 39820..41020, 1850..3050 | 650 | 160 | +490 | 9 (210) | 24 | 0 | 0 |
-| b255 | corridor | 39820..41020, 3050..4250 | 141 | 76 | +65 | 4 (58) | 0 | 0 | 0 |
-| b256 | corridor | 41020..42220, 1850..3050 | 493 | 112 | +381 | 6 (216) | 12 | 0 | 0 |
-| b257 | corridor | 41020..42220, 3050..4250 | 541 | 166 | +375 | 8 (185) | 4 | 0 | 0 |
-| b258 | corridor | 42220..43420, 3050..4250 | 1016 | 199 | +817 | 11 (204) | 4 | 0 | 0 |
-| b259 | corridor | 43420..44620, 1850..3050 | 400 | 34 | +366 | 2 (280) | 252 | 0 | 0 |
-| b260 | corridor | 43420..44620, 3050..4250 | 924 | 226 | +698 | 11 (189) | 175 | 0 | 0 |
-| b261 | corridor | 44620..45820, 1850..3050 | 269 | 187 | +82 | 1 (269) | 175 | 0 | 0 |
-| b262 | corridor | 44620..45820, 3050..4250 | 88 | 370 | -282 | 2 (58) | 0 | 0 | 0 |
+"#" is the build order; the id is kept from the first plan. Moved counts the optional keys as moved (b003: 390
+required + 1 optional). Supports = the invisible RoadSupport parts left after option B.
+
+| # | Batch | Group | Box (world x0..x1, z0..z1) | Added | Moved | Net | Supports | Atomic cells (largest) | Frontier | Ground columns | Poles on islands |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | b001 | Sukhumvit Road | 24220..24820, 50..650 | 1057 | 539 | +518 | 9 | 7 (476) | 45 | 25740 | 2 |
+| 2 | b003 | Sukhumvit Road | 24220..24820, -550..50 | 1289 | 391 | +898 | 4 | 11 (415) | 407 | 25740 | 0 |
+| 3 | b002 | Sukhumvit Road | 24220..24820, 1250..1850 | 872 | 572 | +300 | 0 | 7 (298) | 258 | 25740 | 0 |
+| 4 | b004 | Sukhumvit Road | 24820..25420, -550..50 | 870 | 763 | +107 | 0 | 6 (476) | 4 | 25740 | 0 |
+| 5 | b005 | Sukhumvit Road | 23620..24220, 1850..2450 | 1580 | 410 | +1170 | 0 | 9 (381) | 278 | 25740 | 0 |
+| 6 | b006 | Sukhumvit Road | 24220..24820, 1850..2450 | 537 | 384 | +153 | 0 | 5 (229) | 0 | 25740 | 0 |
+| 7 | b007 | Sukhumvit Road | 24820..25420, -1150..-550 | 864 | 205 | +659 | 0 | 7 (344) | 76 | 25740 | 0 |
+| 8 | b008 | Sukhumvit Road | 23620..24220, 2450..3050 | 1320 | 453 | +867 | 0 | 9 (335) | 32 | 25740 | 0 |
+| 9 | b009 | Sukhumvit Road | 24820..25420, -1750..-1150 | 799 | 346 | +453 | 4 | 8 (374) | 16 | 25740 | 0 |
+| 10 | b010 | Sukhumvit Road | 23620..24220, 3050..3650 | 1146 | 261 | +885 | 0 | 8 (474) | 126 | 25740 | 0 |
+| 11 | b011 | Sukhumvit Road | 24820..25420, -2350..-1750 | 1715 | 330 | +1385 | 0 | 12 (292) | 342 | 25740 | 0 |
+| 12 | b012 | Sukhumvit Road | 25420..26020, -2350..-1750 | 327 | 296 | +31 | 0 | 4 (206) | 94 | 25740 | 0 |
+| 13 | b013 | Sukhumvit Road | 23020..23620, 3650..4250 | 1792 | 355 | +1437 | 4 | 9 (498) | 457 | 25740 | 2 |
+| 14 | b014 | Sukhumvit Road | 23620..24220, 3650..4250 | 750 | 464 | +286 | 0 | 3 (404) | 0 | 25740 | 5 |
+| 15 | b015 | Sukhumvit Road | 24820..25420, -2950..-2350 | 1101 | 271 | +830 | 0 | 11 (371) | 42 | 25740 | 0 |
+| 16 | b016 | Sukhumvit Road | 25420..26020, -2950..-2350 | 763 | 309 | +454 | 0 | 6 (295) | 26 | 25740 | 0 |
+| 17 | b017 | Sukhumvit Road | 23020..23620, 4250..4850 | 710 | 325 | +385 | 0 | 9 (209) | 353 | 25740 | 0 |
+| 18 | b018 | Sukhumvit Road | 23620..24220, 4250..4850 | 387 | 501 | -114 | 0 | 4 (245) | 0 | 25740 | 0 |
+| 19 | b019 | Sukhumvit Road | 25420..26020, -3550..-2950 | 1296 | 269 | +1027 | 0 | 7 (585) | 244 | 25740 | 3 |
+| 20 | b020 | Sukhumvit Road | 23020..23620, 4850..5450 | 1113 | 168 | +945 | 0 | 13 (199) | 247 | 25740 | 0 |
+| 21 | b021 | Sukhumvit Road | 23620..24220, 4850..5450 | 604 | 216 | +388 | 0 | 3 (270) | 201 | 25740 | 0 |
+| 22 | b022 | Sukhumvit Road | 25420..26020, -4150..-3550 | 793 | 446 | +347 | 0 | 10 (187) | 78 | 25740 | 0 |
+| 23 | b023 | Sukhumvit Road | 23620..24220, 5450..6050 | 375 | 492 | -117 | 0 | 3 (159) | 4 | 25740 | 0 |
+| 24 | b024 | Sukhumvit Road | 25420..26020, -4750..-4150 | 1629 | 290 | +1339 | 0 | 10 (489) | 308 | 25740 | 0 |
+| 25 | b025 | Sukhumvit Road | 26020..26620, -4750..-4150 | 64 | 166 | -102 | 0 | 2 (39) | 0 | 25740 | 0 |
+| 26 | b026 | Sukhumvit Road | 23620..24220, 6050..6650 | 281 | 106 | +175 | 0 | 4 (142) | 4 | 25740 | 0 |
+| 27 | b027 | Sukhumvit Road | 26020..26620, -5350..-4750 | 405 | 136 | +269 | 0 | 6 (225) | 8 | 25740 | 0 |
+| 28 | b028 | Sukhumvit Road | 23620..24220, 6650..7250 | 606 | 252 | +354 | 0 | 7 (340) | 30 | 25740 | 0 |
+| 29 | b029 | Sukhumvit Road | 26020..26620, -5950..-5350 | 303 | 84 | +219 | 0 | 7 (153) | 30 | 25740 | 0 |
+| 30 | b030 | Sukhumvit Road | 23620..24220, 7250..7850 | 367 | 188 | +179 | 0 | 6 (85) | 76 | 25740 | 0 |
+| 31 | b031 | Sukhumvit Road | 26020..26620, -6550..-5950 | 1781 | 394 | +1387 | 0 | 8 (511) | 253 | 25740 | 0 |
+| 32 | b032 | Sukhumvit Road | 23620..24220, 7850..8450 | 609 | 261 | +348 | 0 | 9 (286) | 110 | 25740 | 0 |
+| 33 | b033 | Sukhumvit Road | 26020..26620, -7150..-6550 | 1380 | 473 | +907 | 0 | 8 (299) | 117 | 25740 | 0 |
+| 34 | b034 | Sukhumvit Road | 26620..27220, -7150..-6550 | 142 | 81 | +61 | 0 | 4 (77) | 16 | 25740 | 0 |
+| 35 | b035 | Sukhumvit Road | 23620..24220, 8450..9050 | 960 | 325 | +635 | 0 | 8 (241) | 49 | 25740 | 0 |
+| 36 | b036 | Sukhumvit Road | 26620..27220, -7750..-7150 | 1355 | 234 | +1121 | 0 | 12 (355) | 82 | 25740 | 0 |
+| 37 | b037 | Sukhumvit Road | 23620..24220, 9050..9650 | 433 | 231 | +202 | 0 | 6 (212) | 16 | 25740 | 0 |
+| 38 | b038 | Sukhumvit Road | 26620..27220, -8350..-7750 | 1145 | 236 | +909 | 0 | 9 (266) | 128 | 25740 | 0 |
+| 39 | b039 | Sukhumvit Road | 27220..27820, -8350..-7750 | 1004 | 176 | +828 | 0 | 6 (441) | 164 | 25740 | 0 |
+| 40 | b040 | Sukhumvit Road | 23620..24220, 9650..10250 | 245 | 110 | +135 | 0 | 4 (94) | 4 | 25740 | 0 |
+| 41 | b041 | Sukhumvit Road | 27220..27820, -8950..-8350 | 475 | 233 | +242 | 4 | 8 (182) | 34 | 25740 | 0 |
+| 42 | b042 | Sukhumvit Road | 27820..28420, -8950..-8350 | 495 | 203 | +292 | 0 | 7 (188) | 38 | 25740 | 0 |
+| 43 | b043 | Sukhumvit Road | 23620..24220, 10250..10850 | 735 | 213 | +522 | 6 | 7 (223) | 67 | 25740 | 0 |
+| 44 | b044 | Sukhumvit Road | 27820..28420, -9550..-8950 | 685 | 210 | +475 | 0 | 6 (267) | 190 | 25740 | 0 |
+| 45 | b045 | Sukhumvit Road | 28420..29020, -9550..-8950 | 79 | 85 | -6 | 0 | 4 (36) | 0 | 25740 | 0 |
+| 46 | b046 | Sukhumvit Road | 23620..24220, 10850..11450 | 1016 | 375 | +641 | 0 | 8 (303) | 163 | 25740 | 0 |
+| 47 | b047 | Sukhumvit Road | 24220..24820, 10850..11450 | 177 | 199 | -22 | 0 | 4 (62) | 4 | 25740 | 0 |
+| 48 | b048 | Sukhumvit Road | 24220..24820, 11450..12050 | 455 | 104 | +351 | 0 | 9 (191) | 14 | 25740 | 0 |
+| 49 | b049 | Sukhumvit Road | 24220..24820, 12050..12650 | 197 | 44 | +153 | 0 | 4 (100) | 6 | 25740 | 0 |
+| 50 | b050 | Sukhumvit Road | 24820..25420, 12050..12650 | 75 | 17 | +58 | 0 | 4 (26) | 2 | 25740 | 0 |
+| 51 | b051 | Sukhumvit Road | 24820..25420, 12650..13250 | 572 | 206 | +366 | 0 | 6 (240) | 18 | 25629 | 3 |
+| 52 | b052 | Sukhumvit Road | 24820..25420, 13250..13850 | 391 | 67 | +324 | 0 | 8 (126) | 50 | 21854 | 0 |
+| 53 | b053 | Sukhumvit Road | 24820..25420, 13850..14450 | 1059 | 240 | +819 | 0 | 8 (541) | 154 | 25740 | 0 |
+| 54 | b054 | Sukhumvit Road | 25420..26020, 13850..14450 | 507 | 263 | +244 | 0 | 6 (222) | 24 | 25740 | 0 |
+| 55 | b055 | Sukhumvit Road | 25420..26020, 14450..15050 | 740 | 133 | +607 | 0 | 8 (255) | 128 | 25740 | 0 |
+| 56 | b056 | Sukhumvit Road | 25420..26020, 15050..15650 | 312 | 77 | +235 | 0 | 5 (230) | 130 | 25740 | 0 |
+| 57 | b057 | Sukhumvit Road | 26020..26620, 15050..15650 | 698 | 272 | +426 | 0 | 4 (253) | 0 | 25740 | 1 |
+| 58 | b058 | Beach Road | 21820..22420, -2950..-2350 | 1152 | 465 | +687 | 0 | 11 (274) | 70 | 25740 | 0 |
+| 59 | b059 | Beach Road | 21220..21820, -2950..-2350 | 404 | 204 | +200 | 0 | 7 (210) | 37 | 25113 | 0 |
+| 60 | b060 | Beach Road | 21220..21820, -2350..-1750 | 367 | 328 | +39 | 7 | 7 (206) | 36 | 20518 | 0 |
+| 61 | b061 | Beach Road | 21220..21820, -1750..-1150 | 671 | 379 | +292 | 7 | 8 (213) | 76 | 19898 | 0 |
+| 62 | b062 | Beach Road | 21220..21820, -1150..-550 | 368 | 214 | +154 | 4 | 8 (90) | 49 | 23105 | 0 |
+| 63 | b063 | Beach Road | 20620..21220, -550..50 | 479 | 573 | -94 | 4 | 5 (334) | 90 | 6720 | 0 |
+| 64 | b064 | Beach Road | 21220..21820, -550..50 | 552 | 330 | +222 | 0 | 11 (136) | 94 | 25740 | 0 |
+| 65 | b065 | Beach Road | 20620..21220, 50..650 | 566 | 397 | +169 | 7 | 7 (171) | 162 | 18333 | 0 |
+| 66 | b066 | Beach Road | 20020..20620, 650..1250 | 577 | 572 | +5 | 4 | 7 (210) | 120 | 11786 | 0 |
+| 67 | b067 | Beach Road | 20620..21220, 650..1250 | 935 | 580 | +355 | 0 | 9 (362) | 108 | 25736 | 0 |
+| 68 | b068 | Beach Road | 19420..20020, 1250..1850 | 664 | 365 | +299 | 0 | 9 (220) | 68 | 12910 | 0 |
+| 69 | b069 | Beach Road | 20020..20620, 1250..1850 | 1272 | 639 | +633 | 6 | 12 (472) | 108 | 25457 | 0 |
+| 70 | b070 | Beach Road | 19420..20020, 1850..2450 | 1364 | 602 | +762 | 6 | 10 (381) | 144 | 25736 | 0 |
+| 71 | b071 | Second Road | 21820..22420, -2350..-1750 | 440 | 264 | +176 | 0 | 6 (272) | 21 | 25740 | 0 |
+| 72 | b072 | Second Road | 21820..22420, -1750..-1150 | 529 | 323 | +206 | 0 | 6 (210) | 12 | 25740 | 0 |
+| 73 | b073 | Second Road | 21820..22420, -1150..-550 | 555 | 318 | +237 | 6 | 9 (263) | 54 | 25740 | 0 |
+| 74 | b074 | Second Road | 21820..22420, -550..50 | 449 | 264 | +185 | 0 | 11 (176) | 46 | 25740 | 0 |
+| 75 | b075 | Second Road | 21220..21820, 50..650 | 1204 | 611 | +593 | 4 | 9 (411) | 68 | 25740 | 0 |
+| 76 | b076 | Second Road | 21220..21820, 650..1250 | 610 | 324 | +286 | 0 | 11 (207) | 52 | 25740 | 0 |
+| 77 | b077 | Second Road | 20620..21220, 1250..1850 | 1005 | 464 | +541 | 4 | 9 (206) | 140 | 25740 | 0 |
+| 78 | b078 | Second Road | 18820..19420, 1850..2450 | 754 | 383 | +371 | 0 | 5 (266) | 56 | 17585 | 0 |
+| 79 | b079 | Second Road | 18820..19420, 2450..3050 | 1994 | 674 | +1320 | 6 | 9 (499) | 260 | 25740 | 0 |
+| 80 | b080 | Pattaya Klang / Central Road | 21820..22420, 50..650 | 1516 | 707 | +809 | 6 | 9 (477) | 155 | 25740 | 2 |
+| 81 | b081 | Pattaya Klang / Central Road | 22420..23020, 50..650 | 2129 | 1004 | +1125 | 0 | 10 (452) | 443 | 25740 | 2 |
+| 82 | b082 | Pattaya Klang / Central Road | 23620..24220, 650..1250 | 885 | 276 | +609 | 4 | 10 (261) | 50 | 25740 | 0 |
+| 83 | b083 | Pattaya Klang / Central Road | 23020..23620, 50..650 | 1365 | 393 | +972 | 4 | 13 (404) | 198 | 25740 | 0 |
+| 84 | b084 | Pattaya Klang / Central Road | 23020..23620, 650..1250 | 627 | 447 | +180 | 0 | 8 (203) | 52 | 25740 | 0 |
+| 85 | b085 | North Pattaya Road | 22420..23020, -2950..-2350 | 574 | 276 | +298 | 0 | 6 (231) | 51 | 25740 | 0 |
+| 86 | b086 | North Pattaya Road | 24220..24820, -2950..-2350 | 688 | 190 | +498 | 0 | 7 (227) | 36 | 25740 | 0 |
+| 87 | b087 | North Pattaya Road | 23020..23620, -2950..-2350 | 416 | 136 | +280 | 3 | 10 (155) | 32 | 25740 | 0 |
+| 88 | b088 | North Pattaya Road | 23620..24220, -2950..-2350 | 984 | 418 | +566 | 0 | 9 (292) | 40 | 25740 | 0 |
+| 89 | b089 | South Pattaya Road | 19420..20020, 2450..3050 | 3104 | 1189 | +1915 | 0 | 15 (589) | 262 | 25740 | 5 |
+| 90 | b090 | South Pattaya Road | 20020..20620, 2450..3050 | 2064 | 1063 | +1001 | 10 | 13 (303) | 91 | 25740 | 4 |
+| 91 | b091 | South Pattaya Road | 22420..23020, 3050..3650 | 816 | 187 | +629 | 0 | 9 (216) | 178 | 25740 | 0 |
+| 92 | b092 | South Pattaya Road | 23020..23620, 3050..3650 | 862 | 359 | +503 | 0 | 12 (346) | 4 | 25740 | 0 |
+| 93 | b093 | South Pattaya Road | 20620..21220, 2450..3050 | 1709 | 792 | +917 | 0 | 11 (411) | 191 | 25740 | 0 |
+| 94 | b094 | South Pattaya Road | 21820..22420, 2450..3050 | 434 | 135 | +299 | 0 | 7 (125) | 200 | 25740 | 0 |
+| 95 | b095 | South Pattaya Road | 21820..22420, 3050..3650 | 854 | 353 | +501 | 0 | 13 (323) | 38 | 25740 | 0 |
+| 96 | b096 | South Pattaya Road | 21220..21820, 2450..3050 | 660 | 400 | +260 | 0 | 10 (160) | 46 | 25740 | 0 |
+| 97 | b097 | Thepprasit Road | 22420..23020, 5450..6050 | 778 | 176 | +602 | 8 | 7 (384) | 164 | 25740 | 0 |
+| 98 | b098 | Thepprasit Road | 23020..23620, 5450..6050 | 1165 | 392 | +773 | 0 | 8 (324) | 0 | 25740 | 1 |
+| 99 | b099 | Thepprasit Road | 21820..22420, 5450..6050 | 723 | 203 | +520 | 0 | 11 (172) | 38 | 25740 | 0 |
+| 100 | b100 | Thepprasit Road | 21220..21820, 5450..6050 | 1030 | 289 | +741 | 0 | 11 (283) | 54 | 25740 | 0 |
+| 101 | b101 | Thepprasit Road | 20620..21220, 5450..6050 | 1285 | 376 | +909 | 0 | 9 (446) | 42 | 25740 | 0 |
+| 102 | b102 | Thepprasit Road | 20020..20620, 5450..6050 | 547 | 169 | +378 | 0 | 8 (232) | 102 | 25740 | 0 |
+| 103 | b103 | Thepprasit Road | 20020..20620, 6050..6650 | 524 | 194 | +330 | 5 | 9 (257) | 24 | 25740 | 0 |
+| 104 | b104 | Thepprasit Road | 19420..20020, 6050..6650 | 871 | 238 | +633 | 0 | 10 (204) | 131 | 25740 | 0 |
+| 105 | b105 | Thepprasit Road | 18820..19420, 6050..6650 | 998 | 346 | +652 | 0 | 7 (356) | 20 | 25740 | 0 |
+| 106 | b106 | Thepprasit Road | 18220..18820, 6050..6650 | 1141 | 359 | +782 | 0 | 12 (315) | 135 | 25740 | 0 |
+| 107 | b107 | Jomtien Beach Road | 17620..18220, 7250..7850 | 381 | 243 | +138 | 0 | 8 (262) | 61 | 18241 | 0 |
+| 108 | b108 | Jomtien Beach Road | 18220..18820, 7250..7850 | 805 | 237 | +568 | 4 | 8 (218) | 254 | 25740 | 0 |
+| 109 | b109 | Jomtien Beach Road | 18220..18820, 7850..8450 | 1064 | 804 | +260 | 4 | 8 (297) | 32 | 18389 | 2 |
+| 110 | b110 | Jomtien Beach Road | 18820..19420, 7850..8450 | 193 | 66 | +127 | 8 | 10 (78) | 68 | 25740 | 0 |
+| 111 | b111 | Jomtien Beach Road | 18820..19420, 8450..9050 | 541 | 472 | +69 | 0 | 6 (122) | 26 | 20769 | 0 |
+| 112 | b112 | Jomtien Beach Road | 18820..19420, 9050..9650 | 30 | 17 | +13 | 0 | 1 (30) | 12 | 3359 | 0 |
+| 113 | b113 | Jomtien Beach Road | 19420..20020, 9050..9650 | 159 | 125 | +34 | 0 | 5 (90) | 18 | 22645 | 0 |
+| 114 | b114 | Jomtien Beach Road | 19420..20020, 9650..10250 | 32 | 25 | +7 | 0 | 3 (14) | 14 | 5541 | 0 |
+| 115 | b115 | Jomtien Beach Road | 20020..20620, 9650..10250 | 398 | 335 | +63 | 0 | 8 (207) | 26 | 24481 | 0 |
+| 116 | b116 | Jomtien Beach Road | 20020..20620, 10250..10850 | 315 | 318 | -3 | 0 | 3 (149) | 23 | 9151 | 0 |
+| 117 | b117 | Jomtien Beach Road | 20620..21220, 10250..10850 | 439 | 174 | +265 | 4 | 11 (104) | 76 | 25461 | 0 |
+| 118 | b118 | Jomtien Beach Road | 20620..21220, 10850..11450 | 305 | 365 | -60 | 3 | 4 (130) | 18 | 14092 | 0 |
+| 119 | b119 | Jomtien Beach Road | 21220..21820, 10850..11450 | 385 | 147 | +238 | 4 | 9 (160) | 26 | 25740 | 0 |
+| 120 | b120 | Jomtien Beach Road | 21220..21820, 11450..12050 | 899 | 527 | +372 | 7 | 10 (368) | 53 | 20185 | 0 |
+| 121 | b121 | Jomtien Beach Road | 21220..21820, 12050..12650 | 28 | 21 | +7 | 0 | 2 (22) | 10 | 4375 | 0 |
+| 122 | b122 | Jomtien Beach Road | 21820..22420, 12050..12650 | 716 | 298 | +418 | 0 | 9 (154) | 152 | 24145 | 0 |
+| 123 | b123 | Jomtien Beach Road | 21820..22420, 12650..13250 | 248 | 189 | +59 | 0 | 5 (129) | 24 | 9516 | 0 |
+| 124 | b124 | Jomtien Beach Road | 22420..23020, 12650..13250 | 79 | 49 | +30 | 0 | 6 (31) | 12 | 25721 | 0 |
+| 125 | b125 | Jomtien Beach Road | 22420..23020, 13250..13850 | 108 | 50 | +58 | 0 | 5 (33) | 14 | 17473 | 0 |
+| 126 | b126 | Jomtien Beach Road | 22420..23020, 13850..14450 | 76 | 86 | -10 | 0 | 1 (76) | 14 | 3003 | 0 |
+| 127 | b127 | Jomtien Beach Road | 23020..23620, 13850..14450 | 631 | 190 | +441 | 0 | 8 (366) | 40 | 23573 | 0 |
+| 128 | b128 | Jomtien Beach Road | 23020..23620, 14450..15050 | 208 | 123 | +85 | 5 | 6 (117) | 28 | 11400 | 0 |
+| 129 | b129 | Jomtien Beach Road | 23620..24220, 14450..15050 | 291 | 83 | +208 | 0 | 9 (115) | 82 | 25740 | 0 |
+| 130 | b130 | Jomtien Beach Road | 23620..24220, 15050..15650 | 87 | 79 | +8 | 0 | 4 (51) | 0 | 22713 | 0 |
+| 131 | b131 | rest | 25420..26620, -8950..-7750 | 283 | 153 | +130 | 14 | 6 (88) | 26 | 14795 | 0 |
+| 132 | b132 | rest | 26620..27220, -8950..-8350 | 97 | 33 | +64 | 9 | 5 (48) | 0 | 15191 | 0 |
+| 133 | b133 | rest | 27820..28420, -8350..-7750 | 115 | 34 | +81 | 0 | 2 (86) | 0 | 25740 | 0 |
+| 134 | b134 | rest | 24220..25420, -7750..-6550 | 1035 | 272 | +763 | 0 | 10 (228) | 194 | 30494 | 0 |
+| 135 | b135 | rest | 23020..24220, -7750..-6550 | 56 | 12 | +44 | 0 | 6 (20) | 8 | 33294 | 0 |
+| 136 | b136 | rest | 21820..23020, -7750..-6550 | 266 | 44 | +222 | 29 | 6 (124) | 6 | 48334 | 0 |
+| 137 | b137 | rest | 25420..26620, -7750..-7150 | 728 | 409 | +319 | 0 | 12 (129) | 86 | 44057 | 0 |
+| 138 | b138 | rest | 27220..27820, -7750..-7150 | 63 | 12 | +51 | 0 | 2 (55) | 0 | 25740 | 0 |
+| 139 | b139 | rest | 25420..26020, -7150..-6550 | 1600 | 489 | +1111 | 0 | 9 (305) | 50 | 25740 | 2 |
+| 140 | b140 | rest | 20620..21820, -6550..-5350 | 107 | 13 | +94 | 12 | 5 (68) | 14 | 56570 | 0 |
+| 141 | b141 | rest | 21820..23020, -6550..-5350 | 3836 | 625 | +3211 | 14 | 29 (460) | 72 | 96390 | 1 |
+| 142 | b142 | rest | 23020..24220, -6550..-5350 | 3843 | 683 | +3160 | 10 | 32 (438) | 88 | 96390 | 0 |
+| 143 | b143 | rest | 24220..25420, -6550..-5350 | 2690 | 703 | +1987 | 0 | 30 (281) | 87 | 96390 | 0 |
+| 144 | b144 | rest | 25420..26020, -6550..-5950 | 2183 | 535 | +1648 | 0 | 9 (362) | 48 | 25740 | 2 |
+| 145 | b145 | rest | 26620..27820, -6550..-5350 | 40 | 17 | +23 | 0 | 2 (36) | 0 | 96390 | 0 |
+| 146 | b146 | rest | 25420..26020, -5950..-5350 | 112 | 72 | +40 | 0 | 7 (44) | 4 | 25740 | 0 |
+| 147 | b147 | rest | 20620..21820, -5350..-4150 | 157 | 29 | +128 | 10 | 7 (43) | 36 | 38058 | 0 |
+| 148 | b148 | rest | 21820..23020, -5350..-4150 | 1257 | 279 | +978 | 11 | 20 (218) | 62 | 96390 | 0 |
+| 149 | b149 | rest | 23020..24220, -5350..-4150 | 4952 | 1097 | +3855 | 4 | 31 (554) | 251 | 96390 | 0 |
+| 150 | b150 | rest | 24220..25420, -5350..-4150 | 2730 | 638 | +2092 | 5 | 29 (504) | 28 | 96390 | 0 |
+| 151 | b151 | rest | 25420..26020, -5350..-4750 | 443 | 101 | +342 | 0 | 7 (161) | 0 | 25740 | 0 |
+| 152 | b152 | rest | 20620..21820, -4150..-2950 | 661 | 190 | +471 | 19 | 17 (274) | 42 | 63726 | 0 |
+| 153 | b153 | rest | 21820..23020, -4150..-2950 | 2641 | 601 | +2040 | 17 | 28 (352) | 139 | 96390 | 0 |
+| 154 | b154 | rest | 23020..24220, -4150..-2950 | 4415 | 1213 | +3202 | 10 | 35 (481) | 22 | 96390 | 0 |
+| 155 | b155 | rest | 24220..25420, -4150..-2950 | 2279 | 512 | +1767 | 0 | 29 (521) | 0 | 96390 | 0 |
+| 156 | b156 | rest | 26020..26620, -3550..-2950 | 53 | 15 | +38 | 0 | 1 (53) | 0 | 25740 | 0 |
+| 157 | b157 | rest | 20620..21220, -2950..-2350 | 31 | 45 | -14 | 0 | 2 (29) | 0 | 4443 | 0 |
+| 158 | b158 | rest | 22420..23020, -2350..-1750 | 374 | 148 | +226 | 3 | 8 (226) | 18 | 25740 | 0 |
+| 159 | b159 | rest | 23020..24220, -2350..-1750 | 1697 | 378 | +1319 | 0 | 18 (369) | 48 | 49890 | 0 |
+| 160 | b160 | rest | 24220..24820, -2350..-1750 | 279 | 116 | +163 | 0 | 6 (113) | 13 | 25740 | 0 |
+| 161 | b161 | rest | 22420..23020, -1750..-1150 | 300 | 87 | +213 | 0 | 4 (126) | 25 | 25740 | 0 |
+| 162 | b162 | rest | 23020..24220, -1750..-550 | 2334 | 569 | +1765 | 4 | 23 (297) | 126 | 96390 | 0 |
+| 163 | b163 | rest | 24220..24820, -1750..-1150 | 993 | 242 | +751 | 0 | 9 (250) | 22 | 25740 | 0 |
+| 164 | b164 | rest | 25420..26620, -1750..-550 | 124 | 94 | +30 | 0 | 2 (78) | 0 | 96390 | 0 |
+| 165 | b165 | rest | 26620..27820, -1750..-550 | 166 | 39 | +127 | 0 | 2 (91) | 26 | 96390 | 0 |
+| 166 | b166 | rest | 27820..29020, -1750..-550 | 406 | 122 | +284 | 0 | 10 (220) | 14 | 96390 | 0 |
+| 167 | b167 | rest | 22420..23020, -1150..-550 | 884 | 441 | +443 | 0 | 8 (184) | 54 | 25740 | 0 |
+| 168 | b168 | rest | 24220..24820, -1150..-550 | 515 | 159 | +356 | 0 | 5 (253) | 0 | 25740 | 0 |
+| 169 | b169 | rest | 22420..23020, -550..50 | 949 | 639 | +310 | 0 | 12 (290) | 12 | 25740 | 0 |
+| 170 | b170 | rest | 23020..24220, -550..50 | 1814 | 574 | +1240 | 0 | 22 (345) | 60 | 49890 | 0 |
+| 171 | b171 | rest | 25420..26620, -550..650 | 347 | 107 | +240 | 0 | 8 (117) | 26 | 96390 | 0 |
+| 172 | b172 | rest | 26620..27820, -550..650 | 217 | 77 | +140 | 0 | 7 (91) | 0 | 96390 | 0 |
+| 173 | b173 | rest | 27820..29020, -550..650 | 75 | 30 | +45 | 0 | 3 (55) | 15 | 96390 | 0 |
+| 174 | b174 | rest | 23620..24220, 50..650 | 1068 | 329 | +739 | 0 | 7 (434) | 0 | 25740 | 0 |
+| 175 | b175 | rest | 24820..25420, 50..650 | 346 | 79 | +267 | 0 | 6 (140) | 0 | 25740 | 0 |
+| 176 | b176 | rest | 21820..23020, 650..1850 | 5175 | 2132 | +3043 | 4 | 34 (511) | 169 | 96390 | 2 |
+| 177 | b177 | rest | 24820..25420, 650..1250 | 86 | 18 | +68 | 2 | 2 (52) | 0 | 25740 | 0 |
+| 178 | b178 | rest | 21220..21820, 1250..1850 | 1230 | 671 | +559 | 0 | 13 (448) | 8 | 25740 | 0 |
+| 179 | b179 | rest | 23020..24220, 1250..1850 | 1232 | 333 | +899 | 0 | 17 (313) | 4 | 49890 | 0 |
+| 180 | b180 | rest | 18220..18820, 1850..2450 | 42 | 37 | +5 | 0 | 2 (38) | 0 | 7830 | 0 |
+| 181 | b181 | rest | 20020..20620, 1850..2450 | 717 | 341 | +376 | 4 | 8 (286) | 44 | 25740 | 0 |
+| 182 | b182 | rest | 20620..21820, 1850..2450 | 2591 | 1376 | +1215 | 4 | 16 (477) | 16 | 49890 | 0 |
+| 183 | b183 | rest | 21820..23020, 1850..2450 | 1451 | 862 | +589 | 0 | 13 (354) | 54 | 49890 | 0 |
+| 184 | b184 | rest | 23020..23620, 1850..2450 | 482 | 119 | +363 | 0 | 7 (129) | 0 | 25740 | 0 |
+| 185 | b185 | rest | 18220..18820, 2450..3050 | 142 | 90 | +52 | 0 | 2 (92) | 30 | 25740 | 0 |
+| 186 | b186 | rest | 22420..23020, 2450..3050 | 389 | 249 | +140 | 0 | 5 (126) | 0 | 25740 | 0 |
+| 187 | b187 | rest | 23020..23620, 2450..3050 | 92 | 32 | +60 | 0 | 5 (40) | 0 | 25740 | 0 |
+| 188 | b188 | rest | 17020..18220, 3050..4250 | 2340 | 569 | +1771 | 4 | 24 (314) | 104 | 96390 | 0 |
+| 189 | b189 | rest | 15820..17020, 1850..3050 | 167 | 15 | +152 | 4 | 3 (88) | 82 | 30826 | 0 |
+| 190 | b190 | rest | 15820..17020, 3050..4250 | 1117 | 186 | +931 | 0 | 18 (191) | 4 | 73882 | 0 |
+| 191 | b191 | rest | 18220..19420, 3050..4250 | 4867 | 1701 | +3166 | 4 | 31 (427) | 267 | 96390 | 1 |
+| 192 | b192 | rest | 19420..20620, 3050..4250 | 4306 | 1405 | +2901 | 9 | 32 (354) | 43 | 96390 | 0 |
+| 193 | b193 | rest | 20620..21820, 3050..4250 | 2838 | 653 | +2185 | 0 | 30 (313) | 126 | 96390 | 0 |
+| 194 | b194 | rest | 21820..23020, 3650..4250 | 931 | 222 | +709 | 0 | 13 (305) | 4 | 49890 | 0 |
+| 195 | b195 | rest | 15820..17020, 4250..5450 | 1713 | 305 | +1408 | 4 | 26 (269) | 82 | 79109 | 0 |
+| 196 | b196 | rest | 17020..18220, 4250..5450 | 2793 | 581 | +2212 | 4 | 33 (247) | 60 | 96390 | 0 |
+| 197 | b197 | rest | 18220..19420, 4250..5450 | 3785 | 1233 | +2552 | 0 | 24 (417) | 50 | 96390 | 0 |
+| 198 | b198 | rest | 19420..20620, 4250..5450 | 3781 | 783 | +2998 | 0 | 29 (432) | 201 | 96390 | 0 |
+| 199 | b199 | rest | 20620..21820, 4250..5450 | 4871 | 1062 | +3809 | 0 | 33 (490) | 16 | 96390 | 1 |
+| 200 | b200 | rest | 21820..23020, 4250..5450 | 440 | 186 | +254 | 0 | 16 (80) | 0 | 96390 | 0 |
+| 201 | b201 | rest | 15820..17020, 5450..6650 | 337 | 93 | +244 | 0 | 10 (135) | 22 | 53187 | 0 |
+| 202 | b202 | rest | 17020..18220, 5450..6650 | 390 | 105 | +285 | 0 | 10 (147) | 22 | 96390 | 0 |
+| 203 | b203 | rest | 18220..19420, 5450..6050 | 1027 | 282 | +745 | 6 | 11 (207) | 8 | 49890 | 0 |
+| 204 | b204 | rest | 19420..20020, 5450..6050 | 585 | 240 | +345 | 0 | 8 (296) | 0 | 25740 | 1 |
+| 205 | b205 | rest | 20620..21820, 6050..6650 | 1007 | 190 | +817 | 0 | 16 (224) | 24 | 49890 | 0 |
+| 206 | b206 | rest | 21820..23020, 6050..6650 | 850 | 174 | +676 | 0 | 13 (155) | 8 | 49890 | 0 |
+| 207 | b207 | rest | 17020..18220, 6650..7250 | 1289 | 306 | +983 | 13 | 11 (384) | 18 | 42163 | 0 |
+| 208 | b208 | rest | 18220..19420, 6650..7250 | 1398 | 673 | +725 | 4 | 12 (479) | 4 | 49890 | 0 |
+| 209 | b209 | rest | 19420..20620, 6650..7850 | 1132 | 250 | +882 | 4 | 20 (198) | 250 | 96390 | 0 |
+| 210 | b210 | rest | 20620..21820, 6650..7850 | 814 | 289 | +525 | 4 | 18 (169) | 35 | 96390 | 0 |
+| 211 | b211 | rest | 21820..23020, 6650..7850 | 1346 | 320 | +1026 | 0 | 16 (344) | 33 | 96390 | 0 |
+| 212 | b212 | rest | 23020..23620, 6650..7250 | 213 | 61 | +152 | 0 | 6 (110) | 0 | 25740 | 0 |
+| 213 | b213 | rest | 18820..19420, 7250..7850 | 937 | 598 | +339 | 0 | 8 (298) | 0 | 25740 | 0 |
+| 214 | b214 | rest | 23020..23620, 7250..7850 | 153 | 37 | +116 | 0 | 5 (54) | 11 | 25740 | 0 |
+| 215 | b215 | rest | 19420..20620, 7850..9050 | 1801 | 516 | +1285 | 4 | 24 (357) | 24 | 96390 | 0 |
+| 216 | b216 | rest | 20620..21820, 7850..9050 | 1256 | 237 | +1019 | 4 | 17 (182) | 96 | 96390 | 0 |
+| 217 | b217 | rest | 21820..23020, 7850..9050 | 2086 | 357 | +1729 | 4 | 22 (408) | 139 | 96390 | 0 |
+| 218 | b218 | rest | 23020..23620, 7850..8450 | 247 | 48 | +199 | 0 | 5 (79) | 31 | 25740 | 0 |
+| 219 | b219 | rest | 23020..23620, 8450..9050 | 306 | 107 | +199 | 0 | 8 (73) | 26 | 25740 | 0 |
+| 220 | b220 | rest | 20020..20620, 9050..9650 | 160 | 150 | +10 | 3 | 4 (65) | 14 | 25740 | 0 |
+| 221 | b221 | rest | 20620..21820, 9050..10250 | 2373 | 737 | +1636 | 0 | 22 (512) | 28 | 96390 | 0 |
+| 222 | b222 | rest | 21820..23020, 9050..10250 | 2197 | 549 | +1648 | 7 | 25 (328) | 307 | 96390 | 0 |
+| 223 | b223 | rest | 23020..23620, 9050..9650 | 735 | 200 | +535 | 0 | 10 (247) | 12 | 25740 | 0 |
+| 224 | b224 | rest | 23020..23620, 9650..10250 | 131 | 67 | +64 | 0 | 7 (49) | 0 | 25740 | 0 |
+| 225 | b225 | rest | 21220..21820, 10250..10850 | 258 | 133 | +125 | 4 | 9 (95) | 12 | 25740 | 0 |
+| 226 | b226 | rest | 21820..23020, 10250..11450 | 2222 | 698 | +1524 | 0 | 17 (547) | 369 | 96390 | 0 |
+| 227 | b227 | rest | 23020..23620, 10250..10850 | 891 | 121 | +770 | 0 | 9 (307) | 78 | 25740 | 0 |
+| 228 | b228 | rest | 24220..24820, 10250..10850 | 80 | 80 | +0 | 0 | 2 (76) | 0 | 25740 | 0 |
+| 229 | b229 | rest | 23020..23620, 10850..11450 | 1330 | 522 | +808 | 0 | 11 (331) | 10 | 25740 | 0 |
+| 230 | b230 | rest | 21820..23020, 11450..12050 | 1924 | 736 | +1188 | 0 | 18 (359) | 21 | 49890 | 0 |
+| 231 | b231 | rest | 23020..24220, 11450..12650 | 1599 | 315 | +1284 | 0 | 24 (288) | 36 | 96390 | 0 |
+| 232 | b232 | rest | 22420..23020, 12050..12650 | 366 | 199 | +167 | 0 | 7 (135) | 0 | 25740 | 0 |
+| 233 | b233 | rest | 23020..24220, 12650..13850 | 1074 | 343 | +731 | 0 | 19 (291) | 68 | 96390 | 0 |
+| 234 | b234 | rest | 24220..24820, 12650..13250 | 185 | 195 | -10 | 0 | 4 (86) | 0 | 25740 | 0 |
+| 235 | b235 | rest | 23620..24220, 13850..14450 | 66 | 17 | +49 | 4 | 2 (58) | 4 | 25740 | 0 |
+| 236 | b236 | rest | 24220..24820, 13850..14450 | 281 | 56 | +225 | 0 | 8 (156) | 12 | 25740 | 0 |
+| 237 | b237 | rest | 24220..25420, 14450..15050 | 673 | 159 | +514 | 0 | 12 (134) | 16 | 49890 | 0 |
+| 238 | b238 | rest | 26020..26620, 14450..15050 | 6 | 124 | -118 | 0 | 1 (6) | 0 | 25740 | 0 |
+| 239 | b239 | rest | 24220..25420, 15050..16250 | 231 | 71 | +160 | 0 | 7 (123) | 0 | 88960 | 0 |
+| 240 | b240 | corridor | 29020..30220, -550..650 | 244 | 94 | +150 | 0 | 8 (74) | 20 | 5588 | 0 |
+| 241 | b241 | corridor | 30220..31420, -550..650 | 152 | 95 | +57 | 0 | 7 (54) | 12 | 0 | 0 |
+| 242 | b242 | corridor | 31420..32620, -550..650 | 47 | 26 | +21 | 0 | 2 (29) | 14 | 0 | 0 |
+| 243 | b243 | corridor | 31420..32620, 650..1850 | 122 | 72 | +50 | 0 | 7 (38) | 14 | 0 | 0 |
+| 244 | b244 | corridor | 32620..33820, 650..1850 | 264 | 87 | +177 | 0 | 7 (84) | 12 | 0 | 0 |
+| 245 | b245 | corridor | 33820..35020, 650..1850 | 288 | 77 | +211 | 0 | 5 (167) | 22 | 0 | 0 |
+| 246 | b246 | corridor | 33820..35020, 1850..3050 | 423 | 147 | +276 | 0 | 7 (141) | 12 | 0 | 0 |
+| 247 | b247 | corridor | 33820..35020, 3050..4250 | 350 | 97 | +253 | 0 | 3 (174) | 12 | 0 | 0 |
+| 248 | b248 | corridor | 35020..36220, 1850..3050 | 16 | 1 | +15 | 0 | 1 (16) | 14 | 0 | 0 |
+| 249 | b249 | corridor | 35020..36220, 3050..4250 | 293 | 112 | +181 | 0 | 7 (126) | 12 | 0 | 0 |
+| 250 | b250 | corridor | 36220..37420, 1850..3050 | 259 | 85 | +174 | 0 | 4 (157) | 22 | 0 | 0 |
+| 251 | b251 | corridor | 36220..37420, 3050..4250 | 158 | 68 | +90 | 0 | 6 (71) | 14 | 0 | 0 |
+| 252 | b252 | corridor | 37420..38620, 3050..4250 | 560 | 166 | +394 | 0 | 8 (171) | 12 | 0 | 0 |
+| 253 | b253 | corridor | 38620..39820, 3050..4250 | 521 | 136 | +385 | 0 | 6 (184) | 22 | 0 | 0 |
+| 254 | b254 | corridor | 39820..41020, 1850..3050 | 650 | 160 | +490 | 0 | 9 (210) | 24 | 0 | 0 |
+| 255 | b255 | corridor | 39820..41020, 3050..4250 | 141 | 76 | +65 | 0 | 4 (58) | 0 | 0 | 0 |
+| 256 | b256 | corridor | 41020..42220, 1850..3050 | 493 | 112 | +381 | 0 | 6 (216) | 12 | 0 | 0 |
+| 257 | b257 | corridor | 41020..42220, 3050..4250 | 541 | 166 | +375 | 0 | 8 (185) | 4 | 0 | 0 |
+| 258 | b258 | corridor | 42220..43420, 3050..4250 | 1016 | 199 | +817 | 0 | 11 (204) | 4 | 0 | 0 |
+| 259 | b259 | corridor | 43420..44620, 1850..3050 | 400 | 34 | +366 | 12 | 2 (280) | 252 | 0 | 0 |
+| 260 | b260 | corridor | 43420..44620, 3050..4250 | 924 | 226 | +698 | 0 | 11 (189) | 175 | 0 | 0 |
+| 261 | b261 | corridor | 44620..45820, 1850..3050 | 269 | 187 | +82 | 0 | 1 (269) | 175 | 0 | 0 |
+| 262 | b262 | corridor | 44620..45820, 3050..4250 | 88 | 370 | -282 | 0 | 2 (58) | 0 | 0 | 0 |

@@ -24,6 +24,7 @@ import _qa
 
 sys.path.insert(0, _qa.ROOT)
 _C = {}
+FROZEN_B001 = ('021dd07cc78287368c19ee828d4f2b7e3cc2f9d1', 'ab0c4b2209e0d4d4bd25c71d79d0bfc6acd153fe')          # batch 1 as shipped: (rv sha1, ground sha1)
 
 
 def city_world():
@@ -42,6 +43,21 @@ def city_world():
     plan = city.plan_city(CW, log=lambda *a: None)
     _C.update(CW=CW, plan=plan)
     return CW, plan
+
+
+def cli_runs(upto, cfg=None, key=None):
+    """city_cli.run_batches up to `upto` (the ground plans and option B as the CLI makes them): (st, results)"""
+    k = ('cli', upto, key)
+    if k in _C:
+        return _C[k]
+    from tools.roadvis import city, city_cli, city_ground
+    CW, plan = city_world()
+    if 'nr' not in _C:
+        _C['nr'] = city_ground.NoRaise(_qa.BUILD, log=lambda *a: None)
+    st, rows, results, gplans = city_cli.run_batches(CW, plan, _C['nr'], upto=upto, log=lambda *a: None,
+                                                     cfg=cfg or city.VARIANTS[city.DEFAULT_VARIANT])
+    _C[k] = (st, results)
+    return st, results
 
 
 def first_batches(n):
@@ -98,6 +114,16 @@ class Plan(unittest.TestCase):
                  'South Pattaya Road', 'Thepprasit Road', 'Jomtien Beach Road', 'rest', 'corridor']
         idx = [order.index(g) for g in groups]
         self.assertEqual(idx, sorted(idx))
+
+    def test_build_order(self):
+        """b003 (z -550..50, the owner's second screenshot spot at b001's north edge) builds second, then b002; every
+        id keeps its first number, the rest of the order is unchanged"""
+        CW, plan = city_world()
+        B = plan['batches']
+        self.assertEqual([b['id'] for b in B[:3]], ['b001', 'b003', 'b002'])
+        self.assertEqual(tuple(B[1]['box']), (24220.0, -550.0, 24820.0, 50.0))
+        nums = [int(b['id'][1:]) for b in B]
+        self.assertEqual(nums, [1, 3, 2] + list(range(4, len(B) + 1)))
 
 
 class Ownership(unittest.TestCase):
@@ -181,6 +207,76 @@ class Seams(unittest.TestCase):
         self.assertLess(l1.symmetric_difference(l3).length, 0.05)
 
 
+class Frozen(unittest.TestCase):
+    def test_b001_data_byte_identical(self):
+        """batch 1 is shipped (the leader checked rv 021dd07c..., ground ab0c4b22... in main): the generator must still
+        write it byte for byte, whatever the build order or the options of later batches"""
+        import tempfile
+        _qa.need_build('roadcity')
+        from tools.roadvis import city, city_batch, city_ground
+        CW, plan = city_world()
+        if 'nr' not in _C:
+            _C['nr'] = city_ground.NoRaise(_qa.BUILD, log=lambda *a: None)
+        ctx = city_batch.prepare('b001', _qa.BUILD, log=lambda *a: None, loaded=(CW, plan, _C['nr']))
+        with tempfile.TemporaryDirectory() as t:
+            exp, x, gx, nx = city_batch.studio_data(ctx, t)
+        self.assertEqual((x['sha1'], gx['sha1']), FROZEN_B001)
+        self.assertEqual((x['parts'], x['replace']), (1057, 539))
+        self.assertIn('b001', city.FROZEN)
+
+
+class OptionB(unittest.TestCase):
+    """no invisible RoadSupport wedge where the ground is raised to +0.9, from b003 on (b001 keeps its 9)"""
+
+    def test_only_invisible_supports_go(self):
+        from tools.roadvis import city
+        st_b, res_b = cli_runs('b003')
+        st_n, res_n = cli_runs('b003', cfg=dict(city.VARIANTS[city.DEFAULT_VARIANT], drop_supports_on_ground=False), key='noB')
+        b, n = res_b['b003'], res_n['b003']
+
+        def rows(res, field, kinds=None):
+            return sorted(tuple(t['row']) + (t['kind'],) for t in res[field] if kinds is None or t['kind'] in kinds)
+        for field in ('tris', 'comp'):
+            self.assertEqual(rows(b, field, (1, 2, 3, 4)), rows(n, field, (1, 2, 3, 4)), field)     # every visible piece
+            self.assertTrue(set(rows(b, field, (5,))) <= set(rows(n, field, (5,))), field)
+        self.assertEqual(rows(b, 'front'), rows(n, 'front'))
+        key = lambda sg: (round(float(sg[0][0]), 3), round(float(sg[0][1]), 3), round(float(sg[1][0]), 3), round(float(sg[1][1]), 3), sg[3])  # noqa: E731
+        self.assertEqual(sorted(map(key, b['segs'])), sorted(map(key, n['segs'])))
+        self.assertGreater(len(rows(n, 'tris', (5,))), len(rows(b, 'tris', (5,))))
+        self.assertEqual((len(res_b['b001']['tris']), len(rows(res_b['b001'], 'tris', (5,)))),
+                         (len(res_n['b001']['tris']), len(rows(res_n['b001'], 'tris', (5,)))), 'b001 keeps its supports')
+
+    def test_b003_targets(self):
+        q = qa_of('b003')
+        bg = q['B_ground']
+        self.assertEqual((bg['lanes_core']['holes'], bg['lanes_core']['drops']), (0, 0), bg['lanes_core'].get('bad'))
+        self.assertEqual(bg['lanes_box']['drops'], 0)
+        self.assertEqual(bg['grid_box']['drop_cells'], 0, bg['grid_box']['drops'][:5])
+        # every run a car can drive (no wheel in a building): no drop, no climb; a hang (wheels 1.5 apart) only where
+        # the car straddles an open edge (the neighbour is not built yet): a short static tilt
+        sc = bg['spot_clear']
+        self.assertGreater(sc['runs'], 30)
+        self.assertEqual((sc['drops'], sc['climbs'], sc['with_climb']), (0, 0, 0))
+        self.assertLessEqual(sc['hang'], 30)
+        self.assertGreaterEqual(sc['min_up'], 0.95)
+        for k, v in bg['offroad'].items():
+            self.assertGreater(v['runs'], 5, k)
+            self.assertEqual((v['with_drop'], v['with_climb']), (0, 0), k)
+        seam = bg['seams']['b001']
+        self.assertGreater(seam['lanes']['samples'], 100)
+        self.assertEqual((seam['lanes']['holes'], seam['lanes']['drops'], seam['grid']['drop_cells']), (0, 0, 0))
+        self.assertGreater(q['supports_dropped'], 0)
+
+    def test_b002_pilot_seam(self):
+        q = qa_of('b002')
+        bg = q['B_ground']
+        seam = bg['seams']['pilot']
+        self.assertGreater(seam['lanes']['samples'], 100)
+        self.assertEqual((seam['lanes']['holes'], seam['lanes']['drops'], seam['grid']['drop_cells']), (0, 0, 0))
+        self.assertEqual((bg['lanes_core']['holes'], bg['lanes_core']['drops']), (0, 0), bg['lanes_core'].get('bad'))
+        self.assertEqual(bg['grid_box']['drop_cells'], 0)
+
+
 def qa_of(bid):
     p = _qa.need_build('roadcity', bid, 'qa.json')
     return _qa.load_json(p)
@@ -258,7 +354,18 @@ class StudioData(unittest.TestCase):
                     self.assertGreaterEqual(ln, 0.05 + city.AMBIG, (d, f, v[i:i + 6]))
                     n += 1
                 self.assertEqual(n, m['parts'], (d, f))
-        self.assertGreater(rows, 500)
+        # not vacuous: every triangle row on disk was parsed and checked (a plain count of the numbers in the files)
+        on_disk = 0
+        for d in dirs:
+            for f in os.listdir(d):
+                if f.startswith('cell_'):
+                    t = _qa.read(os.path.join(d, f))
+                    for key, stride in (('tris', 7), ('ftris', 8)):
+                        mm = re.search(r'\b' + key + r' = \{([^}]*)\}', t)
+                        if mm:
+                            on_disk += len([v for v in mm.group(1).split(',') if v.strip()]) // stride
+        self.assertEqual(rows, on_disk)
+        self.assertGreater(rows, 0)
 
     def test_install_bundle_is_current(self):
         """build/roadcity/b001/install (city_cli.py bundle b001): the builders in it are the repo's, the data is the
@@ -276,6 +383,22 @@ class StudioData(unittest.TestCase):
         self.assertEqual(b['ServerStorage/PattayaDataRoadGround_b001/manifest'],
                          _qa.read(os.path.join(_qa.BUILD, 'roadcity', 'b001', 'roblox_ground', 'manifest.luau')))
         self.assertTrue(all(len(v) < 200 * 1024 for v in b.values()))
+
+    def test_b003_bundle_is_current(self):
+        """build/roadcity/b003/install (city_cli.py bundle b003 --no-builders): the data only (the builders were installed
+        with b001), every module equal to the batch's data on disk"""
+        p = os.path.join(_qa.BUILD, 'roadcity', 'b003', 'install', 'roadcity_b003.json')
+        if not os.path.exists(p):
+            raise unittest.SkipTest('no b003 bundle (tools/roadvis/city_cli.py bundle b003 --no-builders)')
+        b = _qa.load_json(p)
+        self.assertFalse([k for k in b if k.endswith('Builder')], 'the b003 bundle must not carry the builders')
+        d = os.path.join(_qa.BUILD, 'roadcity', 'b003', 'roblox_rv')
+        want = {'ServerStorage/PattayaDataRoadVis_b003/' + f[:-5]: os.path.join(d, f) for f in os.listdir(d)}
+        want['ServerStorage/PattayaDataRoadGround_b003/manifest'] = os.path.join(_qa.BUILD, 'roadcity', 'b003', 'roblox_ground', 'manifest.luau')
+        want['ServerStorage/PattayaDataRoadGroundNoRaise'] = os.path.join(_qa.BUILD, 'roadcity', 'noraise', 'PattayaDataRoadGroundNoRaise.luau')
+        self.assertEqual(sorted(b), sorted(want))
+        for k, f in want.items():
+            self.assertEqual(b[k], _qa.read(f), f'{k} in the bundle is stale: run city_cli.py bundle b003 --no-builders')
 
     def test_caps_and_counts(self):
         d = _qa.need_build('roadcity', 'b001', 'roblox_rv')
@@ -403,13 +526,15 @@ class LuauRoadVisCity(unittest.TestCase):
         b1 = _qa.need_build('roadcity', 'b001', 'roblox_rv')
         root = os.path.join(_qa.BUILD, 'roadcity')
         batches = [('b001', b1, os.path.join(root, 'b001', 'fixture.json'))]
-        for bid in ('b002', 'b003'):                 # plan order: b002 (the pilot's z1 side), b003 (b001's z0 side)
+        for bid in ('b002', 'b003'):                 # b003 (b001's z0 side), b002 (the pilot's z1 side)
             d = os.path.join(root, 'data', bid, 'roblox_rv')
             fx = os.path.join(root, 'data', bid, 'fixture.json')
             if os.path.exists(os.path.join(d, 'manifest.luau')) and os.path.exists(fx):
                 batches.append((bid, d, fx))
         if not os.path.exists(batches[0][2]):
             raise unittest.SkipTest('build/roadcity/b001/fixture.json missing (run tools/roadvis/city_cli.py batch b001)')
+        # build in plan order (b001, b003, b002 since 2026-10-22): the manifests' seq
+        batches.sort(key=lambda bt: _qa.luau_table(os.path.join(bt[1], 'manifest.luau'))['batch']['seq'])
         import test_roadvis
         import test_shoulders
         src = _qa.src(os.path.join('ServerStorage', 'PattayaRoadVisBuilder.luau'))
@@ -671,6 +796,157 @@ class LuauRoadGroundCity(unittest.TestCase):
         self.assertEqual(self.line('PRISTINE').split()[1], '0')
         self.assertIn('road ground leftovers: none', self.line('LEFT'))
 
+
+# b003 builds second (2026-10-22): its ground after b001's, as in Studio (pilot adopted as seq 0, b001 built as seq 1)
+RG3_TAIL = r"""
+local RG = BUILDER
+local oldClone = I.Clone
+function I:Clone()
+	local o = oldClone(self)
+	if self.ClassName == "TerrainRegion" then
+		rawset(o, "_cells", rawget(self, "_cells")) rawset(o, "SizeInCells", rawget(self, "SizeInCells"))
+		for k, v in self._attr do o:SetAttribute(k, v) end
+	end
+	return o
+end
+function I:GetFullName() return "ServerStorage." .. self.Name end
+local PB = {24220, 648, 24820, 1252}
+local bk = terrain:CopyRegion(Region3int16.new(Vector3int16.new(6048, -3, 156), Vector3int16.new(6212, 2, 319)))
+bk.Name = "RoadGroundBackup_20261022" bk:SetAttribute("CornerCell", Vector3.new(6048, -3, 156)) bk.Parent = ServerStorage
+local function pilotOcc(i, k)
+	local cx, cz = 4 * i + 2, 4 * k + 2
+	local dx = math.max(PB[1] - cx, cx - PB[3], 0)
+	local dz = math.max(PB[2] - cz, cz - PB[4], 0)
+	local d = math.sqrt(dx * dx + dz * dz)
+	local f = if d <= 0 then 1 else math.clamp(1 - d / 20, 0, 1)
+	return math.floor(f * 63 + 0.5) / 63 * 0.725
+end
+for i = 6050, 6210 do for k = 157, 318 do
+	local o = pilotOcc(i, k)
+	if o > 0 then vset(i, -1, k, Enum.Material.Ground, o) end
+end end
+local function snapAll()
+	local t = {}
+	for i = 6030, 6230 do for y = -3, 2 do for k = -165, 185 do
+		local m, o = vget(i, y, k)
+		if o > 0 or m ~= Enum.Material.Air then t[i .. "," .. y .. "," .. k] = m.Name .. o end
+	end end end
+	return t
+end
+local function diff(a, b)
+	local n = 0
+	for k, v in a do if b[k] ~= v then n += 1 end end
+	for k, v in b do if a[k] ~= v then n += 1 end end
+	return n
+end
+local function level(man, i, k)
+	local g = man.region
+	local a, b = i - g.i0 + 1, k - g.k0 + 1
+	if a < 1 or a > g.ni or b < 1 or b > g.nk then return 0 end
+	return (string.find(man.alphabet, string.sub(man.columns[a], 2 * b, 2 * b), 1, true) or 1) - 1
+end
+local m1 = require(ServerStorage.PattayaDataRoadGround_b001.manifest)
+local m3 = require(ServerStorage.PattayaDataRoadGround_b003.manifest)
+local RAISED = snapAll()
+print("ADOPT", RG.Adopt("pilot", bk))
+print("BUILD1", RG.Build("b001"))
+local AFTER1 = snapAll()
+print("PLAN3", (string.gsub(RG.Plan("b003"), "\n", " | ")))
+WRITES = 0
+print("BUILD3", RG.Build("b003"))
+-- every column of b003's region: the highest of the pilot raise, b001's data and b003's data
+local g = m3.region
+local bad, cols, kept = 0, 0, 0
+for a = 1, g.ni do for b = 1, g.nk do
+	local i, k = g.i0 + a - 1, g.k0 + b - 1
+	local l3 = level(m3, i, k)
+	local before = math.max(level(m1, i, k) / 63 * 0.725, pilotOcc(i, k))
+	local want = math.max(l3 / 63 * 0.725, before)
+	local m, o = vget(i, -1, k)
+	if math.abs(o - math.floor(want * 255 + 0.5) / 255) > 1 / 255 + 1e-9 then bad += 1 end
+	if l3 > 0 then cols += 1 end
+	if l3 > 0 and before >= l3 / 63 * 0.725 then kept += 1 end
+	local m2, o2 = vget(i, -2, k)
+	local m0, o0 = vget(i, 0, k)
+	if o2 ~= 1 or o0 ~= 0 then bad += 1 end
+end end
+print("COLUMNS3", bad, cols, kept, WRITES)
+print("PROBE3", (string.gsub(RG.Probe("b003"), "\n", " | ")))
+print("STATUS3", (string.gsub(RG.Status(), "\n", " | ")))
+print("REMOVE1EARLY", RG.Remove("b001"))
+print("REMOVE3", RG.Remove("b003"))
+print("DIFF3", diff(AFTER1, snapAll()))
+print("REMOVE1", RG.Remove("b001"))
+print("DIFF1", diff(RAISED, snapAll()))
+print("LEFT", RG.Leftovers())
+for _, w in WARN do print("WARN", w) end
+"""
+
+
+class LuauRoadGroundCityB003(unittest.TestCase):
+    """b003's ground after b001's in the voxel Terrain mock (the Studio order since 2026-10-22: pilot adopted as seq 0,
+    b001 seq 1, b003 seq 2): READY with b001 as a raised neighbour, every column the highest of the pilot raise, b001
+    and b003, b001 cannot be removed first, both restore exactly. (The ground builder has no order check of its own:
+    its max rule makes the result the same in any order, and the registry seq is the order of the builds.)"""
+
+    @classmethod
+    def setUpClass(cls):
+        d1 = _qa.need_build('roadcity', 'b001', 'roblox_ground')
+        d3 = os.path.join(_qa.BUILD, 'roadcity', 'b003', 'roblox_ground')
+        if not os.path.exists(os.path.join(d3, 'manifest.luau')):
+            raise unittest.SkipTest('build/roadcity/b003/roblox_ground missing (run tools/roadvis/city_cli.py batch b003)')
+        nrp = _qa.need_build('roadcity', 'noraise', 'PattayaDataRoadGroundNoRaise.luau')
+        import test_roadground
+        import test_shoulders
+        src = _qa.src(os.path.join('ServerStorage', 'PattayaRoadGroundBuilder.luau'))
+        parts = [test_shoulders.STUB, test_roadground.MOCK]
+        for bid, d in (('b001', d1), ('b003', d3)):
+            parts += [f'do local D = I.new("Folder") D.Name = "PattayaDataRoadGround_{bid}" D.Parent = ServerStorage\n',
+                      f'moduleScript("manifest", function()\n{_qa.read(os.path.join(d, "manifest.luau"))}\nend).Parent = D end\n']
+        parts += [f'NRNAME = "PattayaDataRoadGroundNoRaise"\nmoduleScript(NRNAME, function()\n{_qa.read(nrp)}\nend).Parent = ServerStorage\n',
+                  'local require = function(m) return m._load() end\n',
+                  'local BUILDER = (function()\n' + src + '\nend)()\n', RG3_TAIL]
+        cls.code, cls.out = _qa.run_luau(''.join(parts), timeout=900)
+        cls.lines = cls.out.splitlines()
+        cls.man = _qa.luau_table(os.path.join(d3, 'manifest.luau'))
+
+    def line(self, tag):
+        got = [l for l in self.lines if l.startswith(tag + '\t')]
+        self.assertTrue(got, f'{tag} missing; output tail: {self.out[-2500:]}')
+        return got[0]
+
+    def test_runs(self):
+        self.assertEqual(self.code, 0, self.out[-3000:])
+
+    def test_plan_and_build_merge_with_b001(self):
+        p = self.line('PLAN3')
+        self.assertIn('READY', p)
+        self.assertNotIn('NOT READY', p)
+        self.assertIn('b001 (seq 1)', p)
+        b = self.line('BUILD3')
+        m = re.search(r'raised (\d+) columns to y ([\d.]+).*?; (\d+) data columns already as high or higher', b)
+        self.assertTrue(m, b)
+        n, y, k = int(m.group(1)), float(m.group(2)), int(m.group(3))
+        self.assertAlmostEqual(y, 0.9, delta=0.02)
+        self.assertIn('(seq 2)', b)
+        c = self.line('COLUMNS3').split()
+        self.assertEqual(c[1], '0', 'every column = the highest of the pilot raise, b001 and b003; layers -2 / 0 untouched')
+        self.assertEqual(n + k, int(c[2]))
+        self.assertEqual(k, int(c[3]), 'the columns b001 (or the pilot) already hold as high are left alone')
+        self.assertEqual(n + k, self.man['counts']['written'])
+
+    def test_probe(self):
+        p = self.line('PROBE3')
+        self.assertIn('road ground probe b003', p)
+        self.assertIn('floor steps >= 1.5: 0', p)
+
+    def test_lifo_and_exact_restores(self):
+        self.assertIn('NOT removed', self.line('REMOVE1EARLY'))
+        self.assertIn('restored EXACTLY', self.line('REMOVE3'))
+        self.assertEqual(self.line('DIFF3').split()[1], '0', 'b001 and the pilot raise exactly as before b003')
+        self.assertIn('restored EXACTLY', self.line('REMOVE1'))
+        self.assertEqual(self.line('DIFF1').split()[1], '0')
+        self.assertIn('road ground leftovers', self.line('LEFT'))
 
 class BuilderSource(unittest.TestCase):
     def test_city_conventions(self):
