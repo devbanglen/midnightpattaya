@@ -163,9 +163,23 @@ def plan(bw, nr, paved=None, blds=None, frame_ok=True):
             f = np.minimum(f, np.clip(dn / RAMP, 0.0, 1.0))
     level = np.rint(f * LEVELS).astype(int)
     occ = OCC * level / LEVELS
-    mat = np.zeros(occ.shape, np.uint8)
+    G = dict(i0=i0, k0=k0, ni=i1 - i0 + 1, nk=k1 - k0 + 1, occ=occ, level=level, plateau=plateau,
+             plateau_vox=(pi0, pk0, pi1, pk1), box_world=list(bw),
+             counts=dict(columns=int(occ.size), written=int((level > 0).sum()), plateau=int((plateau & (level == LEVELS)).sum()),
+                         ramp=int(((level > 0) & ~(plateau & (level == LEVELS))).sum()), never_raise=int(bad.sum()),
+                         plateau_lowered=int((plateau & (level < LEVELS)).sum())))
+    return add_materials(G, paved, blds)
+
+
+def add_materials(G, paved=None, blds=None):
+    """the material of every raised column (1 Ground, 2 Pavement: within 20 studs of a building or 10 studs of a paved
+    edge, on the plateau; opt-in in the builder); the levels of G are not touched. Returns G."""
+    level, plateau = G['level'], G['plateau']
+    mat = np.zeros(level.shape, np.uint8)
     mat[level > 0] = 1
     if paved is not None or blds is not None:
+        ii, kk = np.meshgrid(np.arange(G['i0'], G['i0'] + G['ni']), np.arange(G['k0'], G['k0'] + G['nk']), indexing='ij')
+        cx, cz = ii * VOX + VOX / 2, kk * VOX + VOX / 2
         loc = np.stack([cx.ravel() - city.ORIGIN[0], cz.ravel()], axis=1)
         pts = shapely.points(loc)
         near = np.zeros(len(loc), bool)
@@ -173,14 +187,34 @@ def plan(bw, nr, paved=None, blds=None, frame_ok=True):
             near |= shapely.distance(blds, pts) <= PAVE_BLD
         if paved is not None and not paved.is_empty:
             near |= shapely.distance(paved, pts) <= PAVE_EDGE
-        pave = near.reshape(occ.shape) & plateau & (level == LEVELS)
+        pave = near.reshape(level.shape) & plateau & (level == LEVELS)
         mat[pave] = 2
-    return dict(i0=i0, k0=k0, ni=i1 - i0 + 1, nk=k1 - k0 + 1, occ=occ, level=level, mat=mat, plateau=plateau,
-                plateau_vox=(pi0, pk0, pi1, pk1), box_world=list(bw),
-                counts=dict(columns=int(occ.size), written=int((level > 0).sum()), plateau=int((plateau & (level == LEVELS)).sum()),
-                            ramp=int(((level > 0) & ~(plateau & (level == LEVELS))).sum()), never_raise=int(bad.sum()),
-                            plateau_lowered=int((plateau & (level < LEVELS)).sum()), pavement=int((mat == 2).sum()),
-                            ground=int((mat == 1).sum())))
+    G['mat'] = mat
+    G['counts'] = dict(G['counts'], pavement=int((mat == 2).sum()), ground=int((mat == 1).sum()))
+    return G
+
+
+class FullTest:
+    """option B's test: is every voxel column under a (map-local) shape raised to the plateau (+0.9) by at least one of
+    the plans (the batch's own plan, the pilot's hand raise, batches raised before)? Conservative: every column that the
+    shape's bounding box touches must be at the plateau."""
+
+    def __init__(self, plans):
+        self.plans = [p for p in plans if p is not None]
+
+    def __call__(self, poly):
+        x0, z0, x1, z1 = poly.bounds
+        i0, i1 = int(math.floor((x0 + city.ORIGIN[0]) / VOX)), int(math.floor((x1 + city.ORIGIN[0]) / VOX))
+        k0, k1 = int(math.floor(z0 / VOX)), int(math.floor(z1 / VOX))
+        ok = np.zeros((i1 - i0 + 1, k1 - k0 + 1), bool)
+        for P in self.plans:
+            a0, b0 = max(i0, P['i0']), max(k0, P['k0'])
+            a1, b1 = min(i1, P['i0'] + P['ni'] - 1), min(k1, P['k0'] + P['nk'] - 1)
+            if a1 < a0 or b1 < b0:
+                continue
+            sub = P['level'][a0 - P['i0']:a1 - P['i0'] + 1, b0 - P['k0']:b1 - P['k0'] + 1] >= LEVELS
+            ok[a0 - i0:a1 - i0 + 1, b0 - k0:b1 - k0 + 1] |= sub
+        return bool(ok.all())
 
 
 def pilot_plan(nr):

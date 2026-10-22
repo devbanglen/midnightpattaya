@@ -9,8 +9,9 @@
       -> build/roadcity/b001/: roblox_rv/ (ServerStorage.PattayaDataRoadVis_b001), roblox_ground/manifest.luau
          (ServerStorage.PattayaDataRoadGround_b001), qa.json (offline QA), drives.json (TestKit paths), previews;
          build/roadcity/noraise/PattayaDataRoadGroundNoRaise.luau
-  D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\city_cli.py bundle b001
-      -> build/roadcity/b001/install/: roadcity_b001.json + install_b001.luau (served by tools/studio/serve.ps1)
+  D:\\ROBLOXRACE\\.venv\\Scripts\\python tools\\roadvis\\city_cli.py bundle b001 [b003 ...] [--no-builders] [--rv-only]
+      -> build/roadcity/b001/install/: roadcity_b001.json + install_b001.luau (served by tools/studio/serve.ps1);
+         several ids -> build/roadcity/install_<first>_<last>/
 docs/ROAD_B_CITY_ROLLOUT.md explains the batches, the numbers and the Studio procedure.
 """
 import argparse
@@ -46,9 +47,12 @@ def load(build_root=None, log=print):
     return CW, plan, nr
 
 
-def ground_plan_for(nr, res):
+def ground_plan_for(nr, res, G0=None):
+    """the batch's ground plan with its materials; G0 = its level plan made before the batch (option B), reused"""
     I = res['ideal']
     paved = unary_union([I['S'], I['walk'], I['islands']])
+    if G0 is not None:
+        return city_ground.add_materials(G0, paved=paved, blds=I['blds'])
     return city_ground.plan(res['box'], nr, paved=paved, blds=I['blds'])
 
 
@@ -63,7 +67,10 @@ def run_batches(CW, plan, nr, upto=None, limit=None, write_dir=None, log=print, 
             break
         t = time.time()
         before = dict(replaced_old=set(st['replaced_old']))
-        res = city.make_batch(CW, plan, st, b, cfg=cfg)
+        # the batch's ground levels first (they do not depend on Road B): option B drops the invisible supports where
+        # this plan, the pilot's raise or a batch raised before puts the ground at the plateau
+        G0 = city_ground.plan(b['box'], nr)
+        res = city.make_batch(CW, plan, st, b, cfg=cfg, ground_full=city_ground.FullTest([G0] + list(gplans.values())))
         x = city_export.export(CW, plan, res, os.path.join(write_dir, b['id'], 'roblox_rv') if write_dir else None, write=bool(write_dir))
         poles = []
         if write_dir:
@@ -72,7 +79,7 @@ def run_batches(CW, plan, nr, upto=None, limit=None, write_dir=None, log=print, 
             with open(os.path.join(write_dir, b['id'], 'fixture.json'), 'w', encoding='utf-8') as f:
                 json.dump(dict(batch=b['id'], box=b['box'], old=city_batch.fixture(CW, before, res, BXb)), f)
             poles = city_batch.poles_on_islands(CW, res, BXb)
-        G = ground_plan_for(nr, res)
+        G = ground_plan_for(nr, res, G0)
         gplans[b['id']] = G
         moved = len(res['rep_old']) + len(res['rep_pilot']) + sum(f['n'] for f in res['rep_front'])
         rows.append(dict(id=b['id'], group=b['group'], cells=len(b['cells']), box=b['box'], added=x['parts'], moved=moved,
@@ -85,6 +92,7 @@ def run_batches(CW, plan, nr, upto=None, limit=None, write_dir=None, log=print, 
                          byKind=x['byKind'], replaceByName=x['replaceByName'], frontierFor=x['frontierFor'],
                          neighbours=res['neighbours'], poles_on_islands=sum(1 for p in poles if p['on'] == 'island'),
                          poles_in_asphalt=sum(1 for p in poles if p['on'] == 'asphalt'), poles=poles,
+                         supports_dropped=res.get('dropped', {}).get('support', 0),
                          secs=round(time.time() - t, 1)))
         if keep_ideal is None or b['id'] not in keep_ideal:
             res['ideal'] = dict(chains=res['ideal']['chains'], rib=res['ideal']['rib'], cfg=res['ideal']['cfg'],
@@ -115,7 +123,8 @@ def cmd_plan(build_root=None, limit=None, log=print, variant=city.DEFAULT_VARIAN
     tot = Counter()
     for r in rows:
         for k in ('added', 'moved', 'net', 'own', 'completion', 'frontier', 'segs', 'atomic_cells', 'replaced_old', 'replaced_pilot',
-                  'replaced_frontier', 'ground_written', 'ground_plateau', 'ground_never_raise', 'poles_on_islands', 'poles_in_asphalt'):
+                  'replaced_frontier', 'ground_written', 'ground_plateau', 'ground_never_raise', 'poles_on_islands', 'poles_in_asphalt',
+                  'supports_dropped'):
             tot[k] += r[k]
         for k, v in r['byKind'].items():
             tot['kind_' + k] += v
@@ -201,39 +210,83 @@ print("HttpEnabled restored to " .. tostring(Http.HttpEnabled))
 '''
 
 
-def cmd_bundle(bid, build_root=None, log=print):
-    """build/roadcity/<bid>/install/: roadcity_<bid>.json (the two road builders, the batch's Road B and ground data and
-    the never-raise data, keyed "ServerStorage/<Folder>/<module>" like tools/studio/install.ps1) and install_<bid>.luau
-    (the command-bar installer that pulls it from localhost:8765; it creates or updates those ModuleScripts only).
-    Run `batch <bid>` first: the ground data and the never-raise data are written by it."""
-    out = os.path.join(out_root(build_root), bid)
-    rv = os.path.join(out, 'roblox_rv')
-    if not os.path.isdir(rv):
-        rv = os.path.join(out_root(build_root), 'data', bid, 'roblox_rv')
-    rg = os.path.join(out, 'roblox_ground', 'manifest.luau')
-    nr = os.path.join(out_root(build_root), 'noraise', 'PattayaDataRoadGroundNoRaise.luau')
-    for f in (os.path.join(rv, 'manifest.luau'), rg, nr):
-        if not os.path.exists(f):
-            raise SystemExit(f'{f} missing: run tools/roadvis/city_cli.py batch {bid} first')
+def _rv_dir(build_root, bid):
+    d = os.path.join(out_root(build_root), bid, 'roblox_rv')
+    return d if os.path.isdir(d) else os.path.join(out_root(build_root), 'data', bid, 'roblox_rv')
+
+
+def cmd_bundle(bids, build_root=None, log=print, builders=True, ground=True):
+    """an install bundle for one batch or several (in plan order) and its command-bar installer:
+      one batch, default: build/roadcity/<id>/install/roadcity_<id>.json + install_<id>.luau with the two road
+          builders, the batch's Road B data, its ground data and the never-raise data (run `batch <id>` first)
+      builders=False (--no-builders): the data only (the builders are installed already, e.g. with b001)
+      ground=False (--rv-only): Road B data only (e.g. a place copy for the frame-time measurement), from
+          build/roadcity/<id>/roblox_rv or the plan's build/roadcity/data/<id>/roblox_rv
+      several ids: build/roadcity/install_<first>_<last>/roadcity_<first>_<last>.json
+    Keys are "ServerStorage/<Folder>/<module>" like tools/studio/install.ps1; the installer pulls the bundle from
+    localhost:8765 (tools/studio/serve.ps1) and creates or updates those ModuleScripts only."""
+    if isinstance(bids, str):
+        bids = [bids]
+    tag = bids[0] if len(bids) == 1 else f'{bids[0]}_{bids[-1]}'
     src = os.path.join(REPO, 'roblox', 'src', 'ServerStorage')
-    files = {'ServerStorage/PattayaRoadVisBuilder': os.path.join(src, 'PattayaRoadVisBuilder.luau'),
-             'ServerStorage/PattayaRoadGroundBuilder': os.path.join(src, 'PattayaRoadGroundBuilder.luau'),
-             f'ServerStorage/PattayaDataRoadGround_{bid}/manifest': rg,
-             'ServerStorage/PattayaDataRoadGroundNoRaise': nr}
-    mods = sorted(f[:-5] for f in os.listdir(rv) if f.endswith('.luau'))
-    for m in mods:
-        files[f'ServerStorage/PattayaDataRoadVis_{bid}/{m}'] = os.path.join(rv, m + '.luau')
+    nr = os.path.join(out_root(build_root), 'noraise', 'PattayaDataRoadGroundNoRaise.luau')
+    files = {}
+    if builders:
+        files['ServerStorage/PattayaRoadVisBuilder'] = os.path.join(src, 'PattayaRoadVisBuilder.luau')
+        files['ServerStorage/PattayaRoadGroundBuilder'] = os.path.join(src, 'PattayaRoadGroundBuilder.luau')
+    nmods = {}
+    for bid in bids:
+        rv = _rv_dir(build_root, bid)
+        need = [os.path.join(rv, 'manifest.luau')]
+        rg = os.path.join(out_root(build_root), bid, 'roblox_ground', 'manifest.luau')
+        if ground:
+            need += [rg, nr]
+        for f in need:
+            if not os.path.exists(f):
+                raise SystemExit(f'{f} missing: run tools/roadvis/city_cli.py batch {bid} (or plan) first')
+        if ground:
+            files[f'ServerStorage/PattayaDataRoadGround_{bid}/manifest'] = rg
+        mods = sorted(f[:-5] for f in os.listdir(rv) if f.endswith('.luau'))
+        nmods[bid] = len(mods)
+        for m in mods:
+            files[f'ServerStorage/PattayaDataRoadVis_{bid}/{m}'] = os.path.join(rv, m + '.luau')
+    if ground:
+        files['ServerStorage/PattayaDataRoadGroundNoRaise'] = nr
+    if len(bids) == 1 and builders and ground:
+        # the original single-batch layout (b001's bundle is made this way)
+        def rank(k):
+            return 0 if k.endswith('Builder') else 1 if '/PattayaDataRoadGround_' in k else 2 if k.endswith('NoRaise') else 3
+        files = {k: files[k] for k in sorted(files, key=lambda k: (rank(k), list(files).index(k)))}
     bundle = {k: open(v, encoding='utf-8').read() for k, v in files.items()}
     big = {k: len(v) for k, v in bundle.items() if len(v) > 190000}
     if big:
         raise SystemExit(f'modules over the 200 KB source limit: {big}')
-    d = os.path.join(out, 'install')
+    d = os.path.join(out_root(build_root), bids[0], 'install') if len(bids) == 1 else os.path.join(out_root(build_root), f'install_{tag}')
     os.makedirs(d, exist_ok=True)
-    with open(os.path.join(d, f'roadcity_{bid}.json'), 'w', encoding='utf-8') as f:
+    with open(os.path.join(d, f'roadcity_{tag}.json'), 'w', encoding='utf-8') as f:
         json.dump(bundle, f, ensure_ascii=False)
-    with open(os.path.join(d, f'install_{bid}.luau'), 'w', encoding='utf-8', newline='\n') as f:
-        f.write(INSTALLER.replace('{bid}', bid).replace('{rv}', str(len(mods))).replace('{n}', str(len(bundle))))
-    log(f'{bid}: install bundle {d} ({len(bundle)} modules, {round(sum(len(v) for v in bundle.values()) / 1024)} KB); '
+    if len(bids) == 1 and builders and ground:
+        text = INSTALLER.replace('{bid}', tag).replace('{rv}', str(nmods[tag])).replace('{n}', str(len(bundle)))
+    else:
+        what = []
+        if builders:
+            what += ['ServerStorage.PattayaRoadVisBuilder', 'ServerStorage.PattayaRoadGroundBuilder']
+        what += [f'ServerStorage.PattayaDataRoadVis_{b} ({nmods[b]} modules)' for b in bids]
+        if ground:
+            what += [f'ServerStorage.PattayaDataRoadGround_{b} (manifest)' for b in bids] + ['ServerStorage.PattayaDataRoadGroundNoRaise']
+        rel = os.path.relpath(d, os.path.dirname(os.path.dirname(out_root(build_root)))).replace('/', '\\')
+        head = (f"-- MIDNIGHT PATTAYA: install Road B city data {tag} (generated by tools/roadvis/city_cli.py bundle "
+                f"{' '.join(bids)}{'' if builders else ' --no-builders'}{'' if ground else ' --rv-only'}).\n"
+                f"-- Run in the Studio command bar (Edit mode) while this folder is served:\n"
+                f"--   powershell -File tools\\studio\\serve.ps1 -Dir {rel} -Port 8765 -Seconds 300\n"
+                f"-- It creates or updates these ModuleScripts only (it deletes nothing):\n"
+                + ''.join(f'--   {w}\n' for w in what)
+                + ('' if builders else '-- The road builders are NOT in this bundle: they are installed already (drift check: same source as the repo).\n'))
+        body = INSTALLER[INSTALLER.index('-- Afterwards require the builders'):]
+        text = head + body.replace('{bid}', tag).replace('{n}', str(len(bundle)))
+    with open(os.path.join(d, f'install_{tag}.luau'), 'w', encoding='utf-8', newline='\n') as f:
+        f.write(text)
+    log(f'{tag}: install bundle {d} ({len(bundle)} modules, {round(sum(len(v) for v in bundle.values()) / 1024)} KB); '
         f'largest module {max(len(v) for v in bundle.values()) // 1024} KB')
     return dict(dir=d, modules=len(bundle))
 
@@ -294,7 +347,9 @@ def cmd_map(build_root=None, art_dir=None, log=print):
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
     ap.add_argument('cmd', choices=['plan', 'batch', 'bundle', 'map'])
-    ap.add_argument('id', nargs='?')
+    ap.add_argument('ids', nargs='*')
+    ap.add_argument('--no-builders', action='store_true')
+    ap.add_argument('--rv-only', action='store_true')
     ap.add_argument('--limit', type=int)
     ap.add_argument('--art', action='store_true')
     ap.add_argument('--build-root')
@@ -303,9 +358,9 @@ if __name__ == '__main__':
     if a.cmd == 'plan':
         cmd_plan(a.build_root, a.limit, variant=a.variant)
     elif a.cmd == 'bundle':
-        cmd_bundle(a.id or 'b001', a.build_root)
+        cmd_bundle(a.ids or ['b001'], a.build_root, builders=not a.no_builders, ground=not a.rv_only)
     elif a.cmd == 'map':
         cmd_map(a.build_root, os.path.join(REPO, 'art', 'roadcity') if a.art else None)
     else:
         from tools.roadvis import city_batch
-        city_batch.cmd_batch(a.id or 'b001', a.build_root, art=a.art, variant=a.variant)
+        city_batch.cmd_batch((a.ids or ['b001'])[0], a.build_root, art=a.art, variant=a.variant)
