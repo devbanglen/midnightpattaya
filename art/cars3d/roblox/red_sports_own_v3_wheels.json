@@ -63,6 +63,7 @@
  },
  "front": "-Z",
  "units": "metres, body space (centre of the body mesh bounding box)",
+ "lamps": "red_sports_own_v3_lamps.json",
  "own_v3": {
   "design": "own body, modelled from scratch in tools/blender/car_own_v3.py",
   "wheels": "the v2 turbine wheels (red_sports_original_v2_wheel_*.glb), used as they are",

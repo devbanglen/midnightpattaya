@@ -1,6 +1,6 @@
 {
  "red_sports_own_v3.fbx": {
-  "tris": 14052,
+  "tris": 15512,
   "bbox_centre_blender": [
    0.0,
    0.0,
@@ -11,10 +11,10 @@
    4.5014,
    1.22
   ],
-  "bytes": 539692
+  "bytes": 597708
  },
  "red_sports_own_v3_red.fbx": {
-  "tris": 14052,
+  "tris": 15512,
   "bbox_centre_blender": [
    0.0,
    0.0,
@@ -25,10 +25,10 @@
    4.5014,
    1.22
   ],
-  "bytes": 540620
+  "bytes": 598668
  },
  "red_sports_own_v3_white.fbx": {
-  "tris": 14052,
+  "tris": 15512,
   "bbox_centre_blender": [
    0.0,
    0.0,
@@ -39,6 +39,48 @@
    4.5014,
    1.22
   ],
-  "bytes": 544844
+  "bytes": 602876
+ },
+ "red_sports_own_v3_lamp_head.fbx": {
+  "tris": 408,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   1.3975,
+   0.0373,
+   0.0481
+  ],
+  "bytes": 28956
+ },
+ "red_sports_own_v3_lamp_drl.fbx": {
+  "tris": 272,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   1.6261,
+   0.0714,
+   0.1525
+  ],
+  "bytes": 25548
+ },
+ "red_sports_own_v3_lamp_tail.fbx": {
+  "tris": 212,
+  "bbox_centre_blender": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "bbox_size_blender": [
+   1.922,
+   0.0075,
+   0.167
+  ],
+  "bytes": 20076
  }
 }

@@ -97,12 +97,73 @@ local function isWheelMesh(inst)
 	return string.sub(inst.Name, 1, 10) == "WheelMesh_"
 end
 
+-- Optional lamp meshes (docs/CAR_IMPORT_RED_SPORTS.md, "Lamps"): MeshParts named LampMesh_<kind> (Head, DRL, Tail)
+-- inside ServerStorage.CarBodies.<id>, each centred on its own bounding box, with the attribute BodyOffset = that
+-- centre in body space (metres, the frame of the wheel layout, front -Z). They are never the body mesh. Clones ride on
+-- the car like the wheel meshes (welded, massless, no collision / queries / touch); PattayaNightLights lights them
+-- at night on the client. Lamp anchors: the folder's Vector3 attributes LampHeadL / LampHeadR / LampTailL /
+-- LampTailR (metres, body space) and LampHeadDir / LampTailDir (the right lamp's direction; the left one mirrors X)
+-- become Attachments LampAnchor_<HeadL..TailR> on the Body MeshPart, NOT on the chassis: every Attachment on the
+-- chassis is a wheel mount for the parked-car spring at the bottom of this script.
+local LAMP_ANCHORS = {"HeadL", "HeadR", "TailL", "TailR"}
+
+local function isLampMesh(inst)
+	return string.sub(inst.Name, 1, 9) == "LampMesh_"
+end
+
 local function bodyMeshOf(src)
 	if src:IsA("MeshPart") then return src end
 	for _, d in ipairs(src:GetDescendants()) do
-		if d:IsA("MeshPart") and not isWheelMesh(d) then return d end
+		if d:IsA("MeshPart") and not isWheelMesh(d) and not isLampMesh(d) then return d end
 	end
 	return nil
+end
+
+-- Lamp meshes and anchors of a mesh body (nothing happens for a body without them). bodyFrame = the body's frame
+-- without its yaw: chassis * (0, offsetY, 0); a point p of the body GLB (metres) sits at bodyFrame * (p * s). A lamp
+-- MeshPart is centred on its own box, so its CFrame is bodyFrame * (BodyOffset * s) * the importer's yaw fix.
+local function attachLamps(model, chassis, body, src, s, offsetY)
+	local bodyFrame = chassis.CFrame * CFrame.new(0, offsetY, 0)
+	local yaw = CFrame.Angles(0, math.rad(src:GetAttribute("LampYawFix") or src:GetAttribute("YawFix") or 0), 0)
+	for _, d in ipairs(src:GetDescendants()) do
+		local off = d:GetAttribute("BodyOffset")
+		if d:IsA("MeshPart") and isLampMesh(d) and typeof(off) == "Vector3" then
+			local m = d:Clone()
+			for _, c in ipairs(m:GetChildren()) do
+				if c:IsA("BasePart") then c:Destroy() end
+			end
+			m.Size = d.Size * s
+			m.CFrame = bodyFrame * CFrame.new(off * s) * yaw
+			m.Anchored = false
+			m.CanCollide = false
+			m.CanQuery = false
+			m.CanTouch = false
+			m.Massless = true
+			m.CastShadow = false
+			m.Parent = model
+			weld(chassis, m)
+		end
+	end
+	for _, name in ipairs(LAMP_ANCHORS) do
+		local p = src:GetAttribute("Lamp" .. name)
+		if typeof(p) == "Vector3" then
+			local tail = string.sub(name, 1, 4) == "Tail"
+			local dir = src:GetAttribute(if tail then "LampTailDir" else "LampHeadDir")
+			if typeof(dir) ~= "Vector3" or dir.Magnitude < 1e-6 then
+				dir = Vector3.new(0, 0, if tail then 1 else -1)
+			end
+			dir = dir.Unit
+			if string.sub(name, 5, 5) == "L" then
+				dir = Vector3.new(-dir.X, dir.Y, dir.Z)
+			end
+			local at = bodyFrame * (p * s) -- world position
+			local a = Instance.new("Attachment")
+			a.Name = "LampAnchor_" .. name
+			-- looks along the lamp's direction (body frame = chassis axes: X right, front -Z)
+			a.CFrame = body.CFrame:ToObjectSpace(CFrame.lookAt(at, at + bodyFrame:VectorToWorldSpace(dir)))
+			a.Parent = body
+		end
+	end
 end
 
 -- Scales the body mesh to BODY_LENGTH. Returns (hasMesh, layout, wheelMeshes): without a wheel layout the mesh's own
@@ -118,7 +179,8 @@ local function attachBody(model, chassis, id)
 	local body = mesh:Clone()
 	body.Name = "Body"
 	for _, d in ipairs(body:GetChildren()) do
-		if isWheelMesh(d) then d:Destroy() end -- the wheel meshes may be kept as children of the body MeshPart
+		-- the wheel and lamp meshes may be kept as children of the body MeshPart (lamps are cloned below)
+		if isWheelMesh(d) or isLampMesh(d) then d:Destroy() end
 	end
 	body.Size = body.Size * s
 	local offsetY = layout and layout.bodyOffset or body.Size.Y / 2 - (DEFAULT_LAYOUT.radius + REST_EXT)
@@ -128,6 +190,7 @@ local function attachBody(model, chassis, id)
 	body.Massless = true
 	body.Parent = model
 	weld(chassis, body)
+	attachLamps(model, chassis, body, src, s, offsetY)
 	local wheelMeshes = nil
 	local found = {}
 	for _, key in ipairs({"FL", "FR", "RL", "RR", "L", "R"}) do

@@ -32,7 +32,7 @@
    "rest_min_clearance_m": 0.0442,
    "rest_points_inside": 0
   },
-  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+  "measured_glb_sha256": "0c421b5c15053bf80fdcb7a6762cf917583809d011c7a2841d4924f35f426e18",
   "steer_deg": 28.0,
   "tyre_envelope": {
    "note": "closed cylinder round the v2 tyre",
@@ -41,13 +41,13 @@
   }
  },
  "shells": {
-  "components": 25,
+  "components": 31,
   "components_with_negative_volume": 0,
   "duplicate_directed_edges": 0,
-  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
-  "min_component_volume_m3": 3.65e-05,
+  "measured_glb_sha256": "0c421b5c15053bf80fdcb7a6762cf917583809d011c7a2841d4924f35f426e18",
+  "min_component_volume_m3": 2.29e-05,
   "open_edge_uses": 0,
-  "triangles": 14052
+  "triangles": 15512
  },
  "silhouette": {
   "cabin_above_0_45m_z_fictional": [
@@ -58,13 +58,13 @@
    -0.742,
    0.833
   ],
-  "measured_glb_sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
+  "measured_glb_sha256": "0c421b5c15053bf80fdcb7a6762cf917583809d011c7a2841d4924f35f426e18",
   "roofline": {
    "max_higher_at_z": 2.238,
    "max_higher_m": 0.635,
    "max_lower_at_z": -2.252,
    "max_lower_m": 0.16,
-   "mean_abs_diff_m": 0.0788,
+   "mean_abs_diff_m": 0.0789,
    "roof_peak_z": {
     "fictional": 0.303,
     "red_sports_own_v3": -0.237
@@ -179,9 +179,9 @@
      "z": 2.0
     },
     {
-     "diff": 0.495,
+     "diff": 0.505,
      "fictional_y": -0.302,
-     "own_y": 0.192,
+     "own_y": 0.202,
      "z": 2.25
     }
    ],
@@ -190,8 +190,8 @@
   "side_iou_v2_vs_fictional": 0.9965,
   "side_iou_v2_vs_fictional_holes_filled": 0.9966,
   "side_iou_vs_fictional": 0.8574,
-  "side_iou_vs_fictional_holes_filled": 0.89,
+  "side_iou_vs_fictional_holes_filled": 0.8899,
   "top_iou_v2_vs_fictional": 0.9904,
-  "top_iou_vs_fictional": 0.9472
+  "top_iou_vs_fictional": 0.9471
  }
 }

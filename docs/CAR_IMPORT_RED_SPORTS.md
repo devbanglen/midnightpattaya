@@ -574,6 +574,12 @@ original `red_sports*` files under `art/cars3d`.
 **upload BLOCKED until the owner approves.** Nothing was uploaded or imported. Nothing was done in Studio, nothing
 went into the garage or `CarSpecs`, and nothing changed under `roblox/src`. This is not legal advice.
 
+Status 2026-10-22 (after the merge): the owner allowed the upload for a test drive. The leader uploaded the body and
+the four v2 wheels and filed `ServerStorage.CarBodies.red_sports_own_v3` as a test vehicle
+(`docs/test_results/car_own_v3_studio.txt`). After that drive the owner asked for better headlights: see *Lamps*
+below (new body GLB + three lamp meshes, game code for them). The `upload` field in the json files still reads
+BLOCKED; that wording is the leader's call.
+
 ### How it was made
 
 Sources: none. No Tripo, Meshy or other AI mesh, no texture from them, no photo or reference image, no downloaded
@@ -588,9 +594,13 @@ emblem is the v2 decal (same drawing code; team21's own design). The wheels are 
 3. **Size:** centred on its bounding box (Roblox centres a MeshPart on its box) and given red_sports' exact length,
    4.50145 m (the game scales every body to 16 studs by its length).
 4. **Exact booleans at the red_sports wheel layout:** four wheel tubs (front radius 0.445 m, rear 0.43 m), two side
-   intakes ahead of the rear wheels, two exhaust pockets. The body stays one closed shell.
-5. **24 detail parts**, each a closed solid sunk into the body: lamp bars, LED fangs, three stepped gills per side,
-   mirrors on arms, the tail light blade, outlet rims, four diffuser fins, the splitter, two MP emblems.
+   intakes ahead of the rear wheels, two exhaust pockets, two lamp pockets in the nose face (*Lamps*). The body
+   stays one closed shell.
+5. **30 detail parts**, each a closed solid sunk into the body: the lamp back plates and four projector rings (in
+   the lamp pockets), two fang housings, the tail light housing (a bar and two end blocks), three stepped gills per
+   side, mirrors on arms, outlet rims, four diffuser fins, the splitter, two MP emblems. The surfaces that give
+   light are three separate meshes (*Lamps*). Before the lamp polish: 24 parts (thin lamp bars, fangs, a tail
+   blade).
 6. **Normals and UVs:** smooth by angle (32 degrees), so only creases and part edges are sharp. Own box-projection
    UVs; left and right share texels; 226.5 px per metre on the visible body.
 7. **Texture:** one procedural 1024² image per paint: paint with soft shading, dark glass, black roof and pillars,
@@ -636,8 +646,8 @@ four-slot vents in the engine deck, a square tail.
 
 ### Numbers
 
-- **Triangles:** body shell 11,924 + 24 parts 2,128 = **14,052** (budget 20,000, target 8 to 15 k); 9,809
-  vertices. The FBX files have the same count.
+- **Triangles:** body shell 12,376 + 30 parts 3,136 = **15,512** (budget 20,000); 11,383 vertices. The FBX files
+  have the same count. Before the lamp polish: 11,924 + 2,128 = 14,052. The three lamp meshes add 892 (*Lamps*).
 - **Bounding box:** **2.2085 x 1.2200 x 4.5014 m** (X x Y x Z), centred (0.0 mm). red_sports: 2.2067 x 1.2552 x
   4.5014. Width +0.1 %, height -2.8 %, length equal.
 - Frame and units as v2: X right, Y up, front -Z, metres, origin = centre of the body bounding box.
@@ -653,8 +663,8 @@ four-slot vents in the engine deck, a square tail.
 
   The same check on `red_sports_fictional` and v2 gives -13 to -15 cm: their tyres sit inside the body shell (no
   real wheel tubs).
-- **Closed shells:** 25 (body + 24 parts), 0 open edges, 0 duplicate edges, all wound outward. Opaque, single-sided
-  material; no interior.
+- **Closed shells:** 31 (body + 30 parts), 0 open edges, 0 duplicate edges, all wound outward. Opaque, single-sided
+  material; no interior. The lamp meshes are closed outward shells too (6 + 4 + 3 components).
 - **Silhouettes vs `red_sports_fictional`** (5 mm pixels, body meshes only):
   - side IoU **0.857**; **0.890** with the fictional's see-through window holes filled. v2: 0.997;
   - top IoU **0.947**. v2: 0.990;
@@ -664,15 +674,20 @@ four-slot vents in the engine deck, a square tail.
 
 | file | bytes GLB / FBX | tris |
 |---|---|---|
-| `red_sports_own_v3.glb` / `.fbx` (midnight blue, default) | 529,352 / 539,692 | 14,052 |
-| `red_sports_own_v3_red.glb` / `.fbx` | 530,248 / 540,620 | 14,052 |
-| `red_sports_own_v3_white.glb` / `.fbx` | 534,452 / 544,844 | 14,052 |
+| `red_sports_own_v3.glb` / `.fbx` (midnight blue, default) | 596,776 / 597,708 | 15,512 |
+| `red_sports_own_v3_red.glb` / `.fbx` | 597,688 / 598,668 | 15,512 |
+| `red_sports_own_v3_white.glb` / `.fbx` | 601,876 / 602,876 | 15,512 |
+| `red_sports_own_v3_lamp_head.glb` / `.fbx` (LampMesh_Head) | 20,220 / 28,956 | 408 |
+| `red_sports_own_v3_lamp_drl.glb` / `.fbx` (LampMesh_DRL) | 14,736 / 25,548 | 272 |
+| `red_sports_own_v3_lamp_tail.glb` / `.fbx` (LampMesh_Tail) | 10,952 / 20,076 | 212 |
+| `red_sports_own_v3_lamps.json` | lamp meshes (offset, size, tris, sha256, day look) and anchors, body metres | |
 | `red_sports_own_v3_wheels.json` | layout = `red_sports`; `wheel_meshes` = the v2 wheels; `own_v3.upload` = BLOCKED | |
 | `red_sports_own_v3_build.json` | script sha256, Blender version, box, tris, atlas, paints with sha256 | |
 | `red_sports_own_v3_qa.json` | silhouette, clearance, shells | |
 | `red_sports_own_v3_emblem.png`, `_fbx.json` | the MP decal as shipped (2x); FBX check | |
 
-Roblox cost: one MeshPart of 14 k tris with one 1024² texture (v2: 19 k tris, one 1024²). Wheels as v2.
+Roblox cost: one MeshPart of 15.5 k tris with one 1024² texture (v2: 19 k tris, one 1024²), plus three small
+untextured lamp MeshParts (892 tris in all). Wheels as v2.
 
 If the owner approves it later:
 1. Import ONE body (pick the paint) and the four v2 wheel files. Rename the body MeshPart to `red_sports_own_v3`.
@@ -681,9 +696,13 @@ If the owner approves it later:
    `red_sports_original_v2_wheel_FL` ...), because v3 has no wheel files of its own. For every other car the snippet
    is unchanged (checked: the v2 snippet is byte-identical).
 
-Game code is unchanged (`WheelMesh_*` path, see *Game integration*).
+Game code: the `WheelMesh_*` path (see *Game integration*) and, since the lamp polish, the `LampMesh_*` path
+(*Lamps*).
 
 ### QA images (`art/cars3d/qa/`, looked at)
+
+These sheets show the body before the lamp polish (`red_sports_own_v3_silhouette.png` is re-made for the current
+body). The lamp renders are in `art/car_own_v3_lamps/` (*Lamps*).
 
 - `red_sports_own_v3_compare.png`: `red_sports_fictional` | v2 | v3 in side, front 3/4, rear 3/4, front, rear,
   top and the game's chase camera (Workbench, the same studio light for all three).
@@ -706,7 +725,7 @@ What I saw (faults left):
 - Workbench shows the nose mouth and the lower tail as grey bands: studio specular on a dark texture. Cycles shows
   them dark.
 - The lamp bars (about 4 cm tall) and the fangs (2 cm wide) are thin. At game distance they read as lines, not as
-  big lamps.
+  big lamps. (Fixed by the lamp polish, *Lamps*.)
 - The mouth slats are about 5 texels apart, so they are soft up close.
 - The flanks are big plain paint areas. The deck and nose vents are painted, not cut, so they have no depth up close.
 - On the red paint the red light blade has little contrast.
@@ -743,12 +762,168 @@ Compared with v2 under the same Cycles light (`red_sports_own_v3_looks.png`):
     slotted engine cover;
   - 14 k instead of 19 k tris, closed shells, and a texture that is entirely ours.
 - **Worse than v2:**
-  - much less detail: big plain flanks, painted vents, thin lamps, a simple nose. Up close it looks plainer and less
-    expensive than v2;
+  - much less detail: big plain flanks, painted vents, thin lamps (since fixed, *Lamps*), a simple nose. Up close it
+    looks plainer and less expensive than v2;
   - the style is retro. It reads as a 1990s concept car, a bit toy-like, more than a modern GT;
   - v2's rear (diffuser, layered bumper) gives the chase camera more to look at.
 - **Plainly:** up close v3 looks simpler than v2, and to many eyes worse. At game distance it reads cleaner and is
   at least as good. It is the only one of the two that is not 812-shaped.
+
+### Lamps (team23/car-lamps, 2026-10-22)
+
+The owner after the first drive (night, Studio Play): "ล้อเริ่มดูดีแล้ว แต่ไฟหน้ายังเป็นอะไรก็ไม่รู้ ลองดูหน่อย
+เก็บรายละเอียด" (the wheels look good now, but the headlights still look like I-don't-know-what; take a look and
+polish the details).
+
+**What was wrong.**
+
+- The two big white discs in front of the nose were not the car. `PattayaNightLights` (section 4) put the same
+  generic BillboardGui flares on every RaceCar at night, at positions made for the old placeholder box car.
+  - Head flares: hard round discs, 1.3 studs wide, 15 % transparent, at chassis (±2.7, 0.9, -7.6). That is about
+    1.4 studs above v3's lamps, in the air in front of the hood.
+  - Tail flares: at (±2.7, 1.1, 7.6), on top of the rear deck.
+- v3's own lamps were thin painted strips (lamp bar 3.8 cm tall, fang 1.8 cm wide) that never lit up.
+
+**The new lamps** keep the v3 language (straight lamp bars, LED fangs, a full-width tail light). Each is modelled in
+`tools/blender/car_own_v3.py` (section "the lamps"):
+
+- **Headlamp**, one per side, 50 x 9 cm, `|x|` 0.335 to 0.835 m:
+  - a pocket cut 2.5 cm into the nose face (exact boolean, like the wheel tubs), with black walls;
+  - a smoked back plate with fine reflector ribs and the teal accent line along the bottom edge;
+  - two projector modules: a chrome reflector ring and a domed lens, 4.6 cm across;
+  - a slim LED module, 10 x 2.2 cm;
+  - a DRL light guide, 46 x 1.4 cm, along the top edge;
+  - a chamfered outer tip: the bottom edge rises 4.6 cm over the last 10 cm.
+- **Fang**: the LED fang below the tip stays, now a dark housing with the LED standing 3 mm proud of it.
+- **Mouth**: the grille texture under the nose is 1.8 cm lower, so 2 cm of paint separates it from the lamps.
+- **Tail**: a smoked housing on the Kamm face. It is a 5 cm bar plus two end blocks (14.5 x 19.5 cm, inner foot
+  chamfered at 45 degrees). It holds a 1.85 cm light bar across the car and two solid end lamps.
+- **Open lamps, no clear cover.** A see-through cover in Roblox would be one more transparent part (sorting, cost)
+  and would wash out the detail. The domed lenses give the lens read.
+
+**The lamp meshes.** The surfaces that give light are not in the body. They are three separate GLBs (+ FBX):
+
+- untextured: one material each, the colour is set in Roblox, so no paint changes them;
+- each centred on its own bounding box (Roblox centres a MeshPart on it), with that centre in body space as its
+  offset;
+- closed outward shells.
+
+| mesh (Roblox name) | what lights | tris | size (m) | offset (m, body space) | day (installer) | night (client) |
+|---|---|---|---|---|---|---|
+| `red_sports_own_v3_lamp_head.glb` (`LampMesh_Head`) | 4 projector lenses, 2 LED modules | 408 | 1.3975 x 0.0481 x 0.0373 | (0, -0.227917, -2.151337) | SmoothPlastic 214, 220, 230 | Neon, the preset's head colour (MidnightClear 255, 241, 222) |
+| `red_sports_own_v3_lamp_drl.glb` (`LampMesh_DRL`) | 2 DRL light guides, 2 fangs | 272 | 1.6261 x 0.1525 x 0.0714 | (0, -0.25322, -2.135295) | **Neon** 196, 210, 228: daytime running lights | Neon 226, 236, 255 |
+| `red_sports_own_v3_lamp_tail.glb` (`LampMesh_Tail`) | light bar, 2 end lamps | 212 | 1.922 x 0.167 x 0.0075 | (0, 0.1025, 2.246474) | SmoothPlastic 128, 12, 20 | Neon 170, 14, 20; braking 255, 36, 40 |
+
+The DRL glowing by day is a design call. If the owner does not want it, set `Material = SmoothPlastic` on
+`CarBodies.red_sports_own_v3.LampMesh_DRL`.
+
+**Anchors** (`red_sports_own_v3_lamps.json`; positions in body metres; directions turned 8 degrees outward):
+
+| anchor | body metres | chassis studs | looks | where |
+|---|---|---|---|---|
+| HeadL / HeadR | (-/+0.466, -0.217, -2.204) | (-/+1.66, -0.49, -7.83) | forward | between the two projectors, 3 cm in front of the nose |
+| TailL / TailR | (-/+0.900, 0.095, 2.290) | (-/+3.20, 0.62, 8.14) | back | on the end lamps, 4 cm behind them |
+
+Chassis studs use s = 3.554 and the body offset +0.277. For comparison, the old head flares were at
+(±2.7, 0.9, -7.6). The JSON also lists the beam: one spot between the head anchors, 8 degrees down; the game works
+it out from the head anchors.
+
+**Game integration.**
+
+- **`RaceCarServer`**:
+  - `bodyMeshOf` skips `LampMesh_*` (as it skips `WheelMesh_*`).
+  - `attachLamps` clones every `LampMesh_*` that has a `BodyOffset` and scales it by the body's s. Its CFrame is
+    `chassis * (0, bodyOffset, 0) * (BodyOffset * s) * YawFix` (`LampYawFix` overrides `YawFix`).
+  - Each clone is welded to the chassis: Massless, CanCollide / CanQuery / CanTouch false, CastShadow false (like the
+    wheel meshes).
+  - The folder's `LampHeadL/R`, `LampTailL/R` (with `LampHeadDir`, `LampTailDir`) become Attachments
+    `LampAnchor_<name>` on the **Body** MeshPart, never on the chassis: the parked-car spring at the bottom of
+    `RaceCarServer` treats every chassis Attachment as a wheel mount.
+  - Bodies without lamp data: nothing changes.
+- **`PattayaNightLights`** section 4. When a car's Body has all four anchors:
+  - the lamp meshes turn Neon in the night colours. This is local only, and the meshes get their own look back by
+    day, when the car leaves the nearest 8, or on a preset change;
+  - one small, soft glare sits on each lamp: three stacked rounds (head: halo 1.15 x 0.7 studs at 90 %
+    transparency, then mid and core; tail 0.8 x 0.9). It fades when the lamp faces away from the camera: full
+    within about 45 degrees of its axis, gone beyond about 95. The size is written only when the rounded value
+    changes;
+  - the beam SpotLight sits between the real headlamps, 8 degrees down (brightness, range and angle as before);
+  - the faint tail glow sits between the end lamps;
+  - the tail lamps and their glare brighten while `DriveSeat.ThrottleFloat < -0.1` (braking or reversing; the seat
+    is only read).
+  - Every other car keeps the generic lights exactly as before.
+- **Studio installer**: `car_import_wheels.py --luau` reads `lamps` from the wheels json. It then:
+  - takes the MeshParts named `<id>_lamp_<head|drl|tail>` and files them as `LampMesh_*`;
+  - sets `BodyOffset`, the day look and CastShadow false;
+  - removes any SurfaceAppearance and clears TextureID;
+  - warns on a missing lamp or a size more than 2 % off;
+  - sets the six anchor attributes.
+  - The snippets of cars without lamps are byte-identical to before (`red_sports`, v2).
+
+**Own-design check** (my knowledge of production lamp signatures; not a registered-design search, not legal advice).
+Not used:
+
+- Ferrari 812 / F12: long swept lamps on the fender tops, round twin tail lamps. Ours are short horizontal slots on
+  the nose face, and the tail has no round lamps.
+- Lamborghini: Y or hexagon graphics. Ours are straight lines, round lenses and one 45-degree chamfer.
+- Porsche: 4-point LED DRL and brake lights, the lettered light bar. Audi: segmented DRL / tail signatures. Ours
+  have no dot clusters and no lettering.
+- McLaren: the hockey-stick / eye-socket DRL. Our DRL brow is straight, with no hook.
+- BMW: lit "angel eye" rings. Our rings are unlit chrome; only the lenses light.
+- Peugeot: long sabre-tooth DRLs running from the lamp into the bumper, claw-mark tail lamps. Our fang is a short
+  8 cm tick below the lamp tip with a 2.3 cm gap; it is v2/v3's own fang.
+- Lexus: the L-shaped arrowhead DRL. The fang and the brow do not join.
+- Acura Jewel Eye (a row of five lenses), Hyundai parametric pixels, Volvo "Thor's hammer", Kia "tiger nose".
+- Ford Mustang tri-bar tail lamps, Dodge racetrack ring. Our end lamps are solid and the ⊓ is open at the bottom.
+
+A full-width light bar plus a lens-and-DRL headlamp is generic today.
+
+**Install** (leader, Studio edit mode, after a fresh owner backup):
+
+1. Upload four Model assets, as for v3:
+   - `art/cars3d/roblox/red_sports_own_v3.glb` (new body, midnight blue; replaces 90094845763929);
+   - `red_sports_own_v3_lamp_head.glb`, `red_sports_own_v3_lamp_drl.glb`, `red_sports_own_v3_lamp_tail.glb`.
+
+   The wheels do not change: FL 134630398494002, FR 74871958760739, RL 121469048851077, RR 86681611253418.
+2. Load the eight assets into workspace. Each should be one MeshPart named `red_sports_own_v3`,
+   `red_sports_original_v2_wheel_FL` .. `_RR`, or `red_sports_own_v3_lamp_head` / `_drl` / `_tail` (rename if
+   needed).
+3. Run the snippet from `python tools/gpu/car_import_wheels.py --luau
+   art/cars3d/roblox/red_sports_own_v3_wheels.json red_sports_own_v3` in the command bar.
+   - The old folder moves to `ServerStorage._old` (rollback).
+   - The new `CarBodies.red_sports_own_v3` has Body, `WheelMesh_FL/FR/RL/RR` and `LampMesh_Head/DRL/Tail` (each
+     with `BodyOffset`).
+   - Its attributes: YawFix 180, the wheel layout, `LampHeadL/R`, `LampTailL/R`, `LampHeadDir`, `LampTailDir`.
+4. Set `TestVehicleOnly = true` and `AssetIds` again (the old folder in `_old` still has them).
+5. Install `ServerScriptService.RaceCarServer` and `StarterPlayer.StarterPlayerScripts.PattayaNightLights` from this
+   branch. Back up the old sources first.
+6. Test in Play with `S.spawnCar(player, "red_sports_own_v3")`.
+   - The car has `LampMesh_*` (massless, no collision / query / touch) and `Body.LampAnchor_*`. The Chassis still
+     has only the four `Mount_*` Attachments.
+   - At night (ClockTime 21): the lamps are lit, the glare sits on them, the beam comes from the nose, and the
+     glare is gone from the side and the rear. Braking (S) brightens the tail.
+   - By day: the DRL glows, the lenses are pale, the tail is dark red.
+   - The other cars keep their old lights.
+
+**Renders** (`art/car_own_v3_lamps/`, from the GPU box: EEVEE on a GPU slot through `gslot.sh`, 960 px; same light
+before and after):
+
+- `red_sports_own_v3_lamps_front34_old_vs_new.png`: before / after, front 3/4 by day (game-like camera and
+  orthographic).
+- `red_sports_own_v3_lamps_headlamp_closeup.png`: one headlamp before (day) / after (day) / after (night).
+- `red_sports_own_v3_lamps_rear34_old_vs_new.png`: rear 3/4 and the tail lamp, before / after, by day.
+- `red_sports_own_v3_lamps_night_front34.png`, `..._night_rear34.png`: night set (dark sky, a warm street lamp, the
+  beam spot), lamp meshes emissive, compositor bloom. Run with `bash tools/blender/run_own_v3.sh render
+  art/cars3d/roblox red_sports_own_v3 <out> night tools/blender/own_v3_lamp_views.json eevee 960 0 night`.
+
+**Not verified** (no Studio here):
+
+- How Roblox imports the untextured, very thin lamp GLBs. The tail mesh is 7.5 mm deep; the snippet warns if a size
+  is off.
+- How Neon and bloom look in the place, and the exact glare look: BillboardGui depth and size.
+- The day DRL glow at Roblox daylight.
+- The server and client code compiles (luau-compile) and the placement math is tested offline. Nothing has run in
+  Roblox yet.
 
 ### Owner decisions
 
@@ -777,4 +952,23 @@ Compared with v2 under the same Cycles light (`red_sports_own_v3_looks.png`):
 - upload BLOCKED in the json files and here; nothing under `roblox/src` names v3;
 - the Studio snippet for v3 also takes the v2 wheel part names; the v2 snippet is unchanged;
 - side and top silhouettes differ from the fictional (thresholds on the stored IoU numbers);
-- all 70 original `red_sports*` files still have their main-branch sha256, and no v3 file is a copy of one.
+- all 70 original `red_sports*` files still have their main-branch sha256, and no v3 file is a copy of one;
+- lamps:
+  - the three lamp meshes are untextured, closed, centred on their own box, under 2,000 tris, and one set for all
+    paints;
+  - their offsets put them on the nose (inside the pockets' range) and on the tail, inside the body box and mirrored;
+  - the anchors sit on the lamps and look out of the car;
+  - the lamp GLBs are the build output (sha256 in `_build.json` and `_lamps.json`);
+  - the snippet files the lamps and sets the anchors; the snippets of cars without lamps do not mention lamps;
+  - the owner renders exist.
+
+`tools/qa/tests/test_car_lamps.py`:
+
+- `RaceCarServer`: `LampMesh_*` is never the body. The lamp clones are made like the wheel meshes (massless, no
+  collision / query / touch, welded). The anchors go on the Body, never on the chassis. The driving setup is
+  unchanged.
+- `PattayaNightLights`: the lamp path needs all four anchors, and the generic lights stay verbatim for every other
+  car. The glare is soft and small, the meshes get their look back, and the seat is only read.
+- Placement maths with the real numbers (numpy CFrame algebra, Roblox import = 180-degree yaw + box centring):
+  every lamp vertex lands exactly where the same point of the body lands. The head anchors sit about 1.4 studs
+  below the old generic flares.
