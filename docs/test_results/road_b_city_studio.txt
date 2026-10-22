@@ -1,0 +1,72 @@
+Road B city rollout, batches b001 + b003, real Studio results (leader, 2026-10-22 ~22:00-23:30 UTC+7)
+==================================================================================================
+Place 117826785726076 (Studio 12dac35f), Edit for the builds, one Play session for the drives.
+Owner: "อนุญาตติดตั้งและสร้างถนน b001 และ b003 ลง place ได้เลย" and "อนุญาตแก้ข้อมูลถนนใน Studio: ชิ้นถนนเก่าที่
+place มีแต่ข้อมูลไม่มี ให้ย้ายไปเก็บสำรองพร้อมชิ้นอื่นได้ ทั้ง b001, b003 และชุดถัดไป".
+Backup before any change: Documents\SaveNew-V5.rbxl (21:48), checked with rbxl_grep (RoadVisPilot, RoadVisBackup,
+RoadGroundBackup_20261022, Rollback_econ_20261022, v3 car, arcade fix 5, round 8 present; no road-city objects).
+NOT saved after the build: the owner saves a new dated .rbxl.
+
+Install (leader bundles, drift check + absence check + rollback folder; HttpEnabled back to false each time)
+- rc_b001: PattayaRoadVisBuilder 38f1953 (28,541) -> 294b0a4 (58,103) + 11 modules; ServerStorage.Rollback_roadcity_b001_20261022
+- rc_b003: PattayaDataRoadGroundNoRaise (identical text) + 13 modules; ServerStorage.Rollback_roadcity_b003_20261022
+- rc_rgfix: PattayaRoadGroundBuilder 294b0a4 -> aa61d44 (re-measure fix, below); ServerStorage.Rollback_roadcity_rgfix_20261022
+- Studio data patch (owner OK): PattayaDataRoadVis_b001.manifest optionalKeys = the 2 place-only WideJunctions Joints
+  (OsmNode -1582327669 at (24663.17, 433.37), -3378348606 at (24657.74, 431.12), under the old Sukhumvit / trunk_link
+  road). Original text: Rollback_roadcity_b001_20261022.manifest_b001_original. After the build a ray at both points
+  hits RoadVisCity.b001 Road at y 1.000.
+
+b001 (Edit)
+- Baseline: pilot built, backup present, 0 city batches; pilot probe 0 drops.
+- RV.Plan: first DOES NOT MATCH (541 selected, the 2 Joints above unmatched); after the patch MATCHES, selected 541
+  (required 539, optional 2 of 2).
+- RV.Build 1057 parts (data 1057); RV.MoveReplaced 541 to ServerStorage.RoadVisCityBackup.b001.
+- RV.Probe b001: 18 legs, 722 samples; building overlaps 8; every offset's flat / kerb / ground count = offline;
+  in-box ground points 3 (offline 3); hairline seams 1.
+- RG.Adopt pilot (seq 0); RG.Plan READY (25,740 columns, 0 never-raise).
+- RG.Build try 1: ABORTED, 0 voxels wrong, measured median 0.906 but one probe at -2.000; terrain restored exactly
+  (checksum). Cause: raycasts made in the same step as WriteVoxels can still see the old surface. Fix aa61d44:
+  re-measure once per frame for up to 120 frames (window, abort and restore unchanged); run_all 315 PASS.
+- RG.Build try 2: raised 24,794 columns to y 0.906 (100 probes 0.906 .. 0.906); 946 already as high (pilot);
+  N + K = 25,740.
+- RG.Probe b001: median 0.906; road-to-ground 58 pairs, largest step 0.207 (offline 0.185), over 0.6: 0; 2-stud grid
+  90,000 rays, floor steps >= 1.5: 0, largest floor step 0.80 (offline 0.77), rays hitting nothing 0; box edges
+  lowest -0.25, largest 1-stud step 0.204.
+- RV.Probe b001 again: unchanged. RV.Probe() pilot: 1790 parts (data 1822: 32 moved by b001), total drops 0.
+
+b003 (Edit, after b001)
+- RV.Plan MATCHES, selected 390 (required 390, optional 0 of 1); RG.Plan READY (b001 overlaps, merge).
+- RV.Build 1289 (data 1289); MoveReplaced 390; RV.Probe b003: 25 legs, 1139 samples, building overlaps 0, every
+  offset = offline, in-box ground points 34 (offline 34), hairline seams 3.
+- RG.Build: raised 24,788 columns to y 0.906 (0.906 .. 0.906), 952 already as high (exactly the offline numbers).
+- RG.Probe b003: road-to-ground 582 pairs, largest 0.373 (limit 0.45, offline 0.326), over 0.6: 0; floor steps
+  >= 1.5: 0, largest 0.80; box edges lowest -0.25, largest 1-stud step 0.204.
+- After: b001 1024 parts (data 1057; its 33 frontier pieces are in b003's backup), b001 in-box ground 2; status
+  "2 city batches built"; RG: pilot seq 0, b001 seq 1, b003 seq 2.
+
+Play: physics drives (minimum sets, TK.drivePath physics mode, RaceCar_gt_sedan, Heartbeat 60 Hz at the start)
+Pass line per drive: no timeout, minUp >= 0.71, no recovery prompt / rescue / auto-upright, ends on road; spot runs
+also 0 off-road probes.
+- b001: 66 drives, 62 PASS, 4 FAIL.
+  - spot runs 18 (offset 0 at 70 and 100): 17 PASS. #12 (run 36 @100) flipped at (24658, 328): the road there is flat
+    (largest 1-stud change 0.000 within +-3.5 studs); a rerun with live traffic hit an AI traffic car at the path end
+    (speed 100 -> 11 in one frame, Traffic0 14.6 studs away); a rerun with traffic ghosted PASSED (minUp 1.00).
+    Traffic was ghosted (TK.ghostTraffic(true), test only) from b001 #16 on and for every b003 drive.
+  - off-road runs 48 (@35): 45 PASS. #53 (run 114, -24): hits a LightPole at (24655.9, 249.5) on the new sidewalk,
+    2 of 2 reruns the same (the car stops dead, the test autopilot keeps forcing it forward, it climbs the pole and
+    flips); #61 (run 126, -24): LightPole at (24773.0, 204.5); #62 (run 127, -24): shophouse wall (x 24762).
+- b003: 70 drives, 57 PASS, 13 FAIL.
+  - spot runs 30 (70 and 100): 30 PASS.
+  - off-road runs 40 (@35): 27 PASS; 13 FAIL, every one with a building (shophouse / hotel) or a Poles.UtilityPole on
+    its path (#31 #32 #33 #38 #41 #42 #43 #51 #55 #57 #58 #59 #65; 5 stuck until timeout, the others tilted or
+    flipped against the obstacle).
+- Cross-check (a car footprint 7.9 x 16 swept along each path against colliding parts that are not Road B):
+  b001 path clear 59 PASS / 1 FAIL (the traffic case above), obstacle on the path 3 PASS / 3 FAIL;
+  b003 path clear 49 PASS / 0 FAIL, obstacle on the path 8 PASS / 13 FAIL.
+  Surface along every failing path: largest 1-stud step 0.09-0.10 in b003, 0.60-0.69 in b001 (the 0.6 kerb up onto
+  the new sidewalk, by design). Every passing drive had minUp >= 0.98.
+- Reading: no drive failed on the road or ground surface; the failures are the off-road test paths (made offline
+  without buildings or poles) driving into fixed objects, plus one traffic crash. Colliding Props in the two boxes:
+  16 LightPoles (15 on the new sidewalks, 1 on an island, 0 on the road); utility poles are in a Poles folder.
+- Not done yet: the full drive sets (185 + 459), the GPS route / traffic / Street Challenge check (step 14),
+  captures and frame times (need Studio focused).
