@@ -7,6 +7,10 @@ rest and over the full steering range; closed shells; our own generator, and the
 script; no mesh or image data shared with the Tripo / Meshy / older bodies; the MP emblem is the v2 decal; no brand
 words; upload marked BLOCKED and nothing in the game; the default and white paints have no red; the side and top
 silhouettes differ from the fictional body; and every original red_sports* file is byte-identical to main 8df1a8c.
+Lamps (team23/car-lamps): the three lamp meshes (head, drl, tail) are untextured closed meshes centred on their own
+bounding box, their body-space offsets put them inside the body box and inside the lamp pockets / on the tail housing,
+the anchors sit on the lamps (mirror-symmetric, pointing out of the car), the Studio snippet files them; the owner
+renders exist.
 Needs numpy + Pillow (the repo .venv has both); skipped otherwise.
 """
 import hashlib
@@ -38,6 +42,10 @@ ID, V2, REF, BADGE, MESHY = 'red_sports_own_v3', 'red_sports_original_v2', 'red_
     'red_sports_meshy'
 PAINT_IDS = (ID, ID + '_red', ID + '_white')
 QA_SHEETS = ('compare', 'closeups', 'paints', 'silhouette', 'clearance', 'looks')
+LAMP_KINDS = ('head', 'drl', 'tail')
+LAMP_IDS = tuple(f'{ID}_lamp_{k}' for k in LAMP_KINDS)
+LAMP_RENDERS = os.path.join(_qa.ROOT, 'art', 'car_own_v3_lamps')
+LAMP_MAX = 2000                     # tris per lamp mesh (they are tiny; the brief's hard cap is 20,000)
 BRAND_WORDS = (b'ferrari', b'prancing', b'cavallino', b'scuderia', b'maranello', b'scudetto', b'superfast')
 AI_WORDS = (b'tripo', b'meshy')     # the generator must be ours: no AI service named in our files
 MODEL_WORDS = (b'812',)             # too short for binary data: checked in the GLB JSON chunk and the json files only
@@ -182,12 +190,14 @@ class OwnBodyV3(unittest.TestCase):
         for f in QA_SHEETS:
             self.assertTrue(os.path.isfile(os.path.join(QA, f'{ID}_{f}.png')), f)
         for f in ('tools/blender/car_own_v3.py', 'tools/blender/run_own_v3.sh', 'tools/blender/own_v3_views.json',
-                  'tools/gpu/car_own_v3_qa.py'):
+                  'tools/blender/own_v3_lamp_views.json', 'tools/gpu/car_own_v3_qa.py'):
             self.assertTrue(os.path.isfile(os.path.join(_qa.ROOT, f)), f)
+        for f in [f'{ID}_lamps.json'] + [f'{i}.{e}' for i in LAMP_IDS for e in ('glb', 'fbx')]:
+            self.assertTrue(os.path.isfile(os.path.join(CARS, f)), f)
 
     def test_triangle_budgets(self):
         fbx = jload(os.path.join(CARS, f'{ID}_fbx.json'))
-        self.assertEqual(sorted(fbx), sorted(f'{i}.fbx' for i in PAINT_IDS))
+        self.assertEqual(sorted(fbx), sorted(f'{i}.fbx' for i in PAINT_IDS + LAMP_IDS))
         for i, b in self.bodies.items():
             n = len(b['T'])
             self.assertLessEqual(n, BODY_MAX, i)
@@ -290,6 +300,139 @@ class OwnBodyV3(unittest.TestCase):
         for name, rec in self.build['paints'].items():
             self.assertEqual(sha(os.path.join(CARS, rec['file'])), rec['sha256'],
                              f'{name}: the GLB is not the build output')
+        lamps = jload(os.path.join(CARS, f'{ID}_lamps.json'))
+        self.assertEqual(sorted(self.build['lamps']), sorted(LAMP_KINDS))
+        for kind, rec in self.build['lamps'].items():
+            self.assertEqual(sha(os.path.join(CARS, rec['file'])), rec['sha256'], f'{kind}: not the build output')
+            self.assertEqual(lamps['meshes'][kind]['sha256'], rec['sha256'], kind)
+            self.assertEqual(load_glb(os.path.join(CARS, rec['file']))['js']['asset'].get('generator'), v3.GENERATOR)
+
+    # ---------------------------------------------------------------------------------------------- lamps --
+    def _lamps(self):
+        lj = jload(os.path.join(CARS, f'{ID}_lamps.json'))
+        meshes = {k: load_glb(os.path.join(CARS, lj['meshes'][k]['file'])) for k in LAMP_KINDS}
+        return lj, meshes
+
+    def test_lamp_meshes_untextured_centred_closed(self):
+        """Each lamp mesh: its own GLB, one mesh / primitive / material, no texture (the game sets the colour, so no
+        paint can change it), centred on its own bounding box (Roblox centres a MeshPart on it), size and tris as in
+        the json, closed outward shells, far under the triangle cap; one lamp set for all paints."""
+        lj, meshes = self._lamps()
+        self.assertEqual(sorted(lj['meshes']), sorted(LAMP_KINDS))
+        names = {'head': 'LampMesh_Head', 'drl': 'LampMesh_DRL', 'tail': 'LampMesh_Tail'}
+        for k, b in meshes.items():
+            rec, js = lj['meshes'][k], b['js']
+            self.assertEqual(rec['roblox_name'], names[k])
+            self.assertEqual(rec['file'], f'{ID}_lamp_{k}.glb')
+            self.assertEqual(js['nodes'][0]['name'], f'{ID}_lamp_{k}', 'the Studio snippet finds the part by this name')
+            self.assertEqual((len(js['meshes']), len(js['meshes'][0]['primitives']), len(js['materials'])), (1, 1, 1))
+            for key in ('images', 'textures', 'samplers'):
+                self.assertNotIn(key, js, f'{k}: a lamp mesh must not carry a texture')
+            self.assertEqual(b['png'], [])
+            pbr = js['materials'][0]['pbrMetallicRoughness']
+            self.assertNotIn('baseColorTexture', pbr)
+            self.assertEqual(len(pbr['baseColorFactor']), 4)
+            lo, hi = b['P'].min(0), b['P'].max(0)
+            self.assertLess(float(np.abs((lo + hi) / 2).max()), 1e-6, f'{k}: not centred on its bounding box')
+            self.assertLess(float(np.abs((hi - lo) - np.array(rec['size'])).max()), 1e-5, f'{k}: size')
+            self.assertEqual(len(b['T']), rec['tris'])
+            self.assertLessEqual(len(b['T']), LAMP_MAX, k)
+            self.assertGreater(len(b['T']), 50, k)
+            r = q.shell_check(b['P'], b['T'])
+            self.assertEqual((r['open_edge_uses'], r['duplicate_directed_edges'], r['components_with_negative_volume']),
+                             (0, 0, 0), f'{k}: not closed outward shells {r}')
+            self.assertIn(rec['day']['material'], ('SmoothPlastic', 'Neon'))
+        self.assertEqual(lj['meshes']['drl']['day']['material'], 'Neon', 'DRL: daytime running lights')
+        own = [f for f in os.listdir(CARS) if f.startswith(ID) and '_lamp_' in f and f.endswith('.glb')]
+        self.assertEqual(sorted(own), sorted(f'{i}.glb' for i in LAMP_IDS), 'one lamp set for every paint')
+
+    def test_lamp_offsets_put_the_lamps_on_the_body(self):
+        """offset + mesh = body space: inside the body box, the head and drl meshes in the nose lamp pockets (left and
+        right mirror images), the tail mesh on the Kamm tail, standing at most 12 mm proud of the tail face."""
+        lj, meshes = self._lamps()
+        body = self.bodies[ID]['P']
+        blo, bhi = body.min(0), body.max(0)
+        W = {k: b['P'] + np.array(lj['meshes'][k]['offset']) for k, b in meshes.items()}
+        for k, P in W.items():
+            self.assertTrue(np.all(P.min(0) >= blo - 1e-6) and np.all(P.max(0) <= bhi + 1e-6), f'{k} outside the body')
+            gap = np.sqrt(((P[:, None, :] - (P * (-1, 1, 1))[None, :, :]) ** 2).sum(-1)).min(1)
+            self.assertLess(float(gap.max()), 1e-5, f'{k}: left and right lamps are not mirror images')
+        for k in ('head', 'drl'):
+            P = W[k]
+            self.assertLess(float(P[:, 2].max()), -2.05, f'{k}: not at the nose')
+            self.assertTrue(np.all((np.abs(P[:, 0]) > v3.HEAD['x_in'] - 0.01) & (np.abs(P[:, 0]) < 0.9)), k)
+            self.assertTrue(np.all((P[:, 1] > -0.34) & (P[:, 1] < v3.HEAD['y_top'] + 0.01)), k)
+        P = W['tail']
+        self.assertGreater(float(P[:, 2].min()), v3.TAIL_Z - 1e-6, 'tail lamps sink into the Kamm face')
+        self.assertLess(float(P[:, 2].max()), v3.TAIL_Z + 0.012 + 1e-6)
+        self.assertGreater(float(np.abs(P[:, 0]).max()), 0.9, 'tail light not full width')
+
+    def test_lamp_anchors(self):
+        """Four anchors on the lamps: mirror-symmetric, head ones just ahead of the lenses and looking forward, tail
+        ones just behind the end lamps and looking back; the snippet attributes are these numbers."""
+        lj, meshes = self._lamps()
+        a = lj['anchors']
+        self.assertEqual(sorted(a), ['HeadL', 'HeadR', 'TailL', 'TailR'])
+        for side in ('Head', 'Tail'):
+            l, r = a[side + 'L'], a[side + 'R']
+            self.assertEqual(l['pos'], [-r['pos'][0]] + r['pos'][1:], side)
+            self.assertEqual(l['dir'], [-r['dir'][0]] + r['dir'][1:], side)
+            self.assertGreater(r['pos'][0], 0.3)
+            for k in ('L', 'R'):
+                self.assertAlmostEqual(float(np.linalg.norm(a[side + k]['dir'])), 1.0, places=4)
+        head = meshes['head']['P'] + np.array(lj['meshes']['head']['offset'])
+        tail = meshes['tail']['P'] + np.array(lj['meshes']['tail']['offset'])
+
+        def on_lamp(P, p, k):
+            """p seen along Z falls on the lamp of its side (x, y inside that side's lit surfaces' box)."""
+            side = P[np.sign(P[:, 0]) == np.sign(p[0])]
+            lo, hi = side.min(0), side.max(0)
+            self.assertTrue(lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1], f'{k} is not on its lamp')
+        for k in ('HeadL', 'HeadR'):
+            p, d = np.array(a[k]['pos']), np.array(a[k]['dir'])
+            self.assertLess(d[2], -0.95, f'{k} must look forward')
+            on_lamp(head, p, k)
+            self.assertTrue(0 < float(head[:, 2].min()) - p[2] < 0.06, f'{k} must stand just in front of the lenses')
+        for k in ('TailL', 'TailR'):
+            p, d = np.array(a[k]['pos']), np.array(a[k]['dir'])
+            self.assertGreater(d[2], 0.95, f'{k} must look back')
+            on_lamp(tail, p, k)
+            self.assertTrue(0 < p[2] - float(tail[:, 2].max()) < 0.06, f'{k} must stand just behind the lamp')
+        attrs = lj['attributes']['CarBodies.<id>']
+        self.assertEqual(attrs['LampHeadL'], a['HeadL']['pos'])
+        self.assertEqual(attrs['LampTailR'], a['TailR']['pos'])
+        self.assertEqual(attrs['LampHeadDir'], a['HeadR']['dir'])
+        self.assertEqual(attrs['LampTailDir'], a['TailR']['dir'])
+
+    def test_studio_snippet_files_the_lamps(self):
+        """--luau: the v3 snippet also takes "<id>_lamp_<kind>" MeshParts, files them as LampMesh_<kind> with their
+        BodyOffset and day look, and sets the anchor attributes; snippets of cars without lamps do not change."""
+        import car_import_wheels as ciw
+        lj = jload(os.path.join(CARS, f'{ID}_lamps.json'))
+        self.assertEqual(self.lay.get('lamps'), f'{ID}_lamps.json')
+        own = ciw.luau_snippet(os.path.join(CARS, f'{ID}_wheels.json'), ID)
+        self.assertIn(f'string.match(d.Name, "^{ID}_lamp_%l+$")', own)
+        for k, m in lj['meshes'].items():
+            o = m['offset']
+            self.assertIn(f'{k} = {{"{m["roblox_name"]}", Vector3.new({o[0]}, {o[1]}, {o[2]}), '
+                          f'Enum.Material.{m["day"]["material"]}, ', own)
+        for k, val in lj['attributes']['CarBodies.<id>'].items():
+            self.assertIn(f'f:SetAttribute("{k}", Vector3.new({val[0]}, {val[1]}, {val[2]}))', own)
+        self.assertIn('d:SetAttribute("BodyOffset", spec[2])', own)
+        self.assertLess(own.index('LampTailDir'), own.index('f.Parent = bodies'))
+        for other, cid in ((f'{V2}_wheels.json', V2), (f'{BADGE}_wheels.json', BADGE)):
+            sn = ciw.luau_snippet(os.path.join(CARS, other), cid)
+            self.assertNotIn('lamp', sn.lower(), f'{cid}: snippet changed')
+
+    def test_lamp_renders_for_the_owner(self):
+        """art/car_own_v3_lamps: old vs new front 3/4 by day, the headlamp close-up, rear 3/4, the night looks."""
+        need = ('front34_old_vs_new', 'headlamp_closeup', 'rear34_old_vs_new', 'night_front34', 'night_rear34')
+        for n in need:
+            path = os.path.join(LAMP_RENDERS, f'{ID}_lamps_{n}.png')
+            self.assertTrue(os.path.isfile(path), path)
+            self.assertLess(os.path.getsize(path), 1_500_000, f'{n}: keep the repo renders small')
+            im = Image.open(path)
+            self.assertGreaterEqual(im.size[0], 600, n)
 
     def test_no_foreign_mesh_or_image_data(self):
         """No vertex and no texture tile of ours comes from the Tripo / Meshy / fictional / v2 files."""

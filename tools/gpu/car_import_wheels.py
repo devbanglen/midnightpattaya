@@ -2,6 +2,7 @@
 
   python car_import_wheels.py <in.glb> <out_detect.json> [--length 4.5] [--front +z|-z|auto] [--views DIR]
   python car_import_wheels.py --luau <id>_wheels.json [id]     # prints the Studio install snippet
+      (+ the lamp meshes and lamp anchors when the wheels json names a <id>_lamps.json, e.g. red_sports_own_v3)
 
 Pure numpy + Pillow (no trimesh), so it runs locally and on the GPU box. Used by tools/blender/import_car.py, which
 does the cutting / decimation / export; this step only measures.
@@ -23,7 +24,7 @@ refined per wheel from the tyre itself:
   radius       median radial distance of the tread points under the axle (below the centre, |dz| < 0.6 r)
   x_out, x_in  outermost / innermost |x| of those tread points (the tyre's width)
 """
-import argparse, io, json, struct, sys
+import argparse, io, json, os, struct, sys
 import numpy as np
 from PIL import Image
 
@@ -162,9 +163,69 @@ def find_wheels(N):
     return wheels
 
 
+def lamp_lines(lamps, car_id):
+    """Snippet parts for a body with lamp meshes (tools/blender/car_own_v3.py <id>_lamps.json): the scan for the
+    imported "<id>_lamp_<kind>" MeshParts, and their filing as LampMesh_<Head|DRL|Tail> (BodyOffset, day look) plus
+    the lamp anchor attributes on the folder. Missing lamp meshes only warn: the anchors alone still move the game's
+    glare and beam onto the real lamps."""
+    v = lambda p: f'Vector3.new({p[0]}, {p[1]}, {p[2]})'
+    meshes = lamps['meshes']
+    scan = [
+        f'-- lamp meshes (lit by the game at night): "{car_id}_lamp_<{"|".join(meshes)}>"',
+        'local lamps = {}',
+        'for _, d in ipairs(workspace:GetDescendants()) do',
+        f'	if d:IsA("MeshPart") and string.match(d.Name, "^{car_id}_lamp_%l+$") then',
+        '		table.insert(lamps, d)',
+        '		if d.Parent ~= workspace then models[d.Parent] = true end',
+        '	end',
+        'end',
+        f'if #lamps ~= {len(meshes)} then warn("{car_id}: " .. #lamps .. " of {len(meshes)} lamp meshes in workspace") end',
+    ]
+    spec = ['local LAMPS = { -- kind = {name, BodyOffset (body metres), day material, day colour, size (studs = metres)}']
+    for kind, m in meshes.items():
+        r, g, b = m['day']['rgb']
+        spec.append(f'	{kind} = {{"{m["roblox_name"]}", {v(m["offset"])}, Enum.Material.{m["day"]["material"]}, '
+                    f'Color3.fromRGB({r}, {g}, {b}), {v(m["size"])}}},')
+    spec.append('}')
+    file = spec + [
+        'for _, d in ipairs(lamps) do',
+        '	local spec = LAMPS[string.match(d.Name, "_lamp_(%l+)$")]',
+        '	if not spec then',
+        '		warn("unknown lamp mesh " .. d.Name)',
+        '		continue',
+        '	end',
+        '	d.Anchored = true; d.CanCollide = false; d.CanQuery = false; d.CanTouch = false; d.CastShadow = false',
+        '	for _, c in ipairs(d:GetChildren()) do',
+        '		if c:IsA("SurfaceAppearance") then c:Destroy() end -- the game sets Material / Color (Neon at night)',
+        '	end',
+        '	if d.TextureID ~= "" then d.TextureID = "" end',
+        '	if (d.Size - spec[5]).Magnitude > 0.02 * spec[5].Magnitude then',
+        '		warn(d.Name .. " size " .. tostring(d.Size) .. ", expected " .. tostring(spec[5]) .. " (import scale?)")',
+        '	end',
+        '	d.Name = spec[1]',
+        '	d:SetAttribute("BodyOffset", spec[2])',
+        '	d.Material = spec[3]',
+        '	d.Color = spec[4]',
+        '	table.insert(found, d.Name .. " " .. tostring(d.Size))',
+        '	d.Parent = f',
+        'end',
+        '-- lamp anchors (body metres; directions for the right lamp, the left one mirrors X)',
+    ]
+    for k, val in lamps['attributes']['CarBodies.<id>'].items():
+        file.append(f'f:SetAttribute("{k}", {v(val)})')
+    return scan, file
+
+
 def luau_snippet(wheels_json, car_id):
     """Studio install snippet (command bar, edit mode) from import_car.py's <id>_wheels.json."""
     L = json.load(open(wheels_json))
+    lamps = None
+    if L.get('lamps'):
+        lp = os.path.join(os.path.dirname(os.path.abspath(wheels_json)), L['lamps'])
+        if os.path.isfile(lp):
+            with open(lp, encoding='utf-8') as fh:
+                lamps = json.load(fh)
+    lamp_scan, lamp_file = lamp_lines(lamps, car_id) if lamps else ([], [])
     v = lambda p: f'Vector3.new({p[0]}, {p[1]}, {p[2]})'
     rim = L['rim']
     # wheels shared with another car (e.g. red_sports_own_v3 uses the v2 wheels): also accept their own part names
@@ -186,6 +247,7 @@ def luau_snippet(wheels_json, car_id):
         '	end',
         'end',
         f'assert(#parts > 0, "no imported {car_id} MeshParts in workspace")',
+    ] + lamp_scan + [
         f'local old = bodies:FindFirstChild("{car_id}")',
         'if old then',
         '	local keep = SS:FindFirstChild("_old") or Instance.new("Folder", SS)',
@@ -209,6 +271,7 @@ def luau_snippet(wheels_json, car_id):
     ]
     for k in ('FL', 'FR', 'RL', 'RR'):
         lines.append(f'f:SetAttribute("Wheel{k}", {v(L["wheels"][k])})')
+    lines += lamp_file
     lines += ['f.Parent = bodies', 'for m in pairs(models) do if #m:GetDescendants() == 0 then m:Destroy() end end', 'print("CarBodies.' + car_id + ':", table.concat(found, ", "))']
     return chr(10).join(lines)
 

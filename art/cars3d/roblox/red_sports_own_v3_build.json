@@ -2,9 +2,9 @@
  "id": "red_sports_own_v3",
  "generator": "MIDNIGHT PATTAYA tools/blender/car_own_v3.py",
  "upload": "BLOCKED until the owner approves (own design v3; nothing uploaded or imported)",
- "script_sha256": "f6a50a2557b0f15a67e903060039b4df97a1cbb6662e27c17632861818269450",
+ "script_sha256": "fdf43c1afc59690d7b1a85291c1303d7b0aecd0258a63e0136abdd9543de531b",
  "blender": "5.1.2",
- "method": "control cage (RINGS) -> Catmull-Clark x2 with creases -> exact booleans (tubs, side intakes, exhaust pockets) -> closed parts -> own UVs and procedural texture -> own GLB",
+ "method": "control cage (RINGS) -> Catmull-Clark x2 with creases -> exact booleans (tubs, side intakes, exhaust pockets, lamp pockets) -> closed parts -> own UVs and procedural texture -> own GLB; the lit lamp surfaces are three separate untextured GLBs",
  "cage": {
   "rings": 17,
   "points_per_half_section": 12,
@@ -51,42 +51,78 @@
   ]
  },
  "tris": {
-  "body_shell": 11924,
-  "parts": 2128,
-  "total": 14052,
+  "body_shell": 12376,
+  "parts": 3136,
+  "total": 15512,
   "welded_slivers_dropped": 0
  },
- "vertices": 9809,
+ "vertices": 11383,
  "parts": [
   {
-   "name": "headlight_R",
-   "verts": 36,
-   "tris": 68,
-   "volume_m3": 0.000421
-  },
-  {
-   "name": "fang_R",
-   "verts": 20,
-   "tris": 36,
-   "volume_m3": 3.7e-05
-  },
-  {
-   "name": "headlight_L",
-   "verts": 36,
-   "tris": 68,
-   "volume_m3": 0.000421
-  },
-  {
-   "name": "fang_L",
-   "verts": 20,
-   "tris": 36,
-   "volume_m3": 3.7e-05
-  },
-  {
-   "name": "tail_blade",
+   "name": "lamp_plate_R",
    "verts": 84,
    "tris": 164,
-   "volume_m3": 0.001548
+   "volume_m3": 0.000301
+  },
+  {
+   "name": "projector_ring_R0",
+   "verts": 96,
+   "tris": 192,
+   "volume_m3": 2.3e-05
+  },
+  {
+   "name": "projector_ring_R1",
+   "verts": 96,
+   "tris": 192,
+   "volume_m3": 2.3e-05
+  },
+  {
+   "name": "fang_housing_R",
+   "verts": 20,
+   "tris": 36,
+   "volume_m3": 4.9e-05
+  },
+  {
+   "name": "lamp_plate_L",
+   "verts": 84,
+   "tris": 164,
+   "volume_m3": 0.000301
+  },
+  {
+   "name": "projector_ring_L0",
+   "verts": 96,
+   "tris": 192,
+   "volume_m3": 2.3e-05
+  },
+  {
+   "name": "projector_ring_L1",
+   "verts": 96,
+   "tris": 192,
+   "volume_m3": 2.3e-05
+  },
+  {
+   "name": "fang_housing_L",
+   "verts": 20,
+   "tris": 36,
+   "volume_m3": 4.9e-05
+  },
+  {
+   "name": "tail_housing_bar",
+   "verts": 32,
+   "tris": 60,
+   "volume_m3": 0.001406
+  },
+  {
+   "name": "tail_housing_R",
+   "verts": 40,
+   "tris": 76,
+   "volume_m3": 0.000481
+  },
+  {
+   "name": "tail_housing_L",
+   "verts": 40,
+   "tris": 76,
+   "volume_m3": 0.000481
   },
   {
    "name": "outlet_rim_R",
@@ -226,10 +262,10 @@
    ]
   },
   "mirrored_halves": true,
-  "texels_body": 396436,
+  "texels_body": 394282,
   "glass": 40563,
-  "paint": 291722,
-  "fixed": 64151
+  "paint": 290080,
+  "fixed": 63639
  },
  "tubs": {
   "front": {
@@ -252,21 +288,21 @@
  "paints": {
   "midnight blue": {
    "file": "red_sports_own_v3.glb",
-   "bytes": 529352,
-   "sha256": "d81576e1b6c51a94d64ee926478c3854305497dd10194682f512dd72391c7df7",
-   "texture_png_bytes": 45398
+   "bytes": 596776,
+   "sha256": "0c421b5c15053bf80fdcb7a6762cf917583809d011c7a2841d4924f35f426e18",
+   "texture_png_bytes": 44929
   },
   "red": {
    "file": "red_sports_own_v3_red.glb",
-   "bytes": 530248,
-   "sha256": "156aea970b42bbfc194f9617c96fa0fdad93fdf44f94bc0c9e50c711000c6dc3",
-   "texture_png_bytes": 46278
+   "bytes": 597688,
+   "sha256": "71699f5ec4580291d7402e234047f06aaad60d2ca9b8a8222dbf9cc5399e7e5d",
+   "texture_png_bytes": 45828
   },
   "white": {
    "file": "red_sports_own_v3_white.glb",
-   "bytes": 534452,
-   "sha256": "6612596fe24c2621ed093e422ef2d5e97aacd4a49ece7aa92d4243854dec7081",
-   "texture_png_bytes": 50473
+   "bytes": 601876,
+   "sha256": "b71010a9cde010142a1680577600db9335b5659be6d87782c5b4d0b984ee18b1",
+   "texture_png_bytes": 50008
   }
  },
  "outputs": {
@@ -296,6 +332,53 @@
     230
    ],
    "body": "red_sports_own_v3_white.glb"
+  }
+ },
+ "lamps": {
+  "head": {
+   "file": "red_sports_own_v3_lamp_head.glb",
+   "offset": [
+    0.0,
+    -0.227917,
+    -2.151337
+   ],
+   "size": [
+    1.397498,
+    0.0481,
+    0.037286
+   ],
+   "tris": 408,
+   "sha256": "43c948dcf2af0775e5d0944d475383fc21ed41e7c3965334aa0749ea63c9328c"
+  },
+  "drl": {
+   "file": "red_sports_own_v3_lamp_drl.glb",
+   "offset": [
+    0.0,
+    -0.25322,
+    -2.135295
+   ],
+   "size": [
+    1.626119,
+    0.152539,
+    0.071368
+   ],
+   "tris": 272,
+   "sha256": "ab1d17b288e467ae48ebf6fcefe5ee6a38ce94d39df66623a220c519e04d9793"
+  },
+  "tail": {
+   "file": "red_sports_own_v3_lamp_tail.glb",
+   "offset": [
+    0.0,
+    0.1025,
+    2.246474
+   ],
+   "size": [
+    1.922,
+    0.167,
+    0.0075
+   ],
+   "tris": 212,
+   "sha256": "b6618714494ffd281ccaccfae0db76254db30b4373d20e438168968e25d5a8e9"
   }
  }
 }

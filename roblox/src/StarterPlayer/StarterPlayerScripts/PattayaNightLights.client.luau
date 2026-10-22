@@ -12,7 +12,9 @@
 --     Neon + NightColor as before) and goes back to SmoothPlastic + DayColor by day.
 --     Street lamps, neon palette and headlight colour follow the active LightingPreset (section 1).
 --  4. Car lights at night: head and tail lights on the local driver's car and the nearest cars (local Attachments
---     with lights and glow sprites; the car models on the server are not changed).
+--     with lights and glow sprites; the car models on the server are not changed). Cars with real lamps (LampMesh_*
+--     parts + LampAnchor_* on the Body, from RaceCarServer) get their lamp meshes lit locally and small soft glare on
+--     the lamps instead of the generic flares.
 -- Works with instance streaming: parts that stream in later get the current mode as they arrive.
 -- Streaming cost (team10, 2026-10-20): the per-instance work (NightNeon / floodlight / facade / lamp / sign styling,
 -- and the restyle after a day/night or preset change) runs through ReplicatedStorage.PattayaWorkQueue: deduplicated
@@ -724,6 +726,111 @@ local function flare(att: Attachment, color: Color3, size: number)
 	bb.Parent = att
 end
 
+-- Cars whose body has real lamps (RaceCarServer: LampMesh_* parts in the car model, LampAnchor_HeadL / HeadR / TailL /
+-- TailR Attachments on its Body; docs/CAR_IMPORT_RED_SPORTS.md "Lamps"): the lamp meshes are lit (Neon, local only,
+-- given back by day), small soft glare sprites sit on the real lamps and fade out when a lamp faces away from the
+-- camera, the beam starts between the real headlamps, and the tail lamps brighten while the car brakes
+-- (DriveSeat.ThrottleFloat < 0). Every other car keeps the generic lights below, unchanged.
+local DRL_NIGHT = Color3.fromRGB(226, 236, 255) -- cool white LED light guides (DRL) next to the warm headlamp
+local TAIL_NIGHT = Color3.fromRGB(170, 14, 20) -- tail lamp mesh at night: dim red ...
+local BRAKE_COLOR = Color3.fromRGB(255, 36, 40) -- ... bright red while braking
+-- a glare = three stacked soft rounds (halo, mid, core): {size share, transparency}; sizes in studs
+local GLARE_LAYERS = {{1, 0.9}, {0.56, 0.7}, {0.26, 0.14}}
+local HEAD_GLARE, TAIL_GLARE = Vector2.new(1.15, 0.7), Vector2.new(0.8, 0.9)
+local rigs = {} -- [chassis] = {glares = {...}, meshes = {...}, tails = {...}, seat = VehicleSeat?, braking = bool}
+
+local function lampAnchors(chassis: BasePart): {[string]: Attachment}?
+	local model = chassis.Parent
+	local body = model and model:FindFirstChild("Body")
+	if not body then
+		return nil
+	end
+	local out = {}
+	for _, n in {"HeadL", "HeadR", "TailL", "TailR"} do
+		local a = body:FindFirstChild("LampAnchor_" .. n)
+		if not (a and a:IsA("Attachment")) then
+			return nil
+		end
+		out[n] = a
+	end
+	return out
+end
+
+local function glare(a: Attachment, color: Color3, size: Vector2): BillboardGui
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromScale(size.X, size.Y)
+	bb.LightInfluence = 0
+	bb.MaxDistance = CAR_LIGHT_RANGE
+	for i, l in GLARE_LAYERS do
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(0.5, 0.5)
+		f.Size = UDim2.fromScale(l[1], l[1])
+		f.BackgroundColor3 = if i == #GLARE_LAYERS then color:Lerp(Color3.new(1, 1, 1), 0.65) else color
+		f.BackgroundTransparency = l[2]
+		f.BorderSizePixel = 0
+		Instance.new("UICorner", f).CornerRadius = UDim.new(0.5, 0)
+		f.Parent = bb
+	end
+	bb.Parent = a
+	return bb
+end
+
+local function addLampLights(chassis: BasePart, mine: boolean, anchors: {[string]: Attachment}, att: any,
+	HEAD_COLOR: Color3)
+	local model = chassis.Parent :: Instance
+	local function here(a: Attachment): CFrame
+		return chassis.CFrame:ToObjectSpace(a.WorldCFrame)
+	end
+	local rig = {glares = {}, meshes = {}, tails = {}, seat = model:FindFirstChild("DriveSeat"), braking = false}
+	-- beam: one SpotLight between the real headlamps, 8 degrees down (as the generic beam)
+	local hl, hr = here(anchors.HeadL), here(anchors.HeadR)
+	local mid = (hl.Position + hr.Position) / 2
+	local head = att("PattayaHeadBeam", CFrame.new(mid + Vector3.new(0, 0, -0.3)) * CFrame.Angles(math.rad(-8), 0, 0))
+	local beam = Instance.new("SpotLight")
+	beam.Face = Enum.NormalId.Front
+	beam.Color = HEAD_COLOR
+	beam.Brightness = if mine then 3.5 else 2.5
+	beam.Range = if mine then 70 else 45
+	beam.Angle = 65
+	beam.Shadows = false
+	beam.Parent = head
+	local tl, tr = here(anchors.TailL), here(anchors.TailR)
+	local tail = att("PattayaTailGlow", CFrame.new((tl.Position + tr.Position) / 2 + Vector3.new(0, 0, 0.4)))
+	local glow = Instance.new("PointLight")
+	glow.Color = TAIL_COLOR
+	glow.Brightness = 0.5 -- faint, as the generic tail glow (road markings turned pink at 1.5)
+	glow.Range = 6
+	glow.Shadows = false
+	glow.Parent = tail
+	for _, n in {"HeadL", "HeadR", "TailL", "TailR"} do
+		local isTail = string.sub(n, 1, 4) == "Tail"
+		local a = att(if isTail then "PattayaTailFlare" else "PattayaHeadFlare", here(anchors[n]))
+		local g = {
+			bb = glare(a, if isTail then TAIL_COLOR else HEAD_COLOR, if isTail then TAIL_GLARE else HEAD_GLARE),
+			att = a, size = if isTail then TAIL_GLARE else HEAD_GLARE, tail = isTail, last = -1,
+		}
+		table.insert(rig.glares, g)
+	end
+	-- the lamp meshes: Neon in the night colours (given back in removeLights)
+	for _, m in model:GetChildren() do
+		if m:IsA("BasePart") and string.sub(m.Name, 1, 9) == "LampMesh_" then
+			local kind = string.sub(m.Name, 10)
+			table.insert(rig.meshes, {part = m, material = m.Material, color = m.Color})
+			m.Material = Enum.Material.Neon
+			if kind == "Tail" then
+				m.Color = TAIL_NIGHT
+				table.insert(rig.tails, m)
+			elseif kind == "DRL" then
+				m.Color = DRL_NIGHT
+			else
+				m.Color = HEAD_COLOR
+			end
+		end
+	end
+	rigs[chassis] = rig
+end
+
 local function addLights(chassis: BasePart, mine: boolean)
 	local half = chassis.Size.Z / 2
 	local w = math.min(chassis.Size.X / 2 - 0.8, 2.8)
@@ -736,6 +843,12 @@ local function addLights(chassis: BasePart, mine: boolean)
 		a.Parent = chassis
 		table.insert(made, a)
 		return a
+	end
+	local anchors = lampAnchors(chassis)
+	if anchors then
+		addLampLights(chassis, mine, anchors, att, HEAD_COLOR)
+		lit[chassis] = made
+		return
 	end
 	-- front is -Z (LookVector); the beam is tilted 8 degrees down
 	local head = att("PattayaHeadBeam", CFrame.new(0, 0.6, -half - 0.3) * CFrame.Angles(math.rad(-8), 0, 0))
@@ -768,7 +881,59 @@ local function removeLights(chassis: BasePart)
 		a:Destroy()
 	end
 	lit[chassis] = nil
+	local rig = rigs[chassis]
+	if rig then
+		rigs[chassis] = nil
+		for _, e in rig.meshes do
+			if e.part.Parent then
+				e.part.Material = e.material
+				e.part.Color = e.color
+			end
+		end
+	end
 end
+
+-- lamp glare: full while the camera is within about 45 degrees of a lamp's axis, gone from about 95 degrees (side-on,
+-- from behind); sizes are only written when the quantised factor changes. Tail glares grow while braking.
+RunService.Heartbeat:Connect(function()
+	if next(rigs) == nil then
+		return
+	end
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local cp = cam.CFrame.Position
+	for _, rig in rigs do
+		local seat = rig.seat
+		local braking = seat ~= nil and seat:IsA("VehicleSeat") and seat.ThrottleFloat < -0.1
+		if braking ~= rig.braking then
+			rig.braking = braking
+			for _, m in rig.tails do
+				if m.Parent then m.Color = if braking then BRAKE_COLOR else TAIL_NIGHT end
+			end
+		end
+		for _, g in rig.glares do
+			local wc = g.att.WorldCFrame
+			local to = cp - wc.Position
+			local d = to.Magnitude
+			local f = if d > 1e-3 then wc.LookVector:Dot(to / d) else 1
+			local k = math.clamp((f + 0.08) / 0.78, 0, 1)
+			k = k * k * (3 - 2 * k)
+			if g.tail and braking then
+				k *= 1.45
+			end
+			local q = math.floor(k * 20 + 0.5) / 20
+			if q ~= g.last then
+				g.last = q
+				g.bb.Enabled = q > 0
+				if q > 0 then
+					g.bb.Size = UDim2.fromScale(g.size.X * q, g.size.Y * q)
+				end
+			end
+		end
+	end
+end)
 
 local carAcc = 1
 RunService.Heartbeat:Connect(function(dt)

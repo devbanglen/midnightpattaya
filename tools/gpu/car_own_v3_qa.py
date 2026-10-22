@@ -10,7 +10,7 @@
   python tools/gpu/car_own_v3_qa.py shells <cars_dir> [--id red_sports_own_v3]
       closed-shell check of the body GLB (welded by position): components, open edges, duplicate directed edges,
       outward winding; numbers into <id>_qa.json (key "shells")
-  python tools/gpu/car_own_v3_qa.py grid <out.png> <view1,view2,...> "<render_dir>|<id>|<tag>|<label>" ...
+  python tools/gpu/car_own_v3_qa.py grid <out.png> <view1,view2,...> "<render_dir>|<id>|<tag>|<label>" ... [--tile 480]
       QA sheet from renders (one row per view, one column per car); same as car_original_v2.py grid
 
 Frame N: X right, Y up, front -Z, metres, body centred on its bounding box (the wheel layout's frame).
@@ -310,7 +310,8 @@ def main(argv):
     elif argv[0] == 'shells':
         update_qa_json(argv[1], cid, 'shells', shell_check(*load_body(argv[1], cid)))
     elif argv[0] == 'grid':
-        print(grid(argv[1], argv[2].split(','), [tuple(c.split('|')) for c in argv[3:]]))
+        cols = [c for c in argv[3:] if '|' in c]
+        print(grid(argv[1], argv[2].split(','), [tuple(c.split('|')) for c in cols], int(opt('--tile', 480))))
     else:
         sys.exit(__doc__)
 

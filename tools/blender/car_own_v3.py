@@ -6,10 +6,12 @@ byte-identical GLBs (own GLB and PNG writers, no timestamps, fixed operator sett
 
   blender -b --factory-startup --python-exit-code 1 -P tools/blender/car_own_v3.py -- build <out_dir> [--v2-dir <dir>]
   <bpy venv>/python tools/blender/bpy_local.py tools/blender/car_own_v3.py -- build <out_dir>
-      -> <id>.glb (midnight blue), <id>_red.glb, <id>_white.glb, <id>_wheels.json, <id>_build.json, <id>_emblem.png
-  ... -- fbx <dir>                                       one FBX per body GLB (+ <id>_fbx.json)
+      -> <id>.glb (midnight blue), <id>_red.glb, <id>_white.glb, <id>_wheels.json, <id>_build.json, <id>_emblem.png,
+         the lamp meshes <id>_lamp_head.glb, <id>_lamp_drl.glb, <id>_lamp_tail.glb and <id>_lamps.json
+  ... -- fbx <dir>                                       one FBX per body GLB and per lamp GLB (+ <id>_fbx.json)
   ... -- render <car_dir> <id> <out_dir> <tag> [--views views.json] [--engine workbench|eevee|cycles] [--res 900]
-                [--wheels <wheels.json>] [--steer <deg>]   QA renders of any built car (body + its 4 wheel GLBs)
+                [--wheels <wheels.json>] [--steer <deg>] [--lamps auto|none|<lamps.json>] [--night]
+                QA renders of any built car (body + its 4 wheel GLBs + its lamp meshes; --night: night set)
   ... -- preview <out_dir>                                build + quick Workbench views (design iteration)
   tools/blender/run_own_v3.sh does build / render on the GPU box through gslot.sh.
 
@@ -23,12 +25,16 @@ Roblox centres a MeshPart on it, and the red_sports wheel layout is given in tha
      flat underside strips are merged (dissolve) to save triangles;
   3. centring on the bounding box (length 4.50145 m = red_sports, so the game's 16-stud scaling is unchanged),
      then exact booleans at the red_sports wheel layout: four wheel tubs (room for full steering lock at the front),
-     two side intakes ahead of the rear wheels, two exhaust pockets. Every cut stays a closed shell;
-  4. closed detail parts (lamp bars, LED fangs, stepped gills, mirrors, tail light blade, outlet rims, diffuser fins,
-     splitter, MP emblems): each part is its own closed solid, oriented outward, sunk into the body;
+     two side intakes ahead of the rear wheels, two exhaust pockets, two lamp pockets in the nose face. Every cut
+     stays a closed shell;
+  4. closed detail parts (lamp back plates and projector rings in two lamp pockets cut into the nose, fang housings,
+     the tail light housing, stepped gills, mirrors, outlet rims, diffuser fins, splitter, MP emblems): each part is
+     its own closed solid, oriented outward, sunk into the body. The surfaces that give light (projector lenses, LED
+     modules, DRL light guides, fangs, tail light bar and end lamps) are three separate meshes (section "the lamps");
   5. smooth-by-angle normals (32 degrees: sharp only at the creases and part edges), own UVs (box projection, the left
      and right halves share texels) and a procedural 1024^2 texture: paint, dark glass, black trim, panel gaps, vents,
-     plus a decal strip for the lamp, blade, gill and emblem graphics. One material, one texture per MeshPart;
+     plus a decal strip for the lamp back plate, the fang and tail housings, the gills and the emblem. One material,
+     one texture per MeshPart (the lamp meshes: one untextured material each, coloured in Roblox);
   6. own GLB writer (generator = this script).
 The wheels are the v2 turbine wheels, used as they are (red_sports_original_v2_wheel_*.glb).
 """
@@ -437,11 +443,12 @@ def cutter_meshes():
     return out
 
 
-def cut_body(body):
+def cut_body(body, extra=()):
+    """Exact boolean difference of the body and every cutter (cutter_meshes() + extra [(name, material, V, F)])."""
     coll = bpy.data.collections.new('cutters')
     bpy.context.scene.collection.children.link(coll)
     obs = []
-    for name, mat, V, F in cutter_meshes():
+    for name, mat, V, F in list(cutter_meshes()) + list(extra):
         ob = new_object(name, V, F, mat_names=(mat,))
         bpy.context.scene.collection.objects.unlink(ob)
         coll.objects.link(ob)
@@ -460,7 +467,7 @@ def cut_body(body):
     return out
 
 
-TAG = {'skin': 0, 'tub': 1, 'scoop': 2, 'outlet': 3}
+TAG = {'skin': 0, 'tub': 1, 'scoop': 2, 'outlet': 3, 'pocket': 4}
 
 
 def body_arrays(ob):
@@ -623,54 +630,247 @@ def surface_strip(bvh, pts, half_w, direction, across=(0, 1, 0), samples=None):
     return out
 
 
-def lamp_parts(parts, bvh):
-    """Straight lamp bars along the nose top edge and the vertical LED fangs at the corners (v2 language)."""
+# ------------------------------------------------------------------------------------------------ the lamps --
+# Lamp polish (team23/car-lamps, 2026-10-22; owner after the first drive: "the headlights still look like
+# I-don't-know-what"). v3's lamp language stays (straight lamp bars, LED fangs, the full-width tail light), with real
+# lamp units instead of thin painted strips:
+#   headlamp  a pocket cut into the nose face (exact boolean, like the wheel tubs): black walls, a smoked back plate
+#             with reflector ribs and the teal accent line, two projector modules (chrome reflector ring + lens), a
+#             slim LED module, a DRL light guide along the top edge, a chamfered outer tip; the LED fang below the tip;
+#   tail      a smoked housing on the Kamm face (bar + two end blocks with a chamfered inner foot) holding a light bar
+#             and two solid end lamps.
+# The surfaces that give light are NOT in the body: they are three separate, untextured meshes (one material, colour
+# set in Roblox) that the game switches to Neon:
+#   head   projector lenses + LED modules      lit at night
+#   drl    light guides + fangs                daytime running lights (Neon by day, lit at night)
+#   tail   light bar + end lamps               dim red at night, bright while braking
+# Each is written centred on its own bounding box (Roblox centres a MeshPart on it) with that centre in <id>_lamps.json,
+# together with the lamp anchors (glare / beam positions and directions). Paint does not change them.
+# Own design: no lamp signature of a real brand (checked list in the doc, "Lamps").
+HEAD = {'x_in': 0.335, 'x_out': 0.835, 'y_top': -0.170, 'y_bot': -0.260, 'x_chamfer': 0.735, 'y_tip': -0.214,
+        'depth': 0.025, 'stations': 21}
+# projector modules (x of the centre, distance below the pocket's top edge along the face, ring outer / inner radius)
+PROJECTORS = ((0.405, 0.055, 0.031, 0.0235), (0.525, 0.055, 0.031, 0.0235))
+LED_MODULE = {'x': (0.600, 0.700), 'd': (0.044, 0.066)}
+LIGHT_GUIDE = {'x': (0.355, 0.815), 'd': (0.005, 0.019)}
+LENS_FRONT, GUIDE_FRONT, RING_TOP = 0.0105, 0.0095, 0.009       # metres below the nose surface
+FANG = {'top': (0.888, -0.248), 'bottom': (0.874, -0.335)}
+# tail (x, y on the flat Kamm face, right side; the left side mirrors): housings and lamps stand proud of the face
+TAIL_BAR = {'x': 0.836, 'y': (0.150, 0.1995), 'front': 0.007}
+TAIL_BLOCK = {'outline': ((0.83, 0.200), (0.83, 0.060), (0.885, 0.005), (0.975, 0.005), (0.975, 0.200)),
+              'front': 0.008}
+TAIL_LIGHT_BAR = {'x': 0.850, 'y': (0.1655, 0.1840), 'front': 0.0105}
+TAIL_LAMP = {'inset': 0.014, 'front': 0.0115}
+LAMP_TOE = math.radians(8.0)          # anchor directions: straight ahead / behind, turned 8 degrees outward
+ANCHOR_OUT = 0.04                     # anchors stand this far in front of the lit surface (glare sprites stay clear)
+LAMP_KINDS = ('head', 'drl', 'tail')
+# Roblox look per lamp mesh (set by the Studio snippet; the client switches head / drl / tail to Neon at night)
+LAMP_LOOK = {
+    'head': {'roblox': 'LampMesh_Head', 'day': ('SmoothPlastic', (214, 220, 230)),
+             'role': 'projector lenses and LED modules: lit at night'},
+    'drl': {'roblox': 'LampMesh_DRL', 'day': ('Neon', (196, 210, 228)),
+            'role': 'DRL light guides and fangs: daytime running lights (Neon by day), lit at night'},
+    'tail': {'roblox': 'LampMesh_Tail', 'day': ('SmoothPlastic', (128, 12, 20)),
+             'role': 'tail light bar and end lamps: dim red at night, bright while braking'},
+}
+
+
+def sweep(rings):
+    """Closed solid through rings (each m points in the same order, open path, flat end caps): V, F (outward)."""
+    R = np.asarray(rings, float)
+    L, m = R.shape[:2]
+    V = R.reshape(-1, 3)
+    F = [(i * m + k, i * m + (k + 1) % m, (i + 1) * m + (k + 1) % m, (i + 1) * m + k)
+         for i in range(L - 1) for k in range(m)]
+    F += [tuple(range(m - 1, -1, -1)), tuple((L - 1) * m + k for k in range(m))]
+    return [tuple(map(float, v)) for v in V], fix_winding(V, F)
+
+
+def head_frames(bvh, s, xs):
+    """Headlamp frames on the nose face at the given |x| (s = +1 right, -1 left): the pocket's top and bottom edge
+    points (rays along +Z), the face direction v (top -> bottom, unit), the outward normal n (unit, square to v)."""
+    h = HEAD
+    out = []
+    for x in xs:
+        yb = h['y_bot'] if x <= h['x_chamfer'] + 1e-9 else float(
+            np.interp(x, [h['x_chamfer'], h['x_out']], [h['y_bot'], h['y_tip']]))
+        top, nt = ray_hit(bvh, (s * x, h['y_top'], -3.0), (0, 0, 1))
+        bot, nb = ray_hit(bvh, (s * x, yb, -3.0), (0, 0, 1))
+        v = bot - top
+        hgt = float(np.linalg.norm(v))
+        v = v / hgt
+        n = nt + nb
+        n = n - v * (n @ v)
+        n = n / np.linalg.norm(n)
+        out.append({'x': float(x), 'top': top, 'bot': bot, 'v': v, 'n': n, 'h': hgt})
+    return out
+
+
+def _face_point(f, d):
+    """Point d metres below the pocket's top edge along the face, at the frame f."""
+    return f['top'] + f['v'] * d
+
+
+def disc_solid(c, u, v, n, r, z0, z1, dome, seg=24):
+    """Closed lens: a cylinder about n through c (z0 .. z1 along n) with a domed front (centre raised by dome)."""
+    ang = [2 * math.pi * k / seg for k in range(seg)]
+    rim = [c + (u * math.cos(a) + v * math.sin(a)) * r for a in ang]
+    V = [p + n * z0 for p in rim] + [p + n * z1 for p in rim] + [c + n * z0, c + n * (z1 + dome)]
+    b0, f0, cb, cf = 0, seg, 2 * seg, 2 * seg + 1
+    F = [(b0 + (k + 1) % seg, b0 + k, cb) for k in range(seg)]
+    F += [(b0 + k, b0 + (k + 1) % seg, f0 + (k + 1) % seg, f0 + k) for k in range(seg)]
+    F += [(f0 + k, f0 + (k + 1) % seg, cf) for k in range(seg)]
+    return [tuple(map(float, p)) for p in V], fix_winding(V, F)
+
+
+def ring_solid(c, u, v, n, r_out, r_in, z0, z1, seg=24):
+    """Closed annulus (reflector ring) about n through c, z0 .. z1 along n."""
+    rings = []
+    for k in range(seg):
+        a = 2 * math.pi * k / seg
+        d = u * math.cos(a) + v * math.sin(a)
+        rings.append([c + d * r_out + n * z1, c + d * r_in + n * z1, c + d * r_in + n * z0, c + d * r_out + n * z0])
+    return rings
+
+
+def solid_uvs(F, name):
+    c = flat_uv(name)
+    return [[c] * len(f) for f in F]
+
+
+def head_lamp_parts(parts, emit, bvh):
+    """Both headlamps: body parts (back plate, reflector rings, fang housing) into `parts`, the lit surfaces into
+    emit['head'] / emit['drl']; returns the pocket cutters [(name, V, F)] and the anchors {name: (pos, dir)}."""
+    h = HEAD
+    D = h['depth']
+    cutters, anchors = [], {}
+    xs = np.linspace(h['x_in'], h['x_out'], h['stations'])
     for s in (1, -1):
         tag = 'L' if s < 0 else 'R'
-        xs = np.linspace(0.36, 0.80, 9)
-        guide = np.stack([s * xs, np.full(9, -0.212), np.full(9, -2.3)], 1)
-        st = surface_strip(bvh, guide, 0.019, (0, -0.25, 1), across=(0, 1, 0))
-        rings = [ring_box(a, b, n, 0.006, 0.02) for a, b, n in st]
-        tube(parts, rings, strip_uv('lamp', len(rings)), f'headlight_{tag}')
-        guide = np.array([[s * 0.888, -0.248, -2.3], [s * 0.874, -0.335, -2.3]])
-        d = (-0.55 * s, 0.0, 1.0)
-        st = surface_strip(bvh, guide, 0.009, d, across=(1, 0, 0), samples=5)
-        rings = [ring_box(a, b, n, 0.006, 0.02) for a, b, n in st]
-        tube(parts, rings, strip_uv('fang', len(rings)), f'fang_{tag}')
+        fr = head_frames(bvh, s, xs)
+        # the pocket: from 5 cm outside the face to D below it, square walls
+        rings = [[f['top'] + f['n'] * 0.05, f['bot'] + f['n'] * 0.05, f['bot'] - f['n'] * D, f['top'] - f['n'] * D]
+                 for f in fr]
+        V, F = sweep(rings)
+        cutters.append((f'lamp_pocket_{tag}', V, F))
+        # back plate on the pocket floor (1.2 mm clear of the walls): the bezel decal on its front face
+        px = np.linspace(h['x_in'] + 0.0012, h['x_out'] - 0.0012, h['stations'])
+        pf = head_frames(bvh, s, px)
+        rings = []
+        for f in pf:
+            a, b = f['top'] + f['v'] * 0.0012, f['bot'] - f['v'] * 0.0012
+            rings.append([a - f['n'] * (D - 0.003), b - f['n'] * (D - 0.003), b - f['n'] * (D + 0.004),
+                          a - f['n'] * (D + 0.004)])
+        tube(parts, rings, strip_uv('lamp', len(rings), wall='black'), f'lamp_plate_{tag}', cap='black')
+        # projector modules: chrome reflector ring (body) + lens (head mesh)
+        for k, (x, d, r_out, r_in) in enumerate(PROJECTORS):
+            f = head_frames(bvh, s, [x])[0]
+            c = _face_point(f, d)
+            n, v = f['n'], f['v']
+            u = np.cross(v, n)
+            u /= np.linalg.norm(u)
+            tube(parts, ring_solid(c, u, v, n, r_out, r_in, -(D + 0.002), -RING_TOP), solid_uv('metal'),
+                 f'projector_ring_{tag}{k}', closed=True)
+            V, F = disc_solid(c, u, v, n, r_in - 0.0004, -(D + 0.001), -LENS_FRONT - 0.002, 0.002)
+            emit['head'].add(V, F, solid_uvs(F, 'black'), f'lens_{tag}{k}')
+        # LED module (head mesh): a slim block standing on the plate
+        f0, f1 = head_frames(bvh, s, LED_MODULE['x'])
+        d0, d1 = LED_MODULE['d']
+        rings = [[_face_point(f, d0) - f['n'] * LENS_FRONT, _face_point(f, d1) - f['n'] * LENS_FRONT,
+                  _face_point(f, d1) - f['n'] * (D - 0.001), _face_point(f, d0) - f['n'] * (D - 0.001)]
+                 for f in (f0, f1)]
+        V, F = sweep(rings)
+        emit['head'].add(V, F, solid_uvs(F, 'black'), f'led_module_{tag}')
+        # DRL light guide along the top edge (drl mesh)
+        gx = np.linspace(LIGHT_GUIDE['x'][0], LIGHT_GUIDE['x'][1], 13)
+        d0, d1 = LIGHT_GUIDE['d']
+        rings = [[_face_point(f, d0) - f['n'] * GUIDE_FRONT, _face_point(f, d1) - f['n'] * GUIDE_FRONT,
+                  _face_point(f, d1) - f['n'] * (D - 0.001), _face_point(f, d0) - f['n'] * (D - 0.001)]
+                 for f in head_frames(bvh, s, gx)]
+        V, F = sweep(rings)
+        emit['drl'].add(V, F, solid_uvs(F, 'black'), f'light_guide_{tag}')
+        # the fang: dark housing strip (body) + LED (drl mesh) standing 3 mm proud of it
+        guide = np.array([[s * FANG['top'][0], FANG['top'][1], -2.3], [s * FANG['bottom'][0], FANG['bottom'][1], -2.3]])
+        dirn = (-0.55 * s, 0.0, 1.0)
+        st = surface_strip(bvh, guide, 0.013, dirn, across=(1, 0, 0), samples=5)
+        rings = [ring_box(a, b, n, 0.004, 0.02) for a, b, n in st]
+        tube(parts, rings, strip_uv('fang', len(rings), wall='black'), f'fang_housing_{tag}', cap='black')
+        st = surface_strip(bvh, guide[[0, 1]] + np.array([[0, -0.006, 0], [0, 0.006, 0]]), 0.0075, dirn,
+                           across=(1, 0, 0), samples=5)
+        rings = [ring_box(a, b, n, 0.007, 0.006) for a, b, n in st]
+        V, F = sweep(rings)
+        emit['drl'].add(V, F, solid_uvs(F, 'black'), f'fang_{tag}')
+        # anchor: between the two projectors, ANCHOR_OUT in front of the lenses, looking ahead (turned outward)
+        fa = head_frames(bvh, s, [(PROJECTORS[0][0] + PROJECTORS[1][0]) / 2])[0]
+        pos = _face_point(fa, PROJECTORS[0][1]) + fa['n'] * (ANCHOR_OUT - LENS_FRONT)
+        anchors['Head' + tag] = (pos, np.array((s * math.sin(LAMP_TOE), 0.0, -math.cos(LAMP_TOE))))
+    return cutters, anchors
 
 
-def blade_part(parts):
-    """Full-width tail light blade on the flat Kamm face, ends turned down."""
-    path = np.array([(-0.92, 0.02), (-0.92, 0.175), (0.92, 0.175), (0.92, 0.02)])
-    hw, front, back = 0.02, TAIL_Z + 0.008, TAIL_Z - 0.01
-    dense = [path[0]]
-    for a, b in zip(path[:-1], path[1:]):
-        k = max(1, int(math.ceil(np.linalg.norm(b - a) / 0.12)))
-        dense += [a + (b - a) * (i / k) for i in range(1, k + 1)]
-    dense = np.array(dense)
-    L = len(dense)
-    seg = np.diff(dense, axis=0)
-    seg /= np.linalg.norm(seg, axis=1, keepdims=True)
-    tang = np.zeros_like(dense)
-    tang[0], tang[-1] = seg[0], seg[-1]
-    tang[1:-1] = seg[:-1] + seg[1:]
-    tang /= np.linalg.norm(tang, axis=1, keepdims=True)
-    perp = np.stack([-tang[:, 1], tang[:, 0]], 1)
-    miter = np.ones(L)
-    miter[1:-1] = 1 / np.maximum(0.5, (perp[1:-1] * np.stack([-seg[:-1, 1], seg[:-1, 0]], 1)).sum(1))
-    rings = []
-    for p, q, mt in zip(dense, perp, miter):
-        a, b = p + q * hw * mt, p - q * hw * mt
-        rings.append([(a[0], a[1], front), (b[0], b[1], front), (b[0], b[1], back), (a[0], a[1], back)])
-    arc = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(dense, axis=0), axis=1))])
-    u = arc / arc[-1]
-    w = flat_uv('wall')
+def inset_convex(pts, d):
+    """Convex polygon (counter-clockwise) with every edge moved inward by d."""
+    P = np.asarray(pts, float)
+    n = len(P)
+    lines = []
+    for i in range(n):
+        a, b = P[i], P[(i + 1) % n]
+        t = (b - a) / np.linalg.norm(b - a)
+        nin = np.array((-t[1], t[0]))                       # left of the edge = inside for a CCW polygon
+        lines.append((a + nin * d, t))
+    out = []
+    for i in range(n):
+        (p0, t0), (p1, t1) = lines[i - 1], lines[i]
+        A = np.array([[t0[0], -t1[0]], [t0[1], -t1[1]]])
+        k = np.linalg.solve(A, p1 - p0)
+        out.append(p0 + t0 * k[0])
+    return np.array(out)
 
-    def fuv(i, k):
-        if k == 0:
-            return list(decal_uv('tail', np.array([u[i], u[i], u[i + 1], u[i + 1]]), np.array([0, 1, 1, 0])))
-        return [w] * 4
-    tube(parts, rings, fuv, 'tail_blade')
+
+def tail_prism(profile, z_back, z_front, s, decal, rect):
+    """Prism on the Kamm face: profile (x, y) of the right side (s = -1 mirrors it), z_back .. z_front above TAIL_Z.
+    The front cap gets the decal (planar map of rect = x0, y0, x1, y1), the rest black."""
+    prof = np.array([(s * x, y) for x, y in profile])
+    prof = prof[::-1] if _area2(prof) < 0 else prof
+    V, F = prism(prof, TAIL_Z + z_back, TAIL_Z + z_front, lambda u, v, a: (u, v, a))
+    P = np.asarray(V)
+    x0, y0, x1, y1 = rect
+    U = []
+    for f in F:
+        q = P[list(f)]
+        if decal and np.all(np.abs(q[:, 2] - (TAIL_Z + z_front)) < 1e-9):
+            U.append(list(decal_uv(decal, (np.abs(q[:, 0]) - x0) / (x1 - x0), (y1 - q[:, 1]) / (y1 - y0))))
+        else:
+            U.append([flat_uv('black')] * len(f))
+    return V, F, U
+
+
+def tail_lamp_parts(parts, emit):
+    """Tail: smoked housing (bar + two end blocks) into `parts`, the light bar and the end lamps into emit['tail'];
+    returns the anchors {name: (pos, dir)}."""
+    anchors = {}
+    bx, (by0, by1) = TAIL_BAR['x'], TAIL_BAR['y']
+    bar = rounded_polygon([(-bx, by0), (bx, by0), (bx, by1), (-bx, by1)], 0.006, 3)
+    V, F, U = tail_prism(bar, -0.010, TAIL_BAR['front'], 1, 'tail', (0.0, by0, bx, by1))
+    parts.add(V, F, U, 'tail_housing_bar')
+    lx, (ly0, ly1) = TAIL_LIGHT_BAR['x'], TAIL_LIGHT_BAR['y']
+    light = rounded_polygon([(-lx, ly0), (lx, ly0), (lx, ly1), (-lx, ly1)], 0.004, 3)
+    V, F, _ = tail_prism(light, 0.004, TAIL_LIGHT_BAR['front'], 1, None, (0, 0, 1, 1))
+    emit['tail'].add(V, F, solid_uvs(F, 'black'), 'tail_light_bar')
+    blk = np.array(TAIL_BLOCK['outline'], float)
+    blk = blk[::-1] if _area2(blk) < 0 else blk
+    lamp = inset_convex(blk, TAIL_LAMP['inset'])
+    x0, y0 = blk.min(0)
+    x1, y1 = blk.max(0)
+    for s in (1, -1):
+        tag = 'L' if s < 0 else 'R'
+        V, F, U = tail_prism(rounded_polygon(blk, 0.008, 3), -0.010, TAIL_BLOCK['front'], s, 'tail', (x0, y0, x1, y1))
+        parts.add(V, F, U, f'tail_housing_{tag}')
+        V, F, _ = tail_prism(rounded_polygon(lamp, 0.005, 3), 0.004, TAIL_LAMP['front'], s, None, (0, 0, 1, 1))
+        emit['tail'].add(V, F, solid_uvs(F, 'black'), f'tail_lamp_{tag}')
+        c = lamp.mean(0)
+        pos = np.array((s * c[0], c[1], TAIL_Z + TAIL_LAMP['front'] + ANCHOR_OUT))
+        anchors['Tail' + tag] = (pos, np.array((s * math.sin(LAMP_TOE), 0.0, math.cos(LAMP_TOE))))
+    return anchors
 
 
 def outlet_rims(parts):
@@ -832,11 +1032,14 @@ def emblem_part(parts, bvh, centre, direction, size, name, nb=32, rings=2):
 
 
 def build_parts(P, T):
+    """Detail parts on the subdivided body (raw frame). Returns the body parts, the lamp meshes {kind: Parts}, the
+    lamp pocket cutters [(name, V, F)] and the lamp anchors {name: (pos, dir)}."""
     from mathutils.bvhtree import BVHTree
     bvh = BVHTree.FromPolygons([tuple(map(float, p)) for p in P], [tuple(map(int, t)) for t in T])
     parts = Parts()
-    lamp_parts(parts, bvh)
-    blade_part(parts)
+    emit = {k: Parts() for k in LAMP_KINDS}
+    pockets, anchors = head_lamp_parts(parts, emit, bvh)
+    anchors.update(tail_lamp_parts(parts, emit))
     outlet_rims(parts)
     gill_parts(parts, bvh)
     splitter_part(parts)
@@ -844,7 +1047,7 @@ def build_parts(P, T):
     mirror_parts(parts)
     emblem_part(parts, bvh, (0.0, -0.212, -2.3), (0, -0.25, 1), 0.105, 'emblem_nose')
     emblem_part(parts, bvh, (0.0, 0.06, TAIL_Z + 1.0), (0, 0, -1), 0.12, 'emblem_tail')
-    return parts
+    return parts, emit, pockets, anchors
 
 
 # ------------------------------------------------------------------------------------------------ normals --
@@ -960,7 +1163,7 @@ def atlas_layout(P, T, proj, tag):
 
 def skin_uvs(P, T, proj, tag, place, d):
     uv = np.zeros((len(T), 3, 2))
-    flat = {TAG['tub']: 'dark', TAG['scoop']: 'dark', TAG['outlet']: 'dark'}
+    flat = {TAG['tub']: 'dark', TAG['scoop']: 'dark', TAG['outlet']: 'dark', TAG['pocket']: 'black'}
     for t, name in flat.items():
         uv[tag == t] = flat_uv(name)
     for kind, (lo, org) in place.items():
@@ -1082,7 +1285,7 @@ def classify(P, N, S, C, tg):
     gapline(rlid & (ax < 0.50), z - 1.85)
     gapline(tail, y + 0.10)
     # nose: grille mouth with slats; black lip below it
-    mouth = nose & (ax < 0.56) & (y > -0.345) & (y < -0.262)
+    mouth = nose & (ax < 0.56) & (y > -0.345) & (y < -0.280)          # (2 cm of paint below the lamp pockets)
     fixed(mouth, 'grille')
     fixed(mouth & (((y + 0.345) % 0.0205) < 0.006), 'slat')
     fixed(nose & (y < -0.355), 'sill')
@@ -1138,35 +1341,32 @@ def draw_decals(img, paint):
         ys, xs = np.mgrid[y0:y1, x0:x1]
         return (slice(y0, y1), slice(x0, x1)), (xs + 0.5 - x0) / (x1 - x0), (ys + 0.5 - y0) / (y1 - y0)
     pr = np.asarray(paint, float)
-    # lamp bar: smoked housing, LED line on top, two square projectors, teal accent line at the bottom (v2 graphic)
+    # headlamp back plate (the pocket floor; v = 0 at the top edge, 1 at the bottom): smoked dark chrome, lighter
+    # towards the top, a fine reflector rib every 8 px, a dark gap and the teal accent line along the bottom (v2 / v3
+    # language). The lenses, LED modules and the DRL light guide are separate lamp meshes, not painted here.
     sl, u, v = region('lamp')
-    W = DECALS['lamp'][2] - DECALS['lamp'][0]
     H_ = DECALS['lamp'][3] - DECALS['lamp'][1]
     c = np.zeros(u.shape + (3,))
-    c[:] = (22, 25, 32)
-    c += (np.array((38, 40, 48)) * (1 - v)[..., None]) * 0.6
-    led = np.exp(-((v - 0.14) / 0.055) ** 2)
-    c = c * (1 - led[..., None]) + np.array((246, 250, 255)) * led[..., None]
-    for uc in (0.30, 0.52):
-        du = np.abs(u - uc) * W / H_
-        dv = np.abs(v - 0.58)
-        sq = np.maximum(du, dv)
-        c[(sq < 0.24) & (sq > 0.17)] = (150, 156, 166)
-        c[sq <= 0.17] = (60, 66, 80)
-        c[np.hypot(du, dv) < 0.07] = (228, 236, 250)
-    c[v > 0.88] = (0, 168, 170)
+    c[:] = (13, 15, 20)
+    c += np.array((30, 33, 40.0)) * ((1 - v) ** 2)[..., None]
+    rib = ((v * H_) % 8.0) < 1.5
+    c[rib & (v < 0.84)] += (8, 9, 11)
+    c[(v >= 0.84) & (v < 0.89)] = (7, 7, 9)
+    c[v >= 0.89] = COL['teal']
     img[sl] = c
-    # fang: white LED with a grey frame
+    # fang housing: dark frame with a lighter edge (the LED itself is the drl lamp mesh)
     sl, u, v = region('fang')
-    core = smoothstep(0.2, 0.32, v) * (1 - smoothstep(0.68, 0.8, v))
-    img[sl] = np.array((70, 74, 82.0)) * (1 - core[..., None]) + np.array((250, 252, 255.0)) * core[..., None]
-    # tail blade: dark red lens, bright red core line, dark edges
-    sl, u, v = region('tail')
+    edge = (v < 0.16) | (v > 0.84)
     c = np.zeros(u.shape + (3,))
-    c[:] = (60, 6, 10)
-    core = np.exp(-((v - 0.5) / 0.16) ** 2)
-    c = c * (1 - core[..., None]) + np.array((255, 40, 44)) * core[..., None]
-    c[(v < 0.17) | (v > 0.83)] = (24, 22, 24)
+    c[:] = (24, 26, 30)
+    c[edge] = (58, 61, 68)
+    img[sl] = c
+    # tail housing: smoked deep red, a little lighter at the top, dark rim (the light bar and the end lamps are the
+    # tail lamp mesh)
+    sl, u, v = region('tail')
+    c = np.array((60, 9, 15.0)) * (1 - v)[..., None] + np.array((30, 4, 8.0)) * v[..., None]
+    c = np.broadcast_to(c, u.shape + (3,)).copy()
+    c[(v < 0.06) | (v > 0.94)] = (18, 16, 18)
     img[sl] = c
     # gill: black slot with a teal top edge
     sl, u, v = region('gill')
@@ -1255,13 +1455,14 @@ def png_bytes(img):
             + chunk(b'IDAT', zlib.compress(raw, 9)) + chunk(b'IEND', b''))
 
 
-def glb_write(path, name, pos, nrm, uv, idx, png, mat_name):
-    """One node, one mesh, one primitive, one material with an embedded PNG base colour."""
+def glb_write(path, name, pos, nrm, uv, idx, png, mat_name, base_rgb=None):
+    """One node, one mesh, one primitive, one material with an embedded PNG base colour; png None = no texture, the
+    material is base_rgb (linear) only (the lamp meshes: their colour is set in Roblox)."""
     pos = np.ascontiguousarray(pos, np.float32)
     nrm = np.ascontiguousarray(nrm, np.float32)
     uv = np.ascontiguousarray(uv, np.float32)
     ib = np.ascontiguousarray(idx, np.uint32).ravel()
-    parts = [pos.tobytes(), nrm.tobytes(), uv.tobytes(), ib.tobytes(), png]
+    parts = [pos.tobytes(), nrm.tobytes(), uv.tobytes(), ib.tobytes()] + ([png] if png is not None else [])
     views, binc = [], bytearray()
     for i, p in enumerate(parts):
         binc += b'\0' * ((-len(binc)) % 4)
@@ -1288,6 +1489,12 @@ def glb_write(path, name, pos, nrm, uv, idx, png, mat_name):
           'textures': [{'sampler': 0, 'source': 0}], 'samplers': [{'magFilter': 9729, 'minFilter': 9987}],
           'images': [{'name': mat_name + '_basecolor', 'mimeType': 'image/png', 'bufferView': 4}],
           'bufferViews': views, 'buffers': [{'byteLength': len(binc)}]}
+    if png is None:
+        for k in ('textures', 'samplers', 'images'):
+            del js[k]
+        js['materials'] = [{'name': mat_name, 'pbrMetallicRoughness': {
+            'baseColorFactor': [round(float(c), 6) for c in base_rgb] + [1.0], 'metallicFactor': 0.0,
+            'roughnessFactor': 0.5}}]
     jb = json.dumps(js, separators=(',', ':'), sort_keys=True).encode()
     jb += b' ' * ((-len(jb)) % 4)
     with open(path, 'wb') as f:
@@ -1340,7 +1547,7 @@ def build_geometry():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sub = subdivided_body()
     P0, T0, _, _ = body_arrays(sub)
-    parts = build_parts(P0, T0)
+    parts, emit, pockets, anchors = build_parts(P0, T0)
     pP, pT, pUV, pG = parts.arrays()
     allp = np.concatenate([P0, pP])
     lo, hi = allp.min(0), allp.max(0)
@@ -1349,26 +1556,28 @@ def build_geometry():
     zscale = LENGTH / float(hi[2] - lo[2])
     raw = {'bbox_min': [round(float(v), 5) for v in lo], 'bbox_max': [round(float(v), 5) for v in hi],
            'centre_shift_m': [round(float(v), 5) for v in centre], 'z_scale': round(zscale, 6)}
+
+    def tf(X):                                      # raw frame -> body frame (the parts, lamps and cutters alike)
+        return (np.asarray(X, float) - centre) * (1.0, 1.0, zscale)
     transform_object(sub, centre, zscale)
-    pP = (pP - centre) * (1.0, 1.0, zscale)
-    body = cut_body(sub)
+    pP = tf(pP)
+    lamps = {}
+    for kind, e in emit.items():
+        eP, eT, eUV, eG = e.arrays()
+        lamps[kind] = {'P': tf(eP), 'T': eT, 'UV': eUV, 'G': eG, 'log': e.log}
+    anchors = {k: (tf(p), np.asarray(d, float) / np.linalg.norm(d)) for k, (p, d) in anchors.items()}
+    body = cut_body(sub, [(name, 'pocket', tf(V), F) for name, V, F in pockets])
     P, T, prm, tag = body_arrays(body)
-    return P, T, prm, tag, pP, pT, pUV, pG, parts.log, raw
+    return P, T, prm, tag, pP, pT, pUV, pG, parts.log, raw, lamps, anchors
 
 
 def build(out_dir, cid=CID):
     os.makedirs(out_dir, exist_ok=True)
-    P, T, prm, tag, pP, pT, pUV, pG, plog, raw = build_geometry()
+    P, T, prm, tag, pP, pT, pUV, pG, plog, raw, lamps, anchors = build_geometry()
     n_body = len(T)
     # normals: the body, then each part on its own
     nb = smooth_normals(P, T)
-    npart = np.zeros((len(pT), 3, 3))
-    for g in np.unique(pG):
-        m = pG == g
-        vids = np.unique(pT[m])
-        remap = -np.ones(len(pP), np.int64)
-        remap[vids] = np.arange(len(vids))
-        npart[m] = smooth_normals(pP[vids], remap[pT[m]])
+    npart = part_normals(pP, pT, pG)
     proj = skin_projection(P, T)
     place, dens = atlas_layout(P, T, proj, tag)
     uvb = skin_uvs(P, T, proj, tag, place, dens)
@@ -1384,7 +1593,8 @@ def build(out_dir, cid=CID):
               'script_sha256': sha256_file(os.path.abspath(__file__)),
               'blender': bpy.app.version_string,
               'method': 'control cage (RINGS) -> Catmull-Clark x2 with creases -> exact booleans (tubs, side '
-                        'intakes, exhaust pockets) -> closed parts -> own UVs and procedural texture -> own GLB',
+                        'intakes, exhaust pockets, lamp pockets) -> closed parts -> own UVs and procedural texture -> '
+                        'own GLB; the lit lamp surfaces are three separate untextured GLBs',
               'cage': {'rings': len(RINGS), 'points_per_half_section': NCOL, 'subdivision_levels': 2},
               'raw_bbox_before_centring': raw,
               'bbox': {'min': [round(float(v), 5) for v in lo], 'max': [round(float(v), 5) for v in hi],
@@ -1415,9 +1625,78 @@ def build(out_dir, cid=CID):
             with open(os.path.join(out_dir, f'{cid}_emblem.png'), 'wb') as f:
                 f.write(png_bytes(crop))
     report['outputs'] = outputs
+    report['lamps'] = write_lamps(out_dir, cid, lamps, anchors, lo, hi)
     write_json(os.path.join(out_dir, f'{cid}_build.json'), report)
-    print(json.dumps({k: report[k] for k in ('raw_bbox_before_centring', 'bbox', 'tris', 'atlas')}, indent=1))
+    print(json.dumps({k: report[k] for k in ('raw_bbox_before_centring', 'bbox', 'tris', 'atlas', 'lamps')}, indent=1))
     return report
+
+
+def part_normals(P, T, G):
+    """Per-corner normals of closed parts, each part (group G) smoothed on its own."""
+    out = np.zeros((len(T), 3, 3))
+    for g in np.unique(G):
+        m = G == g
+        vids = np.unique(T[m])
+        remap = -np.ones(len(P), np.int64)
+        remap[vids] = np.arange(len(vids))
+        out[m] = smooth_normals(P[vids], remap[T[m]])
+    return out
+
+
+def srgb_linear(rgb):
+    c = np.asarray(rgb, float) / 255.0
+    return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+
+def _vec(v, nd=5):
+    return [round(float(x), nd) for x in v]
+
+
+def write_lamps(out_dir, cid, lamps, anchors, body_lo, body_hi):
+    """The lamp meshes as their own GLBs, each centred on its own bounding box (Roblox centres a MeshPart on it), and
+    <id>_lamps.json: per mesh the bbox centre in body space (BodyOffset), size, tris, sha256 and Roblox look; the lamp
+    anchors (position + direction, body space). Returns the summary for _build.json."""
+    out = {'id': cid, 'generator': GENERATOR,
+           'units': 'metres, body space: X right, Y up, front -Z, origin = centre of the body mesh bounding box '
+                    '(the frame of the wheel layout); every lamp GLB is centred on its own bounding box, "offset" '
+                    'is that centre in body space',
+           'game': 'RaceCarServer clones CarBodies.<id>.LampMesh_* (attribute BodyOffset = offset) and turns the '
+                   'anchors into Attachments LampAnchor_<name> on the Body; PattayaNightLights lights the meshes',
+           'meshes': {}, 'anchors': {}}
+    summary = {}
+    for kind in LAMP_KINDS:
+        L = lamps[kind]
+        P, T, UV, G = L['P'], L['T'], L['UV'], L['G']
+        vp, vn, vu, vi, kept = vertex_buffers(P, T, part_normals(P, T, G), UV)
+        lo, hi = vp.min(0), vp.max(0)
+        if np.any(lo < body_lo - 1e-6) or np.any(hi > body_hi + 1e-6):
+            raise RuntimeError(f'lamp mesh {kind} reaches outside the body bounding box')
+        o = (lo + hi) / 2
+        name = f'{cid}_lamp_{kind}'
+        path = os.path.join(out_dir, name + '.glb')
+        look = LAMP_LOOK[kind]
+        glb_write(path, name, vp - o, vn, vu, vi, None, name, base_rgb=srgb_linear(look['day'][1]))
+        rec = {'file': name + '.glb', 'roblox_name': look['roblox'], 'role': look['role'],
+               'offset': _vec(o, 6), 'size': _vec(hi - lo, 6), 'tris': int(len(vi)), 'vertices': int(len(vp)),
+               'parts': [d['name'] for d in L['log']], 'bytes': os.path.getsize(path), 'sha256': sha256_file(path),
+               'day': {'material': look['day'][0], 'rgb': list(look['day'][1])}}
+        out['meshes'][kind] = rec
+        summary[kind] = {k: rec[k] for k in ('file', 'offset', 'size', 'tris', 'sha256')}
+    for name in sorted(anchors):
+        p, d = anchors[name]
+        out['anchors'][name] = {'pos': _vec(p), 'dir': _vec(d)}
+    hl, hr = (np.array(out['anchors'][k]['pos']) for k in ('HeadL', 'HeadR'))
+    tilt = math.radians(8.0)
+    out['beam'] = {'pos': _vec((hl + hr) / 2), 'dir': _vec((0.0, -math.sin(tilt), -math.cos(tilt))),
+                   'note': 'one SpotLight between the head anchors, 8 degrees down (the game derives it)'}
+    out['attributes'] = {
+        'CarBodies.<id>': {'LampHeadL': out['anchors']['HeadL']['pos'], 'LampHeadR': out['anchors']['HeadR']['pos'],
+                           'LampTailL': out['anchors']['TailL']['pos'], 'LampTailR': out['anchors']['TailR']['pos'],
+                           'LampHeadDir': out['anchors']['HeadR']['dir'], 'LampTailDir': out['anchors']['TailR']['dir']},
+        'LampMesh_<kind>': {'BodyOffset': 'meshes.<kind>.offset'},
+        'note': 'directions are for the right lamp (+X); the left one mirrors X'}
+    write_json(os.path.join(out_dir, f'{cid}_lamps.json'), out)
+    return summary
 
 
 def wheels_json(out_dir, v2_dir, cid=CID):
@@ -1427,6 +1706,7 @@ def wheels_json(out_dir, v2_dir, cid=CID):
     out = {'size': rep['bbox']['size'], 'radius': lay['radius'], 'width': lay['width'], 'rim': lay['rim'],
            'wheels': lay['wheels'], 'per_wheel': lay['per_wheel'], 'wheel_meshes': lay['wheel_meshes'],
            'front': '-Z', 'units': 'metres, body space (centre of the body mesh bounding box)',
+           'lamps': f'{cid}_lamps.json',
            'own_v3': {'design': 'own body, modelled from scratch in tools/blender/car_own_v3.py',
                       'wheels': 'the v2 turbine wheels (red_sports_original_v2_wheel_*.glb), used as they are',
                       'paints': rep['outputs'], 'emblem': 'MP (Midnight Pattaya), own design (v2 decal)',
@@ -1461,7 +1741,96 @@ VIEWS = [
 ]
 
 
-def setup_scene(car_dir, body_glb, wheels_json_path, engine, res, aspect, steer=0.0):
+# The game's lamp colours (PattayaNightLights: preset head colour MidnightClear, DRL, tail / brake) and the emission
+# strengths that stand in for Roblox Neon + bloom in the renders
+NIGHT_RGB = {'head': (255, 241, 222), 'drl': (226, 236, 255), 'tail': (170, 14, 20)}
+NIGHT_GLOW = {'head': 9.0, 'drl': 7.0, 'tail': 5.0}
+DAY_NEON_GLOW = 2.2
+
+
+def lamps_json_for(car_dir, cid):
+    """<id>_lamps.json of a car (paint variants use their base id's file), or None (a body without lamp meshes)."""
+    for c in (cid, cid.rsplit('_', 1)[0]):
+        path = os.path.join(car_dir, f'{c}_lamps.json')
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def lamp_looks(lamp_obs, night, engine):
+    """Day: the Roblox day colour (Neon ones glow a little); night: emissive in the game's night colours."""
+    for kind, o, rec in lamp_obs:
+        rgb = NIGHT_RGB[kind] if night else rec['day']['rgb']
+        lin = tuple(float(c) for c in srgb_linear(rgb)) + (1.0,)
+        glow = NIGHT_GLOW[kind] if night else (DAY_NEON_GLOW if rec['day']['material'] == 'Neon' else 0.0)
+        for slot in o.material_slots:
+            m = slot.material
+            if m is None:
+                continue
+            m.diffuse_color = lin                     # Workbench
+            nt = getattr(m, 'node_tree', None)
+            p = nt.nodes.get('Principled BSDF') if nt else None
+            if p is None:
+                continue
+            p.inputs['Base Color'].default_value = lin
+            p.inputs['Roughness'].default_value = 0.3
+            if glow > 0 and engine != 'WORKBENCH':
+                p.inputs['Emission Color'].default_value = lin
+                p.inputs['Emission Strength'].default_value = glow
+
+
+def add_bloom(sc, threshold=0.9, strength=0.55, size=0.55):
+    """Compositor bloom (Roblox's night bloom on Neon); Blender 5.x node-group compositor. False if unavailable."""
+    try:
+        ng = bpy.data.node_groups.new('bloom', 'CompositorNodeTree')
+        ng.interface.new_socket('Image', in_out='OUTPUT', socket_type='NodeSocketColor')
+        rl = ng.nodes.new('CompositorNodeRLayers')
+        gl = ng.nodes.new('CompositorNodeGlare')
+        out = ng.nodes.new('NodeGroupOutput')
+        gl.inputs['Type'].default_value = 'Bloom'
+        gl.inputs['Threshold'].default_value = threshold
+        gl.inputs['Strength'].default_value = strength
+        gl.inputs['Size'].default_value = size
+        ng.links.new(rl.outputs['Image'], gl.inputs['Image'])
+        ng.links.new(gl.outputs['Image'], out.inputs[0])
+        sc.compositing_node_group = ng
+        sc.render.use_compositing = True
+        return True
+    except Exception as e:                      # pragma: no cover (older / newer compositor API)
+        print('bloom: compositor not available:', e)
+        return False
+
+
+def night_lights(sc, lamps_json_path):
+    """Night set: a warm street lamp up front-left, the beam (one spot between the headlamps, 8 degrees down, like the
+    game) and a faint red glow behind the tail."""
+    lj = json.load(open(lamps_json_path))
+    lamp = bpy.data.objects.new('street_lamp', bpy.data.lights.new('street_lamp', 'POINT'))
+    lamp.data.energy = 650.0
+    lamp.data.color = (1.0, 0.66, 0.38)
+    lamp.data.shadow_soft_size = 0.4
+    lamp.location = (-3.2, -1.5, 4.6)
+    sc.collection.objects.link(lamp)
+    b = lj['beam']
+    beam = bpy.data.objects.new('beam', bpy.data.lights.new('beam', 'SPOT'))
+    beam.data.energy = 900.0
+    beam.data.color = tuple(float(c) for c in srgb_linear(NIGHT_RGB['head']))
+    beam.data.spot_size = math.radians(65)
+    beam.data.spot_blend = 0.6
+    beam.data.shadow_soft_size = 0.05
+    beam.location = n2b(np.array(b['pos']) + np.array(b['dir']) * 0.08)
+    beam.rotation_euler = n2b(b['dir']).normalized().to_track_quat('-Z', 'Y').to_euler()
+    sc.collection.objects.link(beam)
+    tl, tr = (np.array(lj['anchors'][k]['pos']) for k in ('TailL', 'TailR'))
+    glow = bpy.data.objects.new('tail_glow', bpy.data.lights.new('tail_glow', 'POINT'))
+    glow.data.energy = 3.0
+    glow.data.color = (1.0, 0.05, 0.05)
+    glow.location = n2b((tl + tr) / 2 + np.array((0.0, -0.05, 0.45)))
+    sc.collection.objects.link(glow)
+
+
+def setup_scene(car_dir, body_glb, wheels_json_path, engine, res, aspect, steer=0.0, lamps_json_path=None,
+                night=False):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     lay = json.load(open(wheels_json_path))
     objs = [import_glb(os.path.join(car_dir, body_glb), 'body')]
@@ -1471,6 +1840,14 @@ def setup_scene(car_dir, body_glb, wheels_json_path, engine, res, aspect, steer=
         if k[0] == 'F' and steer:                 # front wheels turned about the vertical axis (Blender Z)
             w.rotation_euler = (0, 0, math.radians(steer))
         objs.append(w)
+    lamp_obs = []
+    if lamps_json_path:                         # the lamp meshes at their body-space offsets (centred GLBs)
+        lj = json.load(open(lamps_json_path))
+        for kind in LAMP_KINDS:
+            rec = lj['meshes'][kind]
+            o = import_glb(os.path.join(car_dir, rec['file']), 'lamp_' + kind)
+            o.location = n2b(rec['offset'])
+            lamp_obs.append((kind, o, rec))
     sc = bpy.context.scene
     sc.render.resolution_x = res
     sc.render.resolution_y = int(res * aspect)
@@ -1519,6 +1896,18 @@ def setup_scene(car_dir, body_glb, wheels_json_path, engine, res, aspect, steer=
                         p.inputs['Roughness'].default_value = 0.35 if o.name == 'body' else 0.6
                         if 'Specular IOR Level' in p.inputs:
                             p.inputs['Specular IOR Level'].default_value = 0.5
+        if night:                               # dark city sky, faint moon, darker asphalt, lamps + bloom
+            bg.inputs[0].default_value = (0.010, 0.013, 0.030, 1)
+            bg.inputs[1].default_value = 1.0
+            sun.data.energy = 0.05
+            sun.data.color = (0.62, 0.72, 1.0)
+            gm.node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = (0.10, 0.10, 0.11, 1)
+            gm.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 0.6
+            if lamps_json_path:
+                night_lights(sc, lamps_json_path)
+            add_bloom(sc)
+    lamp_looks(lamp_obs, night, engine)
+    objs += [o for _, o, _ in lamp_obs]
     cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam'))
     sc.collection.objects.link(cam)
     sc.camera = cam
@@ -1529,11 +1918,13 @@ def setup_scene(car_dir, body_glb, wheels_json_path, engine, res, aspect, steer=
 
 
 def render_views(car_dir, cid, out_dir, tag, views=None, engine='WORKBENCH', res=900, aspect=0.62,
-                 wheels_json_path=None, steer=0.0):
+                 wheels_json_path=None, steer=0.0, lamps='auto', night=False):
+    """lamps: 'auto' = the car's <id>_lamps.json if there is one, 'none', or a path; night: the night set."""
     from mathutils import Matrix
     os.makedirs(out_dir, exist_ok=True)
     wj = wheels_json_path or os.path.join(car_dir, f'{cid}_wheels.json')
-    sc, cam, lo, hi = setup_scene(car_dir, f'{cid}.glb', wj, engine, res, aspect, steer)
+    lj = lamps_json_for(car_dir, cid) if lamps == 'auto' else (None if lamps in (None, 'none') else lamps)
+    sc, cam, lo, hi = setup_scene(car_dir, f'{cid}.glb', wj, engine, res, aspect, steer, lj, night)
     centre, size = (lo + hi) / 2, (hi - lo).length
     for v in views or VIEWS:
         if v.get('chase'):
@@ -1574,10 +1965,12 @@ def render_views(car_dir, cid, out_dir, tag, views=None, engine='WORKBENCH', res
 
 
 def fbx(car_dir, cid=CID):
-    """One FBX per body GLB (the wheels are v2's and already have FBX files): -Z forward, Y up, origin kept."""
+    """One FBX per body GLB and per lamp mesh GLB (the wheels are v2's and already have FBX files): -Z forward, Y up,
+    origin kept (each lamp FBX stays centred on its own bounding box, like its GLB)."""
     report = {}
-    for suffix in PAINTS:
-        f = f'{cid}{suffix}.glb'
+    lj = lamps_json_for(car_dir, cid)
+    lamp_files = [json.load(open(lj))['meshes'][k]['file'] for k in LAMP_KINDS] if lj else []
+    for f in [f'{cid}{suffix}.glb' for suffix in PAINTS] + lamp_files:
         bpy.ops.wm.read_factory_settings(use_empty=True)
         bpy.ops.import_scene.gltf(filepath=os.path.join(car_dir, f))
         obs = [o for o in bpy.data.objects if o.type == 'MESH']
@@ -1624,12 +2017,13 @@ def main(argv):
         views = VIEWS + [{'name': 'chase', 'chase': True}] + [
             {'name': n, 'target': t, 'dir': d, 'dist': s} for n, t, d, s in PREVIEW_CLOSEUPS]
         render_views(argv[1], CID, argv[1], 'pv', views, opt('--engine', 'WORKBENCH').upper(),
-                     int(opt('--res', 700)))
+                     int(opt('--res', 700)), night='--night' in argv)
     elif cmd == 'render':   # <car_dir> <id> <out_dir> <tag> [--views json] [--engine e] [--wheels json] [--steer deg]
+        #                       [--lamps auto|none|<json>] [--night]
         views = json.load(open(opt('--views'))) if opt('--views') else VIEWS
         render_views(argv[1], argv[2], argv[3], argv[4], views, opt('--engine', 'WORKBENCH').upper(),
                      int(opt('--res', 900)), float(opt('--aspect', 0.62)), opt('--wheels'),
-                     float(opt('--steer', 0.0)))
+                     float(opt('--steer', 0.0)), opt('--lamps', 'auto'), '--night' in argv)
     elif cmd == 'fbx':
         fbx(argv[1])
     else:

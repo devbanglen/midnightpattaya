@@ -1,0 +1,209 @@
+{
+ "id": "red_sports_own_v3",
+ "generator": "MIDNIGHT PATTAYA tools/blender/car_own_v3.py",
+ "units": "metres, body space: X right, Y up, front -Z, origin = centre of the body mesh bounding box (the frame of the wheel layout); every lamp GLB is centred on its own bounding box, \"offset\" is that centre in body space",
+ "game": "RaceCarServer clones CarBodies.<id>.LampMesh_* (attribute BodyOffset = offset) and turns the anchors into Attachments LampAnchor_<name> on the Body; PattayaNightLights lights the meshes",
+ "meshes": {
+  "head": {
+   "file": "red_sports_own_v3_lamp_head.glb",
+   "roblox_name": "LampMesh_Head",
+   "role": "projector lenses and LED modules: lit at night",
+   "offset": [
+    0.0,
+    -0.227917,
+    -2.151337
+   ],
+   "size": [
+    1.397498,
+    0.0481,
+    0.037286
+   ],
+   "tris": 408,
+   "vertices": 440,
+   "parts": [
+    "lens_R0",
+    "lens_R1",
+    "led_module_R",
+    "lens_L0",
+    "lens_L1",
+    "led_module_L"
+   ],
+   "bytes": 20220,
+   "sha256": "43c948dcf2af0775e5d0944d475383fc21ed41e7c3965334aa0749ea63c9328c",
+   "day": {
+    "material": "SmoothPlastic",
+    "rgb": [
+     214,
+     220,
+     230
+    ]
+   }
+  },
+  "drl": {
+   "file": "red_sports_own_v3_lamp_drl.glb",
+   "roblox_name": "LampMesh_DRL",
+   "role": "DRL light guides and fangs: daytime running lights (Neon by day), lit at night",
+   "offset": [
+    0.0,
+    -0.25322,
+    -2.135295
+   ],
+   "size": [
+    1.626119,
+    0.152539,
+    0.071368
+   ],
+   "tris": 272,
+   "vertices": 320,
+   "parts": [
+    "light_guide_R",
+    "fang_R",
+    "light_guide_L",
+    "fang_L"
+   ],
+   "bytes": 14736,
+   "sha256": "ab1d17b288e467ae48ebf6fcefe5ee6a38ce94d39df66623a220c519e04d9793",
+   "day": {
+    "material": "Neon",
+    "rgb": [
+     196,
+     210,
+     228
+    ]
+   }
+  },
+  "tail": {
+   "file": "red_sports_own_v3_lamp_tail.glb",
+   "roblox_name": "LampMesh_Tail",
+   "role": "tail light bar and end lamps: dim red at night, bright while braking",
+   "offset": [
+    0.0,
+    0.1025,
+    2.246474
+   ],
+   "size": [
+    1.922,
+    0.167,
+    0.0075
+   ],
+   "tris": 212,
+   "vertices": 224,
+   "parts": [
+    "tail_light_bar",
+    "tail_lamp_R",
+    "tail_lamp_L"
+   ],
+   "bytes": 10952,
+   "sha256": "b6618714494ffd281ccaccfae0db76254db30b4373d20e438168968e25d5a8e9",
+   "day": {
+    "material": "SmoothPlastic",
+    "rgb": [
+     128,
+     12,
+     20
+    ]
+   }
+  }
+ },
+ "anchors": {
+  "HeadL": {
+   "pos": [
+    -0.46596,
+    -0.21699,
+    -2.20384
+   ],
+   "dir": [
+    -0.13917,
+    0.0,
+    -0.99027
+   ]
+  },
+  "HeadR": {
+   "pos": [
+    0.46596,
+    -0.21699,
+    -2.20384
+   ],
+   "dir": [
+    0.13917,
+    0.0,
+    -0.99027
+   ]
+  },
+  "TailL": {
+   "pos": [
+    -0.90016,
+    0.09516,
+    2.29022
+   ],
+   "dir": [
+    -0.13917,
+    0.0,
+    0.99027
+   ]
+  },
+  "TailR": {
+   "pos": [
+    0.90016,
+    0.09516,
+    2.29022
+   ],
+   "dir": [
+    0.13917,
+    0.0,
+    0.99027
+   ]
+  }
+ },
+ "beam": {
+  "pos": [
+   0.0,
+   -0.21699,
+   -2.20384
+  ],
+  "dir": [
+   0.0,
+   -0.13917,
+   -0.99027
+  ],
+  "note": "one SpotLight between the head anchors, 8 degrees down (the game derives it)"
+ },
+ "attributes": {
+  "CarBodies.<id>": {
+   "LampHeadL": [
+    -0.46596,
+    -0.21699,
+    -2.20384
+   ],
+   "LampHeadR": [
+    0.46596,
+    -0.21699,
+    -2.20384
+   ],
+   "LampTailL": [
+    -0.90016,
+    0.09516,
+    2.29022
+   ],
+   "LampTailR": [
+    0.90016,
+    0.09516,
+    2.29022
+   ],
+   "LampHeadDir": [
+    0.13917,
+    0.0,
+    -0.99027
+   ],
+   "LampTailDir": [
+    0.13917,
+    0.0,
+    0.99027
+   ]
+  },
+  "LampMesh_<kind>": {
+   "BodyOffset": "meshes.<kind>.offset"
+  },
+  "note": "directions are for the right lamp (+X); the left one mirrors X"
+ }
+}

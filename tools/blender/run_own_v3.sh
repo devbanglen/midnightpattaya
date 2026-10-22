@@ -2,8 +2,11 @@
 # Own body v3 on the GPU box (Blender through the shared slot manager gslot.sh, one job per call), results fetched.
 #   bash tools/blender/run_own_v3.sh build  <local_out_dir>
 #   bash tools/blender/run_own_v3.sh render <local_car_dir> <id> <local_out_dir> <tag> [views.json] [engine] [res] [steer]
+#        [night]
 # engine workbench | eevee (GPU slot) | cycles (Cycles on the CPU, gslot --cpu: no VRAM needed, for a busy GPU).
 # A paint variant without its own wheels json (<base>_red, <base>_white) renders with <base>_wheels.json.
+# A car with lamp meshes (<id>_lamps.json or <base>_lamps.json next to it) renders with them; "night" = the night set
+# (dark sky, street lamp, beam, lamp meshes emissive, bloom).
 # Writes only under /root/robloxrace/car_v3 (own job folder, removed at the end, also after an error). Sends only the
 # generator script, the views file and the GLB / json inputs it needs (no .env, no keys, no personal data).
 set -euo pipefail
@@ -36,11 +39,23 @@ else
   done
   VARG=""
   if [ -n "$VIEWS" ]; then scp -q "$VIEWS" $HOST:$RD/views.json; VARG="--views views.json"; fi
+  LJ="$CAR/${ID}_lamps.json"
+  [ -f "$LJ" ] || LJ="$CAR/${ID%_*}_lamps.json"
+  LARG="--lamps none"
+  if [ -f "$LJ" ]; then
+    scp -q "$LJ" $HOST:$RD/in/
+    for f in $(grep -o '"[^"]*_lamp_[a-z]*\.glb"' "$LJ" | tr -d '"' | sort -u); do
+      scp -q "$CAR/$f" $HOST:$RD/in/
+    done
+    LARG="--lamps in/$(basename "$LJ")"
+  fi
+  NARG=""
+  if [ "${9:-}" = night ]; then NARG="--night"; fi
   SLOT=""
   if [ "$ENGINE" = cycles ]; then SLOT="--cpu"; fi
   ssh $HOST "cd $RD && bash /root/kit/fleet/gslot.sh $SLOT -- $BL -b --factory-startup --python-exit-code 1 \
     -P car_own_v3.py -- render in $ID out $TAG $VARG --engine $ENGINE --res $RES --steer $STEER \
-    --wheels in/$(basename "$WJ") > out/render.log 2>&1; echo exit \$?; grep -c wrote out/render.log; \
+    --wheels in/$(basename "$WJ") $LARG $NARG > out/render.log 2>&1; echo exit \$?; grep -c wrote out/render.log; \
     tail -2 out/render.log"
   scp -q $HOST:"$RD/out/*.png" "$OUT/"
 fi
