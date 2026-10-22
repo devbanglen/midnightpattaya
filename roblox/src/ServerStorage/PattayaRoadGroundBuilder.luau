@@ -945,8 +945,20 @@ local function cityBuild(id: string, opts: any?): string
 			end
 		end
 	end
-	local med, lo, hi, n = cityMeasure(man)
-	local inWindow = n > 0 and med >= man.window[1] and med <= man.window[2] and hi - lo <= 2 * man.calibrate.flat
+	-- the terrain's collision catches up with WriteVoxels over the next frames, so raycasts made at once can still see the
+	-- old surface (Studio 2026-10-22, b001: 0 voxels wrong, median 0.906, one probe at -2.000): measure again, once per
+	-- frame, for up to 120 frames before calling it out of the window
+	local function measureNow(): (boolean, number, number, number, number)
+		local m, l, h, k = cityMeasure(man)
+		return k > 0 and m >= man.window[1] and m <= man.window[2] and h - l <= 2 * man.calibrate.flat, m, l, h, k
+	end
+	local inWindow, med, lo, hi, n = measureNow()
+	local frames = 0
+	while wrong == 0 and not inWindow and frames < 120 do
+		task.wait()
+		frames += 1
+		inWindow, med, lo, hi, n = measureNow()
+	end
 	if wrong > 0 or not inWindow then
 		terrain:PasteRegion(region, Vector3int16.new(vmin.X, vmin.Y, vmin.Z), true)
 		local exact = checksum(vmin, vmax) == entry:GetAttribute("ChecksumBefore")
