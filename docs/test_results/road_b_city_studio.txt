@@ -70,3 +70,69 @@ also 0 off-road probes.
   16 LightPoles (15 on the new sidewalks, 1 on an island, 0 on the road); utility poles are in a Poles folder.
 - Not done yet: the full drive sets (185 + 459), the GPS route / traffic / Street Challenge check (step 14),
   captures and frame times (need Studio focused).
+
+
+Road B city rollout, batches b002 + b004, real Studio results (leader, 2026-10-23 ~09:15-10:45 UTC+7)
+==================================================================================================
+Owner: "อนุญาตติดตั้งและสร้างถนน b002 และ b004 ลง place ได้เลย" (same message: the v3 lamps upload + install, push).
+Backup before any change: Documents\SaveNew-V6.rbxl (09:06), checked with rbxl_grep (Rollback_roadcity_b001/b003/rgfix,
+manifest_b001_original, RoadVisCity with b001 + b003 built). A first install try after the owner's "ทำต่อเลย" alone was
+refused by the Claude Code safety check: nothing ran. NOT saved after the builds: the owner saves a new dated .rbxl.
+
+Install (leader bundles, drift check + absence check + rollback folder; HttpEnabled back to false each time)
+- rc_b002: PattayaDataRoadGroundNoRaise (identical text) + 9 modules; ServerStorage.Rollback_roadcity_b002_20261023
+- rc_b004: PattayaDataRoadGroundNoRaise (identical text) + 8 modules; ServerStorage.Rollback_roadcity_b004_20261023
+- rc_rvfix: PattayaRoadVisBuilder 294b0a4 (58,103) -> 00fa379 (58,910), the match fix below;
+  ServerStorage.Rollback_roadcity_rvfix_20261023
+
+b002 (Edit, after b001 + b003)
+- RV.Plan: ORDER OK; MATCHES, selected 571 (required 570, optional 1 of 2).
+- RV.Build 872 parts (data 872); MoveReplaced 571 (Apron 22, Centre 12, Dash 42, Joint 10, Junction 5, RV Centre 2,
+  RV Road 27, RV Sidewalk 1, Road 343, ZebraStripe 107) to ServerStorage.RoadVisCityBackup.b002.
+- RV.Probe b002: 13 legs, 763 samples; building overlaps 0; every offset's flat / kerb / ground count = offline;
+  in-box ground points 0; hairline seams 0.
+- RG.Plan READY (the pilot overlaps: merge). RG.Build: raised 24,794 columns to y 0.906 (100 probes 0.906 .. 0.906);
+  946 already as high; N + K = 25,740.
+- RG.Probe b002: road-to-ground 63 pairs, largest step 0.269 (offline 0.26), over 0.6: 0; 2-stud grid 90,000 rays,
+  floor steps >= 1.5: 0, largest 0.80 (offline 0.77), rays hitting nothing 0; box edges lowest -0.25, largest 1-stud
+  step 0.204.
+
+b004 (Edit, after b002)
+- RV.Plan first said DOES NOT MATCH: selected 764, unmatched 1, required key not found 1 (an Apron of
+  ApronChunks.Chunk_a9_-1 at (24839.3, -89.6)). Cause: three apron slivers there lie 0.2-0.4 studs apart, each within
+  the 0.3 tolerance of a neighbour's key; the matcher took the first key in range in the place's order and left the
+  last sliver without a key. The data was right. Fix 00fa379: pairs are taken nearest first (new luau test with the
+  three slivers in the place's order fails before the fix and passes after; run_all 333 PASS; offline_checks pass).
+- RV.Plan after rc_rvfix: ORDER OK; MATCHES, selected 764 (required 763, optional 1 of 1). b001, b003, b002 still read
+  "already in the backup (moved)".
+- RV.Build 870 parts (data 870); MoveReplaced 764 (Apron 60, Centre 8, Dash 21, Joint 5, Junction 7, Road 259,
+  ZebraStripe 53, frontier RV Road 351) to ServerStorage.RoadVisCityBackup.b004.
+- RV.Probe b004: 20 legs, 614 samples; building overlaps 0; every offset = offline; in-box ground points 13 (offline
+  13, all at z -550 .. -557: the open south edge toward b007); hairline seams 0.
+- RG.Plan READY (b001 and b003 overlap: merge). RG.Build: raised 24,929 columns to y 0.906 (0.906 .. 0.906); 811
+  already as high; N + K = 25,740.
+- RG.Probe b004: road-to-ground 92 pairs, largest step 0.094 (offline 0.1), over 0.6: 0; floor steps >= 1.5: 0,
+  largest 0.73 (offline 0.70); box edges lowest -0.25, largest 1-stud step 0.204.
+- After: b003 938 parts (data 1289: its 351 frontier pieces are in b004's backup); b001 1024 (as before); b002 872;
+  pilot 1760 (data 1822: 32 moved by b001, 30 by b002), total drops 0. Status "4 city batches built"; RG: pilot, b001,
+  b003, b002, b004 ("5 raised batches"). Edit after Play: CollisionModel nil, HttpEnabled false, no test objects left.
+
+Play: physics drives (minimum sets chosen as for b001: lane-0 spot runs at 70 and 100, off-road harness runs at 35;
+the same runner and pass line; RaceCar_gt_sedan; Heartbeat 58 Hz; traffic ghosted for every drive, test only)
+- b002: 58 drives, 58 PASS (spot 10 of 10, off-road 48 of 48).
+- b004: 62 drives, 52 PASS, 10 FAIL.
+  - spot runs 14: 14 PASS.
+  - off-road runs 48 (@35): 38 PASS; 10 FAIL (#17 #18 #21 #22 #24 #28 #39 #49 #58 #59; 4 stuck until the timeout, the
+    others tilted or flipped against the obstacle).
+- Cross-check (a car footprint 7.9 x 16, from 2.2 to 8 studs up, swept along each path against colliding parts that are
+  not Road B): b002 path clear 57 PASS / 0 FAIL, obstacle on the path 1 PASS / 0 FAIL;
+  b004 path clear 43 PASS / 0 FAIL, obstacle on the path 9 PASS / 10 FAIL. The 10 failing paths cross two commercial
+  buildings at (24950, -350) and (25030, -340) and two NameSignPosts at (24923, -345) and (24923, -335) (#17 #18 #21 #22
+  #24 #28), a shophouse at (24939, -212) (#39), UtilityPoles at (25012, -255) (#49 #58) and (24930, -282) (#59).
+  Surface along every failing path: ground 0.91 to sidewalk 1.60; the only step over 0.1 is the 0.69 kerb face from
+  the new sidewalk down to the raised ground (by design).
+- Reading: again no drive failed on the road or the ground; every failure is an off-road test path driving into a
+  building or a pole. Clear paths over b001-b004: 209, of which 208 PASS and 1 traffic crash (b001) that passed on the
+  rerun with traffic ghosted.
+- Not done yet: the full drive sets, the GPS route / traffic / Street Challenge check (step 13), captures and frame
+  times (need Studio focused).

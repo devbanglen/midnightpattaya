@@ -18,3 +18,28 @@ Play (TestKit server):
     min up 0.99, top speed 100
   wheel spin at 49.8 studs/s straight: all four wheel meshes roll forward at 34.6 rad/s (effective radius 1.44 studs)
 NOT checked yet: screenshots of each side (Studio was not focused), full-lock steering look, mobile performance.
+
+
+v3 lamps in Studio (owner: "อนุญาตอัปโหลดไฟ v3 ทั้ง 4 ไฟล์และติดตั้งลง place"), 2026-10-23
+Backup before: Documents\SaveNew-V6.rbxl (09:06).
+Open Cloud upload (Model assets, creator = the owner's account; ids also in build/cars3d/upload_ids_own_v3_lamps.json),
+sha1 of each file checked against team23's report first:
+  body red_sports_own_v3.glb (lamp pockets)   82144298997799   (d51f6e27)
+  red_sports_own_v3_lamp_head                76631357165079   (425d07a2)
+  red_sports_own_v3_lamp_drl                 123899305498744  (c85cb2eb)
+  red_sports_own_v3_lamp_tail                114615187724680  (322430ef)
+  wheels unchanged (the v2 wheel meshes, cloned from the installed v3)
+InsertService:LoadAsset: 1 MeshPart each; body 2.21 x 1.22 x 4.50 (as before), lamps at their spec sizes.
+CarBodies.red_sports_own_v3 rebuilt with the car_import_wheels snippet (Body, WheelMesh_FL/FR/RL/RR, LampMesh_Head /
+DRL / Tail with BodyOffset, lamp anchor attributes), TestVehicleOnly = true, AssetIds updated; still not in CarSpecs or
+the garage. The old folder is kept whole in ServerStorage.Rollback_carlamps_body_20261023.
+Code: RaceCarServer and PattayaNightLights af31641 -> 85f0fdd (drift check; rollback ServerStorage.Rollback_carlamps_20261023).
+Play (S.spawnCar(player, "red_sports_own_v3"), clock locked at 21):
+  chassis attachments: Mount_FL, Mount_FR, Mount_RL, Mount_RR only; LampAnchor_HeadL / HeadR / TailL / TailR on the Body
+  lamp clones scaled x3.55 with the body, welded, massless, CanCollide / CanQuery / CanTouch false, no shadow
+  client at night: LampMesh_Head Neon warm white, LampMesh_DRL Neon cool white, LampMesh_Tail Neon red
+  glare: one small BillboardGui per lamp exactly at its anchor (head 1.15 x 0.70, tail 0.80 x 0.90 studs; 3 layered
+    frames 0.90 / 0.70 / 0.14 transparent); no 1.3-stud disc
+  brake (S held, ThrottleFloat -1): tail colour (0.67, 0.05, 0.08) -> (1.00, 0.14, 0.16), tail glare 0.80 x 0.90 ->
+    1.16 x 1.31
+NOT checked: a picture (Studio was not focused: the 3D view captured white); other cars at night were not looked at.
