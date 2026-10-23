@@ -8,18 +8,21 @@ Writes build/roadcity/<id>/:
   ../noraise/PattayaDataRoadGroundNoRaise.luau   (ServerStorage.PattayaDataRoadGroundNoRaise, all batches)
   qa.json               the offline QA: today | Road B | Road B + ground (lane holes, drops, steps, spot and off-road
                         runs, the seam with the pilot, poles on islands)
-  drives.json           the spot and off-road runs as TestKit packed paths (TK.drivePath(packed, {physics = true}))
+  drives.json           the spot and off-road runs as TestKit packed paths (TK.drivePath(packed, {physics = true}));
+                        a run whose car body meets a building or a colliding pole / post stays with studio = false
   fixture.json          the replaced old parts' footprints and nearby decoys (the Luau builder test)
   top_*.png, steps_*.png    offline previews; scene_*.json for tools/roadvis/blender_preview.py
 """
 import json
+import math
 import os
 import time
 
 import numpy as np
 import shapely
-from shapely.geometry import Point, Polygon, box
+from shapely.geometry import MultiPoint, Point, Polygon, box
 from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from tools.roadvis import city, city_cli, city_export, city_ground, city_qa, ground, ground_audit, junction, shoulder_proof, world
 
@@ -131,6 +134,186 @@ def _local_width(g, p):
             e = [np.hypot(*(c[i + 1] - c[i])) for i in range(2)]
             return min(e)
     return 0.0
+
+
+CAR_FOOT = (7.9, 16.0)           # the car body (wide x long) the leader swept along the Studio drive paths ...
+CAR_BAND = (2.2, 8.0)            # ... from 2.2 to 8 studs up: a Part lower down (a pad, a kerb) is a step, not a wall
+# the colliding Parts of the street furniture and props as the builders place them (roblox/src/ServerStorage; arms,
+# boards, lamps, canopies, roofs and wires do not collide): per data row key its stride (0 = one table per row), its
+# frame ('look' = CFrame.lookAt along the row's direction row[2], row[3]; 'back' = against it; 'axis' = not turned) and
+# per Part: name, width (along the frame's right), depth (along its back), offset right, offset back, bottom y, top y
+PARTS = {
+    # PattayaBuilder buildProps / buildRoadSigns / buildDress (city chunk modules; the dressing is the corridor's)
+    'lights': (4, 'look', (('LightPole', 0.7, 0.7, 0, 0, 1.0, 21.0),)),
+    'trees': (3, 'axis', (('TreeTrunk', 1.4, 1.4, 0, 0, -2.0, 7.0),)),            # top 7 + 1.5 per variant
+    'roadSigns': (0, 'back', (('SignPost', 0.8, 0.8, 0, 0, 0.0, 16.0),)),
+    'poles': (5, 'look', (('UtilityPole', 0.9, 0.9, 0, 0, -2.0, 24.0),)),          # the furniture's poles too
+    # PattayaFurnitureBuilder
+    'signals': (8, 'axis', (('SignalPole', 0.8, 0.8, 0, 0, -2.0, 16.0),)),
+    'nameSigns': (0, 'axis', (('NameSignPost', 0.6, 0.6, 0, 0, -2.0, 7.4),)),
+    'shelters': (0, 'look', (('ShelterPad', 12, 5, 0, 0, -2.0, 1.6), ('ShelterWall', 12, 0.3, 0, 2.2, 1.8, 8.2),
+                             ('ShelterPost', 0.4, 0.4, -5.5, -2.0, 1.6, 9.2), ('ShelterPost', 0.4, 0.4, 5.5, -2.0, 1.6, 9.2),
+                             ('ShelterBench', 9, 1.4, 0, 1.2, 2.95, 3.45), ('BusSignPole', 0.4, 0.4, 7, -2.1, -2.0, 8.0))),
+    'taxis': (5, 'look', (('TaxiPost', 0.4, 0.4, -2.7, 0, -2.0, 6.0), ('TaxiPost', 0.4, 0.4, 2.7, 0, -2.0, 6.0))),
+    # PattayaCoastBuilder
+    'lamps': (4, 'look', (('PromenadeLampBase', 1.3, 1.3, 0, 0, -2.0, -1.0), ('PromenadePole', 0.5, 0.5, 0, 0, -2.0, 12.0))),
+    'towers': (4, 'look', (('TowerLeg', 0.5, 4.6, -2.4, 0, -2.5, 6.0), ('TowerLeg', 0.5, 4.6, 2.4, 0, -2.5, 6.0))),
+    'huts': (5, 'look', (('HutFloor', 12, 8, 0, 0, -2.0, -1.4), ('HutBar', 12, 1.4, 0, -3.2, -1.4, 2.1),
+                         ('HutBack', 12, 0.6, 0, 3.7, -1.4, 6.0))),
+}
+ROUND = ('TreeTrunk', 'PromenadePole')                  # cylinders: width = diameter
+_UNIT = np.array([[a, b, c] for a in (-0.5, 0.5) for b in (-0.5, 0.5) for c in (-0.5, 0.5)])
+
+
+def _foot(x, z, look, w, d, ox=0.0, oz=0.0, disc=False):
+    """the footprint (map-local) of a Part w wide along its frame's right axis and d deep along its back axis, at offset
+    (ox, oz) in a frame at (x, z) whose LookVector is `look` (None: not turned); Roblox: right = (-look z, look x),
+    back = -look"""
+    lx, lz = look if look is not None and math.hypot(*look) > 1e-9 else (0.0, -1.0)
+    n = math.hypot(lx, lz)
+    r, b = np.array([-lz, lx]) / n, np.array([-lx, -lz]) / n
+    c = np.array([x, z], float) + r * ox + b * oz
+    if disc:
+        return Point(c).buffer(w / 2, quad_segs=4)
+    return Polygon([c + r * (sr * w / 2) + b * (sb * d / 2) for sr, sb in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+
+
+def _yxz(rx, ry, rz):
+    """CFrame.fromEulerAnglesYXZ(rx, ry, rz) as a matrix: Ry Rx Rz"""
+    cx, sx, cy, sy, cz, sz = math.cos(rx), math.sin(rx), math.cos(ry), math.sin(ry), math.cos(rz), math.sin(rz)
+    return (np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]]) @ np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+            @ np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]))
+
+
+def colliders(broot):
+    """every colliding Part of the props, the corridor dressing, the street furniture, the beach props and the landmark
+    proxies that reaches into the car body's height (CAR_BAND), from the data modules the place is built from (the
+    files of ground_audit.city_objects and the landmark chunks): ([dict(kind, x, z, foot[, name])], {OSM building id:
+    palette}), map-local; foot = the Part's footprint; the palette is the building Part's name in the place (shophouse,
+    hotel, ...). Cached."""
+    if ('colliders', broot) in _OBJ:
+        return _OBJ[('colliders', broot)]
+    lo, hi = CAR_BAND
+    lua, lst = ground_audit._luau, ground_audit._lst
+    out, palette = [], {}
+
+    def add(kind, foot, y0, y1, **kw):
+        if y1 > lo and y0 < hi:
+            c = foot.centroid
+            out.append(dict(kind=kind, x=float(c.x), z=float(c.y), foot=foot, **kw))
+
+    def rows(t, key, stride):
+        v = lst(t, key)
+        return v if not stride else [v[i:i + stride] for i in range(0, len(v) - stride + 1, stride)]
+
+    def place(t, keys):
+        for key in keys:
+            stride, frame, parts = PARTS[key]
+            for r in rows(t, key, stride):
+                look = None if frame == 'axis' else (r[2], r[3]) if frame == 'look' else (-r[2], -r[3])
+                for name, w, d, ox, oz, y0, y1 in parts:
+                    add(name, _foot(r[0], r[1], look, w, d, ox, oz, name in ROUND), y0, y1)
+
+    for rel in ('central_pattaya/roblox', 'pattaya_wide/roblox', 'bira/roblox_corridor'):
+        d = os.path.join(broot, *rel.split('/'))
+        man = lua(os.path.join(d, 'manifest.luau'))
+        pal = lst(man, 'palettes')
+        place(dict(roadSigns=lst(man, 'signs')), ('roadSigns',))           # RoadSigns_<name>: buildRoadSigns as well
+        for g in lst(man, 'landmarks'):                                    # buildLandmarks gates: 2 pillars, the beam is high
+            if g.get('kind') == 'gate':
+                for s in (-1, 1):
+                    add('Pillar', _foot(g['x'], g['z'], (g['dx'], g['dz']), 3, 3, s * g['span'] / 2), -3.0, 31.0)
+        for f in sorted(os.listdir(d)):
+            if not (f.startswith('chunk_') and f.endswith('.luau')):
+                continue
+            t = lua(os.path.join(d, f))
+            for b in rows(t, 'buildings', 8):
+                palette[int(b[7])] = pal[int(b[6]) - 1]
+            place(t, ('lights', 'trees', 'roadSigns', 'poles'))
+            for x, z in rows(t, 'palms', 2):
+                # the trunk leans up to 5 degrees towards +-z (CFrame.Angles(lean, yaw, 0) at its foot, y 0): its section
+                # through the band
+                k = math.tan(math.radians((x + z) % 10 - 5))
+                add('PalmTrunk', MultiPoint([(x, z + lo * k), (x, z + hi * k)]).convex_hull.buffer(0.8, quad_segs=4), 0.0, 26.0)
+            for g in rows(t, 'gantries', 0):                               # 2 posts span / 2 either side (beam, boards high)
+                for s in (-1, 1):
+                    add('GantryPost', _foot(g[0], g[1], (-g[2], -g[3]), 1.4, 1.4, s * g[4] / 2), -2.0, 29.0)
+    for rel, keys in (('furniture/roblox', ('signals', 'nameSigns', 'shelters', 'taxis', 'poles')),
+                      ('coast/roblox', ('lamps', 'towers', 'huts'))):
+        d = os.path.join(broot, *rel.split('/'))
+        for f in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+            if f.startswith('chunk_') and f.endswith('.luau'):
+                place(lua(os.path.join(d, f)), keys)
+    d = os.path.join(broot, 'landmarks', 'roblox')
+    for f in sorted(os.listdir(d)) if os.path.isdir(d) else ():
+        if not (f.startswith('chunk_') and f.endswith('.luau')):
+            continue
+        for lm in lst(lua(os.path.join(d, f)), 'landmarks'):
+            # PattayaLandmarksBuilder rows: name, shape, size, position, rx, ry, rz (fromEulerAnglesYXZ), colour, material,
+            # flags (1 = collide), transparency; the footprint of the turned box
+            names, r = lst(lm, 'names'), lst(lm, 'parts')
+            for i in range(0, len(r) - 14, 15):
+                if int(r[i + 13]) & 1:
+                    Q = (_UNIT * np.asarray(r[i + 2:i + 5], float)) @ _yxz(*r[i + 8:i + 11]).T + np.asarray(r[i + 5:i + 8], float)
+                    add('Landmark', MultiPoint(Q[:, [0, 2]]).convex_hull, float(Q[:, 1].min()), float(Q[:, 1].max()),
+                        name=f"{lm['id']} {names[int(r[i]) - 1]}")
+    _OBJ[('colliders', broot)] = out, palette
+    return out, palette
+
+
+def drive_obstacles(CW, region):
+    """what a Studio drive can run into around `region`: every building box (the static model's walls, as in
+    city_qa.CityState) and every Part of colliders() whose footprint meets it: (items, STRtree of their footprints)"""
+    parts, palette = colliders(CW.broot)
+    items = [dict(kind='Building', x=float(b['poly'].centroid.x), z=float(b['poly'].centroid.y), foot=b['poly'],
+                  name=palette.get(b['id'], ''), osm=b['id']) for b in CW.buildings(region)]
+    near = shapely.intersects(region, np.array([p['foot'] for p in parts], dtype=object)) if parts else []
+    items += [parts[int(i)] for i in np.nonzero(near)[0]]
+    return items, STRtree([o['foot'] for o in items])
+
+
+def path_obstacles(packed, obs, foot=CAR_FOOT, step=1.0):
+    """what the car body meets driven along a Studio path (packed world "x,z;x,z;..."): the footprint `foot` (wide x
+    long, turned along the path) every `step` studs against `obs` (drive_obstacles); [dict(kind, world[, name, osm])]
+    in the order the car meets them, [] when the path is clear"""
+    items, tree = obs
+    P = np.array([[float(v) for v in q.split(',')] for q in packed.split(';') if q]) - (city.ORIGIN[0], 0.0)
+    C = world.rc.probes_of(P, step)
+    if np.hypot(*(C[-1] - P[-1])) > 1e-6:
+        C = np.vstack([C, P[-1]])
+    T = np.gradient(C, axis=0)
+    T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-9)
+    R = np.stack([-T[:, 1], T[:, 0]], axis=1)
+    hw, hl = foot[0] / 2, foot[1] / 2
+    car = shapely.polygons(np.stack([C + T * (a * hl) + R * (b * hw) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))], axis=1))
+    i, j = tree.query(car, predicate='intersects')
+    out, seen = [], set()
+    for _, k in sorted(zip(i.tolist(), j.tolist())):
+        if k in seen:
+            continue
+        seen.add(k)
+        o = items[k]
+        e = dict(kind=o['kind'], world=[round(o['x'] + city.ORIGIN[0], 1), round(o['z'], 1)],
+                 **{f: o[f] for f in ('name', 'osm') if f in o})
+        if e not in out:                       # a building exported by two datasets: one box
+            out.append(e)
+    return out
+
+
+def minimum_set(rows, harness=48):
+    """the minimum Studio set when time is short (minimum = true): every lane-0 spot run (70 and 100) and at most
+    `harness` of the off-road harness runs (35), spread evenly (all of them when there are `harness` or fewer, as in
+    b001); only runs with studio = true"""
+    nh = sum(1 for r in rows if r['set'] == 'offroad_harness' and r['studio'])
+    every = max(1, -(-nh // harness))
+    h = 0
+    for r in rows:
+        if r['set'] == 'offroad_harness' and r['studio']:
+            r['minimum'] = h % every == 0
+            h += 1
+        else:
+            r['minimum'] = bool(r['set'] == 'spot' and r['studio'] and r['lateral'] == 0)
+    return rows
 
 
 def fixture(CW, st_before, res, area):
@@ -291,32 +474,30 @@ def cmd_batch(bid, build_root=None, art=False, log=print, variant=city.DEFAULT_V
     qa['supports_dropped'] = res.get('dropped', {}).get('support', 0)          # option B (triangles, not parts)
     qa['secs'] = round(time.time() - t0, 1)
     rows_drives = []
+    obs = drive_obstacles(CW, region)
     sp = spot_paths(res, BX, built_area=R['built_area'].intersection(BX.buffer(160, join_style="mitre")))
     for r_ in run_rows(S_BG, sp, packed=True):
-        # Studio drives: every spot run the static model sees clear of buildings, at 70 studs/s; the lane-0 runs at 100 too
-        rows_drives.append(dict(set='spot', studio=r_['blocked'] == 0, speeds=[70, 100] if r_['lateral'] == 0 else [70],
-                                **{k: v for k, v in r_.items()}))
+        # Studio drives: every spot run the static model sees clear of buildings and with nothing in the car body's way,
+        # at 70 studs/s; the lane-0 runs at 100 too
+        o = path_obstacles(r_['packed'], obs)
+        rows_drives.append(dict(set='spot', studio=r_['blocked'] == 0 and not o, obstacles=o,
+                                speeds=[70, 100] if r_['lateral'] == 0 else [70], **{k: v for k, v in r_.items()}))
     ex = ground.offroad_runs(S_BG, city_qa.pseudo_pilot(res, BX), paths=True)
     for e in ex:
-        # off the road onto the raised ground and back: 35 (the leader's off-road loop) and 70 (ground -> road)
-        rows_drives.append(dict(set='offroad_' + e['set'], studio=True, speeds=[35, 70] if e['set'] == 'harness' else [35],
+        # off the road onto the raised ground and back: 35 (the leader's off-road loop) and 70 (ground -> road); not
+        # when the car body meets a building or a colliding pole on the way (every failed off-road drive of b001 - b004)
+        o = path_obstacles(e['packed'], obs)
+        rows_drives.append(dict(set='offroad_' + e['set'], studio=not o, obstacles=o,
+                                speeds=[35, 70] if e['set'] == 'harness' else [35],
                                 name=e['name'], dir=e['dir'], lateral=e['lateral'], deepest=e['world'],
                                 drops=e['drops'], climbs=e['climbs'], min_up=e['min_up'], packed=e['packed']))
-    # the minimum set when Studio time is short: every lane-0 spot run (70 and 100) and at most 48 of the off-road
-    # harness runs (35), spread evenly (all of them when there are 48 or fewer, as in b001)
-    nh = sum(1 for r_ in rows_drives if r_['set'] == 'offroad_harness')
-    every = max(1, -(-nh // 48))
-    h = 0
-    for r_ in rows_drives:
-        if r_['set'] == 'offroad_harness':
-            r_['minimum'] = h % every == 0
-            h += 1
-        else:
-            r_['minimum'] = bool(r_['set'] == 'spot' and r_['studio'] and r_['lateral'] == 0)
+    minimum_set(rows_drives)
     with open(os.path.join(out, 'drives.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(note='OFFLINE static model. Car centre paths (world x, z) for TK.drivePath(packed, {physics = true, '
                             'speed = s}) for every s in speeds of the runs with studio = true (minimum = true: the short set, '
-                            'off-road runs at 35 only); docs/ROAD_B_CITY_ROLLOUT.md',
+                            'off-road runs at 35 only). studio = false: a wheel in a building (spot runs) or obstacles, what '
+                            f'the car body ({CAR_FOOT[0]:g} x {CAR_FOOT[1]:g}, {CAR_BAND[0]:g} to {CAR_BAND[1]:g} studs up) '
+                            'meets on the path: buildings, colliding poles, posts, trunks; docs/ROAD_B_CITY_ROLLOUT.md',
                        batch=bid, runs=[dict(id=i + 1, **r_) for i, r_ in enumerate(rows_drives)]), f, indent=1)
     with open(os.path.join(out, 'fixture.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(batch=bid, box=b['box'], old=fixture(CW, st_before, res, BX)), f)

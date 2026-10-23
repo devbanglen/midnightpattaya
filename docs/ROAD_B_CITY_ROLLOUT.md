@@ -488,11 +488,16 @@ on a lane (the lane check above has 0 holes in the core).
 | 16 | Frame times with Studio focused (worst, p99, 1 % low) at (24520, 350) | as near the pilot |
 
 **Physics drives (step 13).** `build/roadcity/b001/drives.json` has 135 runs (car centre paths, world x, z).
-Drive the ones with `studio = true`: 56 spot runs (every carriageway at offsets 0, +-14, +-20, +-24 that is clear
-of buildings), 48 off-road runs that leave the road and come back, 24 deep off-road runs; 185 drives in all
+Drive the ones with `studio = true`: 47 spot runs (every carriageway at offsets 0, +-14, +-20, +-24 that is clear
+of buildings and poles), 42 off-road runs that leave the road and come back, 19 deep off-road runs; 159 drives in all
 (each speed in `speeds`). The minimum set if time is short is marked `minimum = true`: the 9 offset-0 spot runs
-at 70 and 100 and the 48 off-road runs at 35 (66 drives). Per drive: `TK.seatIn()`, `TK.jumpTo` the first point of
-`packed`, then
+at 70 and 100 and the 42 off-road runs at 35 (60 drives). A run whose path drives into something fixed is not a
+Studio drive: the generator sweeps the car body (7.9 x 16 studs, 2.2 to 8 studs up) along every path against the
+buildings and every colliding Part of the street furniture, props and landmarks (light, utility, signal and name-sign
+poles, tree and palm trunks, shelters, ...). Such a run stays in the file with `studio = false` and `obstacles`: what
+it meets (kind, world x, z; buildings with their Part name and OSM id), in the order the car meets it. Every failed
+off-road drive of b001 - b004 in Studio was such a path (`docs/test_results/road_b_city_studio.txt`). Per drive:
+`TK.seatIn()`, `TK.jumpTo` the first point of `packed`, then
 `TK.drivePath(packed, {physics = true, speed = s})`.
 - **Pass, every drive:** no flip; `h.stats.minUp` at least 0.71 (the ground pilot's line; the leader saw 1.00 at +0.9);
   no recovery prompt during the run.
@@ -566,8 +571,9 @@ Notes on the table:
 - The 7 clear spot runs with a hang straddle an open edge with the car centre up to 8 studs outside the box: 6 on Soi 40
   at offsets +-14..24 at the west edge (car centre world x 24212..24216, z 9..19, the outer wheels on the unraised
   ground west of the box) and 1 on Sukhumvit at offset +20 at the east edge (car centre x 24825). It is a static tilt
-  (static up at least 0.97, the pass line is 0.71). They stay Studio drives, to show the open edges in physics; they go
-  away when those neighbours are built.
+  (static up at least 0.97, the pass line is 0.71). Soi 40 at +-20 and the Sukhumvit run stay Studio drives, to show
+  the open edges in physics; Soi 40 at +-14 and +-24 run into a name-sign post or utility poles, so they are not. They
+  go away when those neighbours are built.
 - The 1 drop and 1 climb among all 105 runs are on runs through buildings (Soi 36 at offsets +20 and -24): a car cannot
   drive them, and they are not Studio drives.
 - The seam with b001 is clean: 0 lane holes in 622 samples, no step of 1.5 or more, the largest 0.7 (a kerb face). The
@@ -642,12 +648,14 @@ says so.
 | 14 | Captures with Studio focused: top down over (24520, -250); the seam at z = 50 from both sides (Soi 40 at x 24430..24505, Sukhumvit near x 24800) | compare with the previews above |
 | 15 | Frame times with Studio focused (worst, p99, 1 % low) at (24520, -250) | as at b001 |
 
-**Physics drives (step 12).** `build/roadcity/b003/drives.json` has 345 runs. Drive the 284 with `studio = true`:
-44 spot runs (clear of buildings), 160 off-road runs that leave the road and come back, 80 deep off-road runs; 459
-drives in all (each speed in `speeds`). The minimum set if time is short is marked `minimum = true`: the 15 offset-0
-spot runs at 70 and 100 and 40 of the off-road runs (every fourth) at 35; 70 drives. Per drive and pass lines as in
-section 5. The 7 spot runs with a hang at the open edges (notes above) should pass the up line; if one flips, note it
-with its run id: it is an open-edge case, not a b003 surface fault, but report it.
+**Physics drives (step 12).** `build/roadcity/b003/drives.json` has 345 runs. Drive the 134 with `studio = true`:
+35 spot runs (clear of buildings and poles), 67 off-road runs that leave the road and come back, 32 deep off-road runs;
+216 drives in all (each speed in `speeds`). The other 211 would drive into a building or a pole (the sois' shophouse
+fronts and utility poles stand close to the road; `obstacles` as in section 5). The minimum set if time is short is
+marked `minimum = true`: the 15 offset-0 spot runs at 70 and 100 and 34 of the clear off-road runs (every second) at
+35; 64 drives. Per drive and pass lines as in section 5. The 3 spot runs with a hang at the open edges that stay
+Studio drives (notes above) should pass the up line; if one flips, note it with its run id: it is an open-edge case,
+not a b003 surface fault, but report it.
 
 **Rollback (any time, in this order):**
 1. `print(RG.Remove("b003"))` -> `road ground b003: terrain restored EXACTLY (checksum ... = before the build); registry
@@ -681,7 +689,8 @@ before batch 1 only. The builders are installed once, with b001; later bundles c
    backup.
 3. **Several batches in one session** is fine, in plan order: install each bundle, then for each batch RV.Plan, Build,
    MoveReplaced, Probe, then RG.Plan, Build, Probe; then one set of drives over all of them (the `minimum` runs if time
-   is short). Undo in reverse order.
+   is short), only runs with `studio = true` (a run with `obstacles` would drive into a building or a pole, section 5).
+   Undo in reverse order.
 4. A batch's data folders can be deleted once the owner keeps it for good. Its backups (`RoadVisCityBackup.<id>`,
    `RoadGroundCity.<id>`) are what makes Remove possible: delete them only on the owner's word. After that, only version
    history can undo the batch.
