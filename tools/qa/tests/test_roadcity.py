@@ -627,6 +627,51 @@ class LuauRoadVisCity(unittest.TestCase):
         self.assertFalse([l for l in self.lines if l.startswith('WARN') and 'part-count mismatch' in l])
 
 
+# ---- the city match: slivers a few tenths apart, in the place's order --------------------------------------------------
+MATCH_TAIL = r'''
+local RV = BUILDER
+local W = workspace.PattayaWorld
+local function folder(parent, name) local f = I.new("Folder") f.Name = name f.Parent = parent return f end
+local apr = folder(folder(folder(W, "ApronChunks"), "Chunk_a9_-1"), "Aprons")
+-- three apron slivers of b004 (Studio, 2026-10-23) in the order the place lists them: the first two are each within the
+-- tolerance of two keys, and taking the first key in range left the third one without a key
+for _, q in {{24839.467, -89.418}, {24839.670, -89.612}, {24839.309, -89.560}} do
+	local p = I.new("Part") p.Name = "Road" p.Size = Vector3.new(0.4, 4, 0.4)
+	p.CFrame = CFrame.new(q[1], -1, q[2])
+	p:SetAttribute("Apron", true)
+	p.Parent = apr
+end
+print("PLAN", (string.gsub(RV.Plan("t001"), "\n", " | ")))
+'''
+
+
+class LuauRoadVisCityMatch(unittest.TestCase):
+    """matchCity pairs each part with its nearest key: keys closer together than the tolerance (b004's apron slivers at
+    (24839.3, -89.6)) match whatever order the place lists the parts in."""
+
+    def test_slivers_match_in_the_place_order(self):
+        import test_roadvis
+        import test_shoulders
+        src = _qa.src(os.path.join('ServerStorage', 'PattayaRoadVisBuilder.luau'))
+        man = ('return {batch = {id = "t001", seq = 1, group = "test", box = {24830, -100, 24850, -80}, overlapMin = 1, '
+               'builtBefore = {}}, modules = {}, cells = {}, counts = {parts = 0, own = 0, completion = 0, frontier = 0, '
+               'segs = 0}, replace = {keys = {7, 24839.31, -89.56, 7, 24839.47, -89.42, 7, 24839.67, -89.61}, '
+               'optionalKeys = {}, tolerance = 0.3, total = 3, optional = 0}}')
+        code, out = _qa.run_luau(''.join([
+            test_shoulders.STUB, test_roadvis.EXTRA_STUB,
+            'do local D = I.new("Folder") D.Name = "PattayaDataRoadVis_t001" D.Parent = ServerStorage\n',
+            f'moduleScript("manifest", function()\n{man}\nend).Parent = D\nend\n',
+            'local require = function(m) return m._load() end\n',
+            'local BUILDER = (function()\n' + src + '\nend)()\n',
+            MATCH_TAIL]))
+        self.assertEqual(code, 0, out[-3000:])
+        plan = [l for l in out.splitlines() if l.startswith('PLAN\t')]
+        self.assertTrue(plan, out[-2500:])
+        self.assertIn('MATCHES the data', plan[0])
+        self.assertIn('selected 3 (required keys 3, optional keys 0 of 0 matched); unmatched selected 0, '
+                      'required but not found 0', plan[0])
+
+
 # ---- the ground builder, city mode, with the voxel Terrain mock --------------------------------------------------------
 RG_TAIL = r'''
 local RG = BUILDER

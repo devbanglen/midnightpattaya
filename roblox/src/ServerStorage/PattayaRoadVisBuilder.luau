@@ -855,6 +855,9 @@ end
 -- every selected part must match a required or an optional key (code, world x / z within tolerance), one to one, and
 -- every required key must be matched. Optional keys: parts whose overlap with a box is within the data's tolerance of
 -- the threshold (or whose centre lies on a box edge), so Studio's float32 positions may decide either way.
+-- Pairs are taken nearest first (a required key before an optional one at the same distance): slivers a few tenths
+-- apart (b004's apron at (24839.3, -89.6)) are each within the tolerance of a neighbour's key, and taking the first key
+-- in range in the place's order left the last sliver without one.
 local function matchCity(man: any, sel: {{part: BasePart, code: number}}): (boolean, string)
 	local tol = man.replace.tolerance or 0.3
 	local function index(keys: {number}): {[string]: {number}}
@@ -868,39 +871,56 @@ local function matchCity(man: any, sel: {{part: BasePart, code: number}}): (bool
 	end
 	local req, opt = man.replace.keys, man.replace.optionalKeys or {}
 	local greq, gopt = index(req), index(opt)
-	local usedR, usedO = {}, {}
-	local unmatched = {}
-	local function find(keys: {number}, g: {[string]: {number}}, used: {[number]: boolean}, code: number, c: Vector2): number?
+	local cands: {{d: number, s: number, k: number, opt: boolean}} = {}
+	local function collect(keys: {number}, g: {[string]: {number}}, isOpt: boolean, si: number, code: number, c: Vector2)
 		for dx = -1, 1 do
 			for dz = -1, 1 do
 				local list = g[code .. ":" .. (math.floor(c.X / 4) + dx) .. ":" .. (math.floor(c.Y / 4) + dz)]
 				if list then
 					for _, i in list do
-						if not used[i] and math.abs(keys[i + 1] - c.X) <= tol and math.abs(keys[i + 2] - c.Y) <= tol then
-							return i
+						local ex, ez = keys[i + 1] - c.X, keys[i + 2] - c.Y
+						if math.abs(ex) <= tol and math.abs(ez) <= tol then
+							table.insert(cands, {d = ex * ex + ez * ez, s = si, k = i, opt = isOpt})
 						end
 					end
 				end
 			end
 		end
-		return nil
 	end
-	local nOpt = 0
-	for _, s in sel do
+	for si, s in sel do
 		local c = s.part.Position
 		local cc = Vector2.new(c.X, c.Z)
-		local i = find(req, greq, usedR, s.code, cc)
-		if i then
-			usedR[i] = true
-		else
-			local j = find(opt, gopt, usedO, s.code, cc)
-			if j then
-				usedO[j] = true
+		collect(req, greq, false, si, s.code, cc)
+		collect(opt, gopt, true, si, s.code, cc)
+	end
+	table.sort(cands, function(a, b)
+		if a.d ~= b.d then
+			return a.d < b.d
+		elseif a.opt ~= b.opt then
+			return not a.opt
+		elseif a.s ~= b.s then
+			return a.s < b.s
+		end
+		return a.k < b.k
+	end)
+	local done, usedR, usedO = {}, {}, {}
+	local nOpt = 0
+	for _, p in cands do
+		local used = if p.opt then usedO else usedR
+		if not done[p.s] and not used[p.k] then
+			used[p.k] = true
+			done[p.s] = true
+			if p.opt then
 				nOpt += 1
-			else
-				table.insert(unmatched, ("%s %s at (%.1f, %.1f)"):format(LABEL_OF_CODE[s.code] or CITY_LABEL[s.code] or tostring(s.code),
-					s.part:GetFullName(), cc.X, cc.Y))
 			end
+		end
+	end
+	local unmatched = {}
+	for si, s in sel do
+		if not done[si] then
+			local c = s.part.Position
+			table.insert(unmatched, ("%s %s at (%.1f, %.1f)"):format(LABEL_OF_CODE[s.code] or CITY_LABEL[s.code] or tostring(s.code),
+				s.part:GetFullName(), c.X, c.Z))
 		end
 	end
 	local missing = 0
