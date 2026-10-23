@@ -1005,5 +1005,20 @@ class BuilderSource(unittest.TestCase):
         self.assertNotIn('FillBlock', rg)
 
 
+class GroundProbeFields(unittest.TestCase):
+    """b018 has no road-to-ground edge pair: its manifest leaves the edge steps out instead of failing the export"""
+
+    def test_no_edge_pairs(self):
+        from tools.roadvis import city_ground
+        p = city_ground.probe_fields({'rays': 4}, [])
+        self.assertEqual(sorted(p), ['expected', 'grid'])
+        self.assertNotIn('edgeStep', city_ground.lua(p))
+
+    def test_edge_pairs(self):
+        from tools.roadvis import city_ground
+        p = city_ground.probe_fields({'rays': 4}, [(0, 0, 1, 1, 0.21), (0, 0, 1, 1, 0.1)])
+        self.assertEqual((p['edgeStepMin'], p['edgeStepMax']), (0.1, 0.21))
+
+
 if __name__ == '__main__':
     unittest.main()
