@@ -580,6 +580,12 @@ the four v2 wheels and filed `ServerStorage.CarBodies.red_sports_own_v3` as a te
 below (new body GLB + three lamp meshes, game code for them). The `upload` field in the json files still reads
 BLOCKED; that wording is the leader's call.
 
+Status 2026-10-23: with the owner's OK the leader uploaded the lamps body (82144298997799) and the three lamp
+meshes (head 76631357165079, DRL 123899305498744, tail 114615187724680), rebuilt the CarBodies entry (the old one
+kept in a rollback folder) and installed the lamp code; at night the lamps light up and the tail brightens when
+braking (`docs/test_results/car_own_v3_studio.txt`). The `upload` field stays as generated: changing it would change
+the generator script and with it the `script_sha256` the build json records.
+
 ### How it was made
 
 Sources: none. No Tripo, Meshy or other AI mesh, no texture from them, no photo or reference image, no downloaded
