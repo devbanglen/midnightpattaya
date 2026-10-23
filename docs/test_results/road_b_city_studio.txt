@@ -136,3 +136,15 @@ the same runner and pass line; RaceCar_gt_sedan; Heartbeat 58 Hz; traffic ghoste
   rerun with traffic ghosted.
 - Not done yet: the full drive sets, the GPS route / traffic / Street Challenge check (step 13), captures and frame
   times (need Studio focused).
+
+GPS and traffic over the built boxes (pilot, b001, b003, b002, b004), Edit, read only, 2026-10-23 ~10:20
+- GPS: PattayaRoute.routeTo (the call PattayaGPSServer makes, snap 700) from a point inside each built box to the two
+  GPS destinations (central 423748313, bira 1457068485): 10 routes, 35,185 samples every 4 studs, 2,176 of them inside
+  the built boxes. Under every one of the 2,176: Road B asphalt (RoadVisCity Road 1,413, RoadVisPilot Road 763); no
+  sidewalk, island, terrain or old part.
+- Traffic: every traffic lane line (PattayaRecovery.buildTrafficRoutes over ReplicatedStorage.PattayaTraffic, the
+  maths PattayaTraffic moves its cars on): 87 routes, 4 cross the built boxes, 2,975 samples every 2 studs. Under the
+  car centre: Road B asphalt at all 2,975. Under the car sides (+-3 studs): Road B asphalt 5,943, an island of the
+  pilot 2, raised ground 1 (b001 at (24726, 384), y 0.91 next to the road at 1.00), old road 4 (y 1.00, just outside the
+  pilot box at x 24220). No traffic car centre on a sidewalk or an island.
+- Not done: a Street Challenge across a seam (needs Play with the event running).
